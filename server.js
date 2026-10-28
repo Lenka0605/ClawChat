@@ -389,8 +389,8 @@ async function api(req, res, url) {
       });
     }
     if (sub === 'stop' && method === 'POST') {
-      const { agent } = await readBody(req);
-      hub.stop(room.id, AGENTS[agent] ? agent : undefined);
+      const { agent, only } = await readBody(req);
+      hub.stop(room.id, AGENTS[agent] ? agent : undefined, ['side', 'main'].includes(only) ? only : null);
       return send(res, 200, { ok: true });
     }
     if (sub === 'open-folder' && method === 'POST') {

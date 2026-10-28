@@ -1,6 +1,6 @@
 {
   "name": "clawchat",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "本地 AI 群聊：你、Claude（Claude Code）和 GPT（Codex）在一个群里一起干活",
   "type": "module",

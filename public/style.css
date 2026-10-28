@@ -734,3 +734,11 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;
 }
 .engine-warn::before { content: "⚠︎ "; }
+
+/* 分身：本体在群里忙时，先来回私聊的那一位 */
+.side-tag {
+  font-size: 10px; font-weight: 500; padding: 0 5px; border-radius: 4px; line-height: 15px;
+  color: #8e44ad; background: rgba(175, 82, 222, 0.14);
+}
+:root[data-theme="dark"] .side-tag { color: #d0a2ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .side-tag { color: #d0a2ff; } }

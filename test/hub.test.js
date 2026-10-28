@@ -82,7 +82,7 @@ function heldRunner() {
   const run = (agent, opts) => {
     let resolve;
     const done = new Promise((r) => (resolve = r));
-    const call = { agent, prompt: opts.prompt, finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }) };
+    const call = { agent, side: !!opts.side, session: opts.session, prompt: opts.prompt, finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }) };
     calls.push(call);
     return { done, kill: () => resolve({ ok: false, error: 'killed', steps: [], session: null }) };
   };
@@ -320,6 +320,48 @@ test('回复 GPT 的消息：只有 GPT 回答，而且知道是在回它哪句�
   await settle(hub);
   assert.deepEqual(calls.slice(mid).map((c) => c.agent), ['claude']);
   assert.match(calls.at(-1).prompt, /回复GPT的「gpt 收到」/);
+});
+
+test('本体在群里忙时私聊它：分身马上回；本体干完后看到分身聊了什么', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  // 先让 Claude 有一个会话
+  hub.postUserMessage(room.id, '@Claude 你好');
+  await tick();
+  calls[0].finish('你好老板');
+  await settle(hub);
+  // Claude 在群里干一件很久的活
+  hub.postUserMessage(room.id, '@Claude 去重构整个项目');
+  await tick();
+  const mainCall = calls.at(-1);
+  assert.equal(mainCall.side, false);
+  // 这时私聊它：不用等，分身马上开工，带着本体的会话（分叉）
+  hub.postUserMessage(room.id, '进度怎么样了？', [], 'claude');
+  await tick();
+  const sideCall = calls.at(-1);
+  assert.equal(sideCall.side, true);
+  assert.equal(sideCall.session, 'claude-s');
+  assert.match(sideCall.prompt, /你是本体的分身/);
+  assert.match(sideCall.prompt, /进度怎么样了/);
+  assert.equal(hub.runs.size, 1); // 本体还在干
+  sideCall.finish('在改第三个模块了，大概还要十分钟');
+  await tick();
+  const sideReply = store.getMessages(room.id).at(-1);
+  assert.equal(sideReply.side, true);
+  assert.equal(sideReply.dm, 'claude');
+  assert.equal(calls.length, 3); // 本体还没干完，不会多开回合
+  // 本体干完：接着看一眼分身替它聊了什么（私聊模式）
+  mainCall.finish('重构完了');
+  await tick();
+  const syncCall = calls.at(-1);
+  assert.equal(syncCall.side, false);
+  assert.match(syncCall.prompt, /你的分身（私聊老板）\] 在改第三个模块了/);
+  assert.match(syncCall.prompt, /老板（私聊你）\] 进度怎么样了/);
+  syncCall.finish('[PASS]');
+  await settle(hub);
+  assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.dm).length, 1); // 没有重复回私聊
 });
 
 test('单聊：没有 @ 规则，消息只发给这一位', async () => {

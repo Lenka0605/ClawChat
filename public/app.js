@@ -432,7 +432,7 @@ function convAvatar(c) {
 function convItemHtml(c, extra = {}) {
   const busy = S.runs
     .filter((x) => x.roomId === c.room.id && (c.dm ? x.dm && x.agent === c.dm : !x.dm))
-    .map((x) => agentName(x.agent))
+    .map((x) => `${agentName(x.agent)}${x.side ? ' 分身' : ''}`)
     .join('、');
   const last = c.last;
   const lastText = last ? (last.from === 'user' || c.dm || c.room.members.length === 1 ? '' : `${agentName(last.from)}：`) + last.text.replace(/\s+/g, ' ') : '';
@@ -579,7 +579,8 @@ function messageHtml(roomId, m, prev, conv) {
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="私聊 ${esc(agentLabel(m.from))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
   const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? `思考 ${EFFORT_LABEL[m.effort] || m.effort}` : ''].filter(Boolean).join(' · ');
   const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
-  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
+  const sideTag = m.side ? '<span class="side-tag" title="本体当时在群里忙，这条是分身先回的">分身</span>' : '';
+  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${replyBtn}</div></div>`;
 }
@@ -595,6 +596,10 @@ function renderMessages() {
   $('#messages').innerHTML = list.map((m, i) => messageHtml(conv.roomId, m, list[i - 1], conv)).join('');
 }
 
+function liveKey(r) {
+  return `${r.roomId}:${r.agent}${r.side ? ':side' : ''}`;
+}
+
 function convRuns(conv) {
   return S.runs.filter((r) => r.roomId === conv.roomId && (conv.dm ? r.dm && r.agent === conv.dm : !r.dm));
 }
@@ -604,7 +609,7 @@ function renderLive() {
   const runs = conv ? convRuns(conv) : [];
   $('#live').innerHTML = runs
     .map((r) => {
-      const key = `${r.roomId}:${r.agent}`;
+      const key = liveKey(r);
       const all = S.live.get(key) || [];
       const open = S.liveOpen.has(key);
       const shown = open ? all : all.slice(-3);
@@ -612,10 +617,11 @@ function renderLive() {
         ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? '收起' : '展开'}过程 · ${all.length} 步
             <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
         : '';
-      return `<div class="msg agent live">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}</div>
+      const sideTag = r.side ? '<span class="side-tag" title="本体在群里忙，分身先来回你的私聊（只能看，不能改）">分身</span>' : '';
+      return `<div class="msg agent live">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
-        <span>正在干活 · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
-        ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}">停止</button></div>
+        <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
+        ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
         ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
@@ -632,7 +638,10 @@ function renderStopControls(conv) {
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
   const one = runs.map(
-    (r) => `<button class="chip danger" data-stop="${esc(r.agent)}">${avatarHtml(r.agent)}停止 ${esc(agentName(r.agent))}${r.dm ? '（私聊）' : ''}</button>`,
+    (r) =>
+      `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}停止 ${esc(agentName(r.agent))}${
+        r.side ? '分身' : r.dm ? '（私聊）' : ''
+      }</button>`,
   );
   if (runs.length > 1) one.push('<button class="chip danger strong" data-stop="">全部停止</button>');
   setHtml(box, one.join(''));
@@ -667,11 +676,11 @@ function applyState(st) {
 
 function setRuns(runs) {
   S.runs = runs;
-  const keys = new Set(runs.map((r) => `${r.roomId}:${r.agent}`));
+  const keys = new Set(runs.map(liveKey));
   for (const k of [...S.live.keys()]) if (!keys.has(k)) S.live.delete(k);
   for (const k of [...S.liveOpen]) if (!keys.has(k)) S.liveOpen.delete(k);
   for (const r of runs) {
-    const k = `${r.roomId}:${r.agent}`;
+    const k = liveKey(r);
     if ((r.steps?.length || 0) > (S.live.get(k)?.length || 0)) S.live.set(k, [...r.steps]);
     else if (!S.live.has(k)) S.live.set(k, []);
   }
@@ -747,7 +756,7 @@ function handleEvent(ev) {
       onMessage(ev.roomId, ev.message);
       break;
     case 'step': {
-      const k = `${ev.roomId}:${ev.agent}`;
+      const k = liveKey(ev);
       const arr = S.live.get(k) || [];
       arr.push(ev.step);
       if (arr.length > 300) arr.splice(0, arr.length - 300);
@@ -1527,7 +1536,7 @@ function bind() {
     if (!b || !conv) return;
     b.disabled = true;
     // data-stop 为空就是全部停止
-    api('POST', `/api/rooms/${conv.roomId}/stop`, b.dataset.stop ? { agent: b.dataset.stop } : {}).catch((err) => toast(err.message));
+    api('POST', `/api/rooms/${conv.roomId}/stop`, b.dataset.stop ? { agent: b.dataset.stop, only: b.dataset.only } : {}).catch((err) => toast(err.message));
   });
   $('#live').addEventListener('click', (e) => {
     const t = e.target.closest('[data-live-toggle]');
@@ -1540,7 +1549,7 @@ function bind() {
     }
     const b = e.target.closest('.live-stop');
     const conv = currentConv();
-    if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent }).catch((err) => toast(err.message));
+    if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent, only: b.dataset.only }).catch((err) => toast(err.message));
   });
   document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention)));
 
