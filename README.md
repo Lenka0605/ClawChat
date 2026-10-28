@@ -50,6 +50,28 @@
 - 侧栏底部可以切换「浅色 / 深色 / 自动」，自动就是跟随系统。
 - 界面参考 macOS 的「信息」App：侧栏半透明毛玻璃，窗口没有标题栏，顶部空白处可以拖动窗口，双击可以缩放。
 
+## 设置与在线升级
+
+点左下角的「设置」，或者按 ⌘,：
+
+- **通用**：主题（浅色 / 深色 / 跟随系统），聊天记录放在哪。
+- **程序与模型**：Claude Code、Codex 的版本，「更新」按钮，以及现在能用的所有模型。
+- **更新**：当前版本，「检查更新」和「立即升级」。升级会从 GitHub 拉取最新代码、重新打包，然后自动重启。聊天记录和记忆不受影响；正在干的活重启后会提示你接着做。有新版本时，「设置」旁边会亮一个小红点。
+
+菜单栏里的「ClawChat → 检查更新…」也可以直接检查。
+
+## 装到另一台 Mac
+
+需要 Node.js 22+、Xcode 命令行工具（`xcode-select --install`），以及登录好的 Claude Code 和 Codex。
+
+```sh
+gh repo clone Lenka0605/ClawChat   # 或 git clone
+cd ClawChat
+npm run app                         # 生成 /Applications/ClawChat.app
+```
+
+Claude 和 ChatGPT 的头像用的是本机官方应用（Claude.app、ChatGPT.app）里的图标，打包时自动提取；没装官方应用的话，会用内置的简笔头像。
+
 ## 动手权限（每个群单独设置）
 
 | 选项 | Claude | GPT |
