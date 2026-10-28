@@ -699,7 +699,7 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 /* 正在干活：收起时最近 3 步各占一行；展开后显示全部、完整文字、可以滚动 */
 .live .bubble { min-width: 240px; }
 .live-steps { margin: 6px 0 0; padding: 0; list-style: none; font-size: 11px; color: var(--muted); display: grid; gap: 3px; }
-.live-steps:not(.open) .step-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 560px; }
+.live-steps:not(.open) .step-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; flex: 1; }
 .live-steps.open { max-height: 320px; overflow-y: auto; padding: 8px 10px; background: var(--fill); border-radius: 10px; }
 .live-toggle {
   border: 0; background: var(--fill); color: var(--muted); font-size: 11px; padding: 1px 8px; border-radius: 10px;
@@ -742,3 +742,86 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 }
 :root[data-theme="dark"] .side-tag { color: #d0a2ff; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .side-tag { color: #d0a2ff; } }
+
+/* ---------- 正在干活的气泡：宽度固定在消息区里，过程文字在气泡里截断，不会撑出去 ---------- */
+.msg.live .msg-body { width: min(70%, 680px); }
+.msg.live .bubble { min-width: 0; overflow: hidden; }
+.live-head { flex-wrap: nowrap; min-width: 0; }
+.live-head > span:nth-child(2) { white-space: nowrap; }
+.live-steps { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.live-steps .step { min-width: 0; }
+
+/* ---------- 动画（全局） ---------- */
+:root { --ease: cubic-bezier(0.25, 0.8, 0.25, 1); --spring: cubic-bezier(0.34, 1.3, 0.64, 1); }
+button, .chip, .conv-item, .model-chip, .member, .segmented button, .prefs-tabs button, .quote, .icon-btn, .att, .mention-item, .input-wrap {
+  transition: background-color 0.16s var(--ease), color 0.16s var(--ease), box-shadow 0.18s var(--ease), opacity 0.16s var(--ease), transform 0.16s var(--ease);
+}
+.primary:active:not(:disabled), .secondary:active:not(:disabled), .chip:active, .round-btn:active, .icon-btn:active, .send-btn:active:not(:disabled) { transform: scale(0.95); }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+/* 弹窗：弹出时从下往上轻轻放大，关的时候缩小淡出 */
+@keyframes dlgIn { from { opacity: 0; transform: translateY(10px) scale(0.965); } to { opacity: 1; transform: none; } }
+@keyframes dlgOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(0.97); } }
+dialog[open] { animation: dlgIn 0.26s var(--spring); }
+dialog[open]::backdrop { animation: fadeIn 0.2s ease; }
+dialog.closing { animation: dlgOut 0.16s var(--ease) forwards; }
+dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
+
+/* 设置窗口切换标签：窗口高度平滑过渡，新的一页淡入 */
+.prefs-window.resizing { transition: height 0.28s var(--ease); overflow: hidden; }
+.prefs .tab-panel.enter { animation: rise 0.26s var(--ease); }
+.appearance .thumb { transition: box-shadow 0.2s var(--ease), transform 0.2s var(--ease); }
+.appearance button:active .thumb { transform: scale(0.97); }
+
+/* 消息：新来的从下面弹进来；切换会话时整片淡入 */
+@keyframes msgIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.msg.enter, .notice.enter, .time-sep.enter { animation: msgIn 0.32s var(--spring); }
+.msg.user.enter { transform-origin: 100% 100%; }
+.msg.agent.enter { transform-origin: 0 100%; }
+#scroller.switching { animation: fadeIn 0.22s ease; }
+.msg.flash .bubble { animation: flash 1.2s ease 2; }
+
+/* 过程：展开时往下展开 */
+.steps[open] ol { animation: drop 0.2s var(--ease); }
+.live-steps.enter { animation: drop 0.2s var(--ease); }
+.steps summary::before { transition: transform 0.18s var(--ease); }
+
+/* 侧栏：群下面的私聊展开时滑进来，收起时滑出去 */
+.conv-item.child.enter { animation: drop 0.2s var(--ease) both; }
+.conv-item.child.enter + .conv-item.child.enter { animation-delay: 0.04s; }
+@keyframes childOut { to { opacity: 0; transform: translateY(-4px); } }
+.conv-item.child.leaving { animation: childOut 0.16s var(--ease) forwards; }
+.disclosure svg { transition: transform 0.18s var(--ease); }
+
+/* 输入区：回复条、图片预览、@ 菜单出现时的动画 */
+.reply-bar:not([hidden]), .attachments:not([hidden]) { animation: rise 0.2s var(--ease); }
+.att.enter { animation: popIn 0.22s var(--spring); }
+.mention-menu:not([hidden]) { animation: popIn 0.18s var(--spring); transform-origin: 10% 100%; }
+.reply-btn { transition: opacity 0.15s var(--ease), background-color 0.15s, color 0.15s, transform 0.15s var(--ease); transform: scale(0.85); }
+.msg:hover .reply-btn, .reply-btn:focus-visible { transform: none; }
+
+/* 提示框、看大图、拖图片进来时的覆盖层 */
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastOut { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, 6px); } }
+#toast:not([hidden]) { animation: toastIn 0.26s var(--spring); }
+#toast.leaving { animation: toastOut 0.2s var(--ease) forwards; }
+#lightbox:not([hidden]) { animation: fadeIn 0.2s ease; }
+#lightbox:not([hidden]) img { animation: popIn 0.28s var(--spring); }
+#lightbox.leaving { animation: fadeOut 0.18s ease forwards; }
+#chat > #drop-overlay:not([hidden]) { animation: fadeIn 0.15s ease; }
+.welcome-card { animation: rise 0.4s var(--ease); }
+
+/* 切换浅色 / 深色：颜色渐变过去 */
+html.theme-switching, html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
+  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, fill 0.4s ease !important;
+}
+
+/* 系统设置里开了「减少动态效果」：动画都关掉 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, *::backdrop { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
+}

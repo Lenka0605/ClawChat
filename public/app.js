@@ -14,6 +14,7 @@ const S = {
   runs: [],
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveOpen: new Set(), // 展开了过程的那几个
+  liveSeen: new Set(), // 已经播过进场动画的「正在干活」气泡
   replyTo: null, // 正在回复哪条消息
   unread: new Map(), // 会话 key -> 未读数
   openedDms: new Map(), // 打开过但还没消息的私聊，key -> 打开时间
@@ -67,6 +68,13 @@ function currentTheme() {
 }
 
 function applyTheme(mode) {
+  const root = document.documentElement;
+  if (applyTheme.ready && !reduceMotion()) {
+    root.classList.add('theme-switching');
+    clearTimeout(applyTheme.timer);
+    applyTheme.timer = setTimeout(() => root.classList.remove('theme-switching'), 450);
+  }
+  applyTheme.ready = true;
   if (mode === 'light' || mode === 'dark') document.documentElement.dataset.theme = mode;
   else delete document.documentElement.dataset.theme;
   storeSet('clawchat.theme', mode);
@@ -88,12 +96,41 @@ function reportDragRegions() {
   native({ type: 'dragRegions', drag, nodrag });
 }
 
+// ---------------- 动画小工具 ----------------
+
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// 先播放一段 CSS 动画（加 class），播完再执行 done；系统开了「减少动态效果」就直接执行
+function animateThen(el, cls, ms, done) {
+  if (!el || reduceMotion()) return done();
+  el.classList.add(cls);
+  setTimeout(() => {
+    el.classList.remove(cls);
+    done();
+  }, ms);
+}
+
+// 关弹窗：先淡出缩小，再真正关掉
+function closeDialog(dlg) {
+  if (!dlg?.open || dlg.classList.contains('closing')) return;
+  animateThen(dlg, 'closing', 160, () => dlg.close());
+}
+
+// 重新播放一次进场动画
+function replay(el, cls) {
+  if (!el || reduceMotion()) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
 function toast(text, ms = 2600) {
   const t = $('#toast');
   t.textContent = text;
+  t.classList.remove('leaving');
   t.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (t.hidden = true), ms);
+  toast.timer = setTimeout(() => animateThen(t, 'leaving', 200, () => (t.hidden = true)), ms);
 }
 
 // ---------------- 格式化 ----------------
@@ -368,10 +405,21 @@ const collapsed = new Set((() => {
   }
 })());
 function toggleCollapsed(roomId) {
-  if (collapsed.has(roomId)) collapsed.delete(roomId);
-  else collapsed.add(roomId);
-  storeSet('clawchat.collapsed', JSON.stringify([...collapsed]));
-  renderConvs();
+  const closing = !collapsed.has(roomId);
+  document.querySelector(`[data-toggle="${CSS.escape(roomId)}"]`)?.classList.toggle('open', !closing);
+  const children = [...document.querySelectorAll('.conv-item.child')].filter((li) => li.dataset.key.startsWith(`d:${roomId}:`));
+  const apply = () => {
+    if (closing) collapsed.add(roomId);
+    else collapsed.delete(roomId);
+    storeSet('clawchat.collapsed', JSON.stringify([...collapsed]));
+    S.enterRoom = closing ? null : roomId; // 展开时给新出现的私聊加进场动画
+    renderConvs();
+    S.enterRoom = null;
+  };
+  if (closing && children.length && !reduceMotion()) {
+    children.forEach((li) => li.classList.add('leaving'));
+    setTimeout(apply, 170);
+  } else apply();
 }
 
 function convTitle(c) {
@@ -443,7 +491,7 @@ function convItemHtml(c, extra = {}) {
         <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : '';
   const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">私聊</span>` : esc(convTitle(c));
-  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
+  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.enter ? ' enter' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
     ${toggle}${convAvatar(c)}
     <div class="conv-meta">
       <div class="conv-line"><span class="name">${name}</span><span class="time">${last ? fmtShort(last.ts) : ''}</span></div>
@@ -462,7 +510,7 @@ function renderConvs() {
     const open = !!q || !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
     const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
-    if (open) for (const d of dmHits) html.push(convItemHtml(d));
+    if (open) for (const d of dmHits) html.push(convItemHtml(d, { enter: S.enterRoom === group.room.id }));
   }
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
@@ -618,11 +666,13 @@ function renderLive() {
             <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
         : '';
       const sideTag = r.side ? '<span class="side-tag" title="本体在群里忙，分身先来回你的私聊（只能看，不能改）">分身</span>' : '';
-      return `<div class="msg agent live">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
+      const enter = S.liveSeen.has(key) ? '' : ' enter';
+      S.liveSeen.add(key);
+      return `<div class="msg agent live${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
-        ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
+        ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
     .join('');
@@ -679,6 +729,7 @@ function setRuns(runs) {
   const keys = new Set(runs.map(liveKey));
   for (const k of [...S.live.keys()]) if (!keys.has(k)) S.live.delete(k);
   for (const k of [...S.liveOpen]) if (!keys.has(k)) S.liveOpen.delete(k);
+  for (const k of [...S.liveSeen]) if (!keys.has(k)) S.liveSeen.delete(k);
   for (const r of runs) {
     const k = liveKey(r);
     if ((r.steps?.length || 0) > (S.live.get(k)?.length || 0)) S.live.set(k, [...r.steps]);
@@ -719,6 +770,7 @@ async function openConv(key) {
   renderMessages();
   renderLive();
   scrollToBottom();
+  replay($('#scroller'), 'switching');
   $('#input').focus();
 }
 
@@ -736,7 +788,10 @@ function onMessage(roomId, m) {
   if (list && conv && conv.key === key) {
     const near = nearBottom() || m.from === 'user';
     const shown = convMessages(conv);
-    $('#messages').insertAdjacentHTML('beforeend', messageHtml(roomId, m, shown[shown.length - 2], conv));
+    const tpl = document.createElement('template');
+    tpl.innerHTML = messageHtml(roomId, m, shown[shown.length - 2], conv);
+    for (const el of tpl.content.children) el.classList.add('enter');
+    $('#messages').appendChild(tpl.content);
     if (near) scrollToBottom();
   }
   if (m.from !== 'user' && m.from !== 'system') {
@@ -826,13 +881,14 @@ function renderAttachments() {
   box.hidden = S.attachments.length === 0;
   box.innerHTML = S.attachments
     .map(
-      (a, i) => `<div class="att ${a.status}">
+      (a, i) => `<div class="att ${a.status}${a.fresh ? ' enter' : ''}">
         <img src="${a.url}" alt="">
         ${a.status === 'uploading' ? '<span class="att-state">上传中…</span>' : a.status === 'error' ? `<span class="att-state" title="${esc(a.error)}">失败</span>` : ''}
         <button class="att-remove" data-i="${i}" title="移除">×</button>
       </div>`,
     )
     .join('');
+  for (const a of S.attachments) a.fresh = false; // 进场动画只播一次
   updateSendButton();
 }
 
@@ -851,7 +907,7 @@ function addFiles(files) {
     return;
   }
   for (const file of images.slice(0, 20 - S.attachments.length)) {
-    const att = { url: URL.createObjectURL(file), status: 'uploading', id: null, error: '', roomId: conv.roomId };
+    const att = { url: URL.createObjectURL(file), status: 'uploading', id: null, error: '', roomId: conv.roomId, fresh: true };
     S.attachments.push(att);
     fetch(`/api/rooms/${conv.roomId}/uploads`, { method: 'POST', headers: { 'content-type': imageType(file), 'x-clawchat': '1' }, body: file })
       .then(async (res) => {
@@ -1100,7 +1156,7 @@ async function submitCustomModel(e) {
       status.textContent = `用不了：${res.error}`;
       return;
     }
-    dlg.close();
+    closeDialog(dlg);
     await switchModel(agent, id, true);
     if (res.model && res.model !== id) toast(`${agentName(agent)} 已切换到 ${id}（实际是 ${modelLabel(res.model)}），下一轮生效`);
   } catch (err) {
@@ -1130,12 +1186,30 @@ async function updateEngine(engine, btn) {
 // ---------------- 应用设置 ----------------
 
 function showSettingsTab(tab) {
+  const win = document.querySelector('.prefs-window');
+  const panel = document.querySelector(`#dlg-settings [data-panel="${tab}"]`);
+  const changed = panel && panel.hidden;
+  const from = win.offsetHeight;
   document.querySelectorAll('#settings-tabs [data-tab]').forEach((b) => {
     const on = b.dataset.tab === tab;
     b.setAttribute('aria-selected', String(on));
     if (on) $('#prefs-title').textContent = b.dataset.title;
   });
   document.querySelectorAll('#dlg-settings [data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== tab));
+  if (changed && from && $('#dlg-settings').open && !reduceMotion()) {
+    replay(panel, 'enter');
+    win.style.height = 'auto';
+    const to = win.offsetHeight;
+    win.style.height = `${from}px`;
+    void win.offsetHeight;
+    win.classList.add('resizing');
+    win.style.height = `${to}px`;
+    clearTimeout(showSettingsTab.timer);
+    showSettingsTab.timer = setTimeout(() => {
+      win.classList.remove('resizing');
+      win.style.height = '';
+    }, 300);
+  }
   if (tab === 'engines') refreshEngines(true);
 }
 
@@ -1388,7 +1462,7 @@ async function submitDialog(e) {
       if (!roomById(room.id)) S.rooms.unshift(room);
       await openConv(`g:${room.id}`);
     }
-    $('#dlg-room').close();
+    closeDialog($('#dlg-room'));
   } catch (err) {
     $('#form-error').textContent = err.message;
     $('#form-error').hidden = false;
@@ -1408,7 +1482,7 @@ async function deleteRoom() {
     await api('DELETE', `/api/rooms/${S.editing}`);
     S.rooms = S.rooms.filter((r) => r.id !== S.editing);
     S.messages.delete(S.editing);
-    $('#dlg-room').close();
+    closeDialog($('#dlg-room'));
     const next = conversations()[0];
     S.current = next?.key || null;
     renderConvs();
@@ -1427,8 +1501,12 @@ function openLightbox(src) {
 }
 
 function closeLightbox() {
-  $('#lightbox').hidden = true;
-  reportDragRegions();
+  const box = $('#lightbox');
+  if (box.hidden) return;
+  animateThen(box, 'leaving', 180, () => {
+    box.hidden = true;
+    reportDragRegions();
+  });
 }
 
 function bind() {
@@ -1436,7 +1514,7 @@ function bind() {
   $('#btn-welcome-new').onclick = () => openDialog(null);
   document.querySelectorAll('[data-solo]').forEach((b) => (b.onclick = () => openDialog(null, [b.dataset.solo])));
   $('#btn-settings').onclick = () => currentConv() && openDialog(currentConv().room);
-  $('#btn-cancel').onclick = () => $('#dlg-room').close();
+  $('#btn-cancel').onclick = () => closeDialog($('#dlg-room'));
   $('#btn-delete').onclick = deleteRoom;
   $('#room-form').addEventListener('submit', submitDialog);
   $('#room-form').addEventListener('change', (e) => {
@@ -1487,11 +1565,18 @@ function bind() {
     clearTimeout(reportDragRegions.timer);
     reportDragRegions.timer = setTimeout(reportDragRegions, 100);
   });
+  // 按 Esc 关弹窗时也走淡出动画（默认是直接消失）
+  document.querySelectorAll('dialog').forEach((dlg) =>
+    dlg.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      closeDialog(dlg);
+    }),
+  );
   $('#btn-app-settings').onclick = () => openSettings();
-  $('#btn-settings-close').onclick = () => $('#dlg-settings').close();
+  $('#btn-settings-close').onclick = () => closeDialog($('#dlg-settings'));
   // 像 macOS 的设置窗口一样，点窗口外面也能关
   $('#dlg-settings').addEventListener('click', (e) => {
-    if (e.target === $('#dlg-settings')) $('#dlg-settings').close();
+    if (e.target === $('#dlg-settings')) closeDialog($('#dlg-settings'));
   });
   $('#dlg-settings').addEventListener('close', reportDragRegions);
   document.querySelectorAll('#settings-tabs [data-tab]').forEach((b) => (b.onclick = () => openSettings(b.dataset.tab)));
@@ -1509,7 +1594,7 @@ function bind() {
     if (b) updateEngine(b.dataset.engine, b);
   });
   $('#custom-model-form').addEventListener('submit', submitCustomModel);
-  $('#btn-custom-cancel').onclick = () => $('#dlg-model').close();
+  $('#btn-custom-cancel').onclick = () => closeDialog($('#dlg-model'));
   $('#dlg-model').addEventListener('close', reportDragRegions);
   $('#model-switch').addEventListener('change', (e) => {
     const sel = e.target.closest('select[data-agent]');
@@ -1544,7 +1629,9 @@ function bind() {
       const k = t.dataset.liveToggle;
       if (S.liveOpen.has(k)) S.liveOpen.delete(k);
       else S.liveOpen.add(k);
+      S.liveAnimate = k;
       renderLive();
+      S.liveAnimate = null;
       return;
     }
     const b = e.target.closest('.live-stop');
