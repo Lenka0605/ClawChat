@@ -364,6 +364,47 @@ test('本体在群里忙时私聊它：分身马上回；本体干完后看到�
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.dm).length, 1); // 没有重复回私聊
 });
 
+test('上下文满了：自动换新会话重来，完整记录里没有另一位的私聊；换了还超就提示分几次发', async () => {
+  const store = new Store();
+  let overflow = 0; // 还要报几次「上下文满了」
+  const calls = [];
+  const run = (agent, opts) => {
+    calls.push({ agent, session: opts.session, prompt: opts.prompt });
+    const full = agent === 'gpt' && overflow > 0;
+    if (full) overflow--;
+    const res = full
+      ? { ok: false, error: "Codex ran out of room in the model's context window.", steps: [], session: null }
+      : { ok: true, text: `${agent} 好的`, steps: [], session: `${agent}-s` };
+    return { done: Promise.resolve(res), kill() {} };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@GPT 先记住项目叫火星计划');
+  await settle(hub);
+  hub.postUserMessage(room.id, '只跟你说的秘密', [], 'claude');
+  await settle(hub);
+
+  overflow = 1;
+  hub.postUserMessage(room.id, '@GPT 接着干');
+  await settle(hub);
+  const [failed, retried] = calls.slice(-2);
+  assert.equal(failed.session, 'gpt-s');
+  assert.equal(retried.session, null); // 换成了新会话
+  assert.match(retried.prompt, /上下文满了/);
+  assert.match(retried.prompt, /接着干/);
+  const file = retried.prompt.match(/完整记录在 (\S+?)，/)[1];
+  const transcript = fs.readFileSync(file, 'utf8');
+  assert.match(transcript, /火星计划/);
+  assert.doesNotMatch(transcript, /只跟你说的秘密/); // 另一位和老板的私聊不在里面
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /上下文满了，已经自动换成新会话/.test(m.text)));
+  assert.equal(store.getMessages(room.id).at(-1).text, 'gpt 好的');
+
+  overflow = 2; // 换了新会话还是超
+  hub.postUserMessage(room.id, '@GPT 这是一大堆内容');
+  await settle(hub);
+  assert.match(store.getMessages(room.id).at(-1).text, /内容太大了.*分几次发/);
+});
+
 test('单聊：没有 @ 规则，消息只发给这一位', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner(() => '好的');
