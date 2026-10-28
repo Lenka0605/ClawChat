@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClawChat</title>
+  <script>
+    // 在样式加载前定好主题，避免闪一下；在 ClawChat.app 里运行时加上 native，用于窗口毛玻璃和红绿灯留白
+    try {
+      var t = localStorage.getItem('clawchat.theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.clawchat) document.documentElement.classList.add('native');
+  </script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="side-head" data-drag>
+        <span class="logo">ClawChat</span>
+        <button id="btn-new" class="icon-btn" title="新建聊天" aria-label="新建聊天">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V13"/><path d="M18.4 3.6a2 2 0 0 1 2.8 2.8L12.5 15 9 16l1-3.5z"/></svg>
+        </button>
+      </div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+        <input id="search" type="search" placeholder="搜索" autocomplete="off">
+      </div>
+      <ul id="conv-list"></ul>
+      <div class="side-foot">
+        <button id="btn-app-settings" class="side-settings" title="设置（⌘,）">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span>设置</span>
+          <span id="update-dot" class="update-dot" hidden title="有新版本"></span>
+          <span id="engine-dots" class="engine-dots"></span>
+        </button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section id="welcome" class="welcome" hidden>
+        <div class="welcome-drag" data-drag></div>
+        <div class="welcome-card">
+          <div class="welcome-avatars"><span class="avatar av-claude"></span><span class="avatar av-gpt"></span></div>
+          <h1>把 Claude 和 GPT 拉进一个群</h1>
+          <p>你在群里说话，它们俩一起干活：分工、互相 @、在你的项目文件夹里改代码、跑命令。有话也可以私下找你。</p>
+          <button id="btn-welcome-new" class="primary large">新建群聊</button>
+          <div class="welcome-solo">
+            或者先单独聊聊：
+            <button class="link-btn" data-solo="claude">和 Claude 单聊</button>
+            <button class="link-btn" data-solo="gpt">和 GPT 单聊</button>
+          </div>
+          <div id="welcome-engines" class="welcome-engines"></div>
+        </div>
+      </section>
+
+      <section id="chat" hidden>
+        <header id="room-head" data-drag>
+          <div class="head-main">
+            <div class="room-title"><span id="room-name"></span><span id="room-count"></span></div>
+            <div class="room-sub">
+              <span id="room-from"></span>
+              <button id="room-folder" class="link" title="在访达中打开"></button>
+              <span id="room-perm" class="badge"></span>
+            </div>
+          </div>
+          <div id="model-switch" class="model-switch"></div>
+          <div id="dm-entry" class="dm-entry" hidden></div>
+          <button id="btn-settings" class="icon-btn" title="群设置" aria-label="群设置">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+          </button>
+        </header>
+
+        <div id="scroller">
+          <div id="dm-hint" class="notice" hidden><span></span></div>
+          <div id="messages"></div>
+          <div id="live"></div>
+        </div>
+
+        <footer id="composer">
+          <div class="composer-tools">
+            <span id="group-tools">
+              <button class="chip" data-mention="Claude">@Claude</button>
+              <button class="chip" data-mention="GPT">@GPT</button>
+              <button class="chip" data-mention="所有人">@所有人</button>
+              <label class="target" title="不 @ 人或者 @所有人 时，两位怎么接">不 @ 时
+                <select id="default-target">
+                  <option value="all">两位同时开工</option>
+                  <option value="sequential">两位依次回答</option>
+                  <option value="claude">只发给 Claude</option>
+                  <option value="gpt">只发给 GPT</option>
+                </select>
+              </label>
+            </span>
+            <span class="spacer"></span>
+            <span id="stop-controls" class="stop-controls" hidden></span>
+          </div>
+          <div id="attachments" class="attachments" hidden></div>
+          <div class="composer-row">
+            <button id="btn-image" class="round-btn" title="发送图片（也可以直接粘贴或拖进来）" aria-label="发送图片">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="3"/><circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="m4 17.5 5-5 4 4 2.5-2.5 4.5 4.5"/></svg>
+            </button>
+            <input id="file-input" type="file" accept="image/*,.heic,.heif" multiple hidden>
+            <div class="input-wrap">
+              <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
+            </div>
+            <button id="btn-send" class="send-btn" disabled title="发送（Enter）" aria-label="发送">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>
+            </button>
+          </div>
+        </footer>
+
+        <div id="drop-overlay" hidden><div>松开就把图片加到消息里</div></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 群设置 / 新建聊天：标题和按钮固定，中间滚动 -->
+  <dialog id="dlg-room" class="sheet">
+    <form id="room-form" method="dialog">
+      <header class="sheet-head"><h2 id="dlg-title">新建聊天</h2></header>
+      <div class="sheet-body">
+        <section class="form-section">
+          <h3>成员 <small>只选一位就是单聊</small></h3>
+          <div class="members">
+            <label class="member"><input type="checkbox" name="memberClaude" checked><span class="avatar av-claude"></span><span class="member-name">Claude<small>Anthropic</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberGpt" checked><span class="avatar av-gpt"></span><span class="member-name">GPT<small>OpenAI Codex</small></span><span class="check-mark"></span></label>
+          </div>
+        </section>
+        <section class="form-section">
+          <h3>基本信息</h3>
+          <div class="group-box">
+            <label class="form-row"><span>名字</span><input name="name" maxlength="40" placeholder="比如：今天争取不加班" autocomplete="off"></label>
+            <div class="form-row">
+              <span>项目文件夹</span>
+              <span class="row"><input name="cwd" placeholder="留空就自动新建一个" autocomplete="off" spellcheck="false"><button type="button" id="btn-pick" class="secondary">选择…</button></span>
+            </div>
+          </div>
+          <p class="hint">它们会在这个文件夹里读写文件、运行命令。</p>
+        </section>
+        <section class="form-section">
+          <h3>动手权限</h3>
+          <div class="group-box">
+            <label class="radio"><input type="radio" name="permission" value="project" checked>
+              <span><b>项目内放手干</b><em class="tag-rec">推荐</em><small>能改项目文件夹里的文件、跑命令，不用每步问你；文件夹外面改不了，联网只能访问 npm、PyPI、GitHub 这类开发网站。</small></span></label>
+            <label class="radio"><input type="radio" name="permission" value="full">
+              <span><b>完全放开</b><small>没有任何限制，跟你自己在终端里操作一样。速度最快，风险也最高。</small></span></label>
+            <label class="radio"><input type="radio" name="permission" value="readonly">
+              <span><b>只读讨论</b><small>只看代码、出主意，不改文件、不跑命令。</small></span></label>
+          </div>
+        </section>
+        <section class="form-section" id="group-fields">
+          <h3>协作</h3>
+          <div class="group-box">
+            <label class="form-row"><span>允许两位互相 @ 接力干活</span><input type="checkbox" name="collab" class="switch" checked></label>
+            <label class="form-row"><span>老板不说话时，最多连续接力</span><span class="inline-num"><input name="maxAutoTurns" type="number" min="1" max="50" value="8"> 轮</span></label>
+          </div>
+        </section>
+        <section class="form-section" id="model-fields">
+          <h3>模型 <small>聊天窗口顶部也能随时切换</small></h3>
+          <div class="group-box">
+            <label class="form-row" id="field-model-claude"><span class="with-icon"><span class="avatar av-claude"></span>Claude</span><select name="modelClaude"></select></label>
+            <label class="form-row" id="field-model-gpt"><span class="with-icon"><span class="avatar av-gpt"></span>GPT</span><select name="modelGpt"></select></label>
+          </div>
+        </section>
+      </div>
+      <footer class="sheet-foot">
+        <p id="form-error" class="error" hidden></p>
+        <div class="dlg-actions">
+          <button type="button" id="btn-delete" class="danger-text" hidden>删除聊天</button>
+          <span class="spacer"></span>
+          <button type="button" id="btn-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-save" class="primary">创建</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 应用设置 -->
+  <dialog id="dlg-settings" class="sheet wide">
+    <div class="settings">
+      <header class="sheet-head settings-head">
+        <h2>设置</h2>
+        <div class="segmented tabs" id="settings-tabs" role="tablist">
+          <button data-tab="general" role="tab">通用</button>
+          <button data-tab="engines" role="tab">程序与模型</button>
+          <button data-tab="update" role="tab">更新<span class="update-dot" hidden></span></button>
+          <button data-tab="about" role="tab">关于</button>
+        </div>
+      </header>
+      <div class="sheet-body">
+        <section class="tab-panel" data-panel="general">
+          <section class="form-section">
+            <h3>外观</h3>
+            <div class="group-box">
+              <div class="form-row"><span>主题</span>
+                <div class="segmented" id="theme-switch" role="radiogroup" aria-label="外观">
+                  <button data-theme-value="light" role="radio">浅色</button>
+                  <button data-theme-value="dark" role="radio">深色</button>
+                  <button data-theme-value="system" role="radio">跟随系统</button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="form-section">
+            <h3>存储</h3>
+            <div class="group-box">
+              <div class="form-row"><span>聊天记录和图片</span><span class="row-value"><code id="set-data-dir"></code><button class="secondary" id="btn-open-data">在访达中显示</button></span></div>
+              <div class="form-row"><span>默认项目文件夹</span><span class="row-value"><code id="set-projects-dir"></code></span></div>
+            </div>
+            <p class="hint">退出再打开，聊天记录、私聊和两位的记忆都会保留。</p>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-panel="engines" hidden>
+          <section class="form-section">
+            <h3>程序 <small>两位用的都是你电脑上登录好的官方程序</small></h3>
+            <div class="group-box" id="set-engines"></div>
+            <p class="hint">新模型常常要新版本的程序才看得到。ClawChat 每 5 分钟会自动重新读一次模型列表。</p>
+          </section>
+          <section class="form-section">
+            <h3>现在能用的模型</h3>
+            <div class="group-box" id="set-models"></div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-panel="update" hidden>
+          <section class="form-section">
+            <h3>ClawChat</h3>
+            <div class="group-box">
+              <div class="form-row"><span>当前版本</span><span class="row-value" id="set-version"></span></div>
+              <div class="form-row"><span>代码仓库</span><span class="row-value" id="set-repo"></span></div>
+            </div>
+          </section>
+          <section class="form-section">
+            <div class="update-card" id="update-card">
+              <div class="update-status" id="update-status">还没检查</div>
+              <ul class="update-changes" id="update-changes" hidden></ul>
+              <div class="dlg-actions">
+                <span class="spacer"></span>
+                <button class="secondary" id="btn-check-update">检查更新</button>
+                <button class="primary" id="btn-do-update" hidden>立即升级</button>
+              </div>
+            </div>
+            <p class="hint">升级会从 GitHub 拉取最新代码、重新打包，然后自动重启。聊天记录和记忆不受影响；正在干的活会在重启后提示你接着做。</p>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-panel="about" hidden>
+          <div class="about">
+            <img src="/app-icon.png" alt="" class="about-icon" onerror="this.hidden=true">
+            <h3>ClawChat</h3>
+            <p id="about-version" class="muted"></p>
+            <p>本地 AI 群聊：你、Claude（Claude Code）和 GPT（Codex）在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用你已经登录的官方账号。</p>
+            <p><a id="about-repo" href="#" target="_blank" rel="noopener"></a></p>
+          </div>
+        </section>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button class="primary" id="btn-settings-done">完成</button></div>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-model" class="sheet small">
+    <form id="custom-model-form" method="dialog">
+      <header class="sheet-head"><h2 id="custom-model-title">自定义模型</h2></header>
+      <div class="sheet-body">
+        <label class="field">模型名
+          <input id="custom-model-input" autocomplete="off" spellcheck="false" placeholder="比如 gpt-7.0">
+          <small id="custom-model-hint"></small>
+        </label>
+        <p id="custom-model-status" class="muted"></p>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions">
+          <span class="spacer"></span>
+          <button type="button" id="btn-custom-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-custom-ok" class="primary">试用并切换</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="lightbox" hidden><img alt=""></div>
+  <div id="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

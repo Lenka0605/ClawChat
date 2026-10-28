@@ -1,0 +1,8 @@
+# 打包产物
+build/
+# 打包时从本机的官方 Claude / ChatGPT 应用里取的图标，以及生成的应用图标：不放进仓库
+public/icons/
+public/app-icon.png
+node_modules/
+.DS_Store
+*.log

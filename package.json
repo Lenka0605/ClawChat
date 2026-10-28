@@ -1,0 +1,15 @@
+{
+  "name": "clawchat",
+  "version": "0.2.0",
+  "private": true,
+  "description": "本地 AI 群聊：你、Claude（Claude Code）和 GPT（Codex）在一个群里一起干活",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "app": "bash scripts/build-app.sh",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
