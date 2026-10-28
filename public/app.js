@@ -376,17 +376,19 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e)}</div>`;
   }).join('');
+  const maker = { claude: 'Anthropic', codex: 'OpenAI' };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    return `<div class="form-row"><span class="with-icon">${avatarHtml(agent)}${name}</span><span class="row-value"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${engineState(e)}${
+    const status = e ? (e.ok ? '<span class="status ok">已就绪</span>' : '<span class="status bad">没找到</span>') : '<span class="status">检测中…</span>';
+    return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e)}</small></span>${status}${
       e?.ok ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
-    }</span></div>`;
+    }</div>`;
   }).join('');
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {
-    const opts = modelOptions(agent);
-    return `<div class="form-row top"><span class="with-icon">${avatarHtml(agent)}${agentName(agent)}</span><span class="model-list">${opts
-      .map((o) => `<span class="model-pill${o.id ? '' : ' def'}" title="${esc(o.description || '')}">${esc(o.name)}</span>`)
-      .join('')}</span></div>`;
+    const opts = modelOptions(agent).filter((o) => o.id); // 「默认」单独说明，这里只列模型
+    const def = modelOptions(agent)[0].name.replace(/^默认 · /, '');
+    return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>默认用 ${esc(def)}</small>
+      <span class="model-list">${opts.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('')}</span></span></div>`;
   }).join('');
 }
 
@@ -929,7 +931,11 @@ async function updateEngine(engine, btn) {
 // ---------------- 应用设置 ----------------
 
 function showSettingsTab(tab) {
-  document.querySelectorAll('#settings-tabs [data-tab]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tab === tab)));
+  document.querySelectorAll('#settings-tabs [data-tab]').forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(on));
+    if (on) $('#prefs-title').textContent = b.dataset.title;
+  });
   document.querySelectorAll('#dlg-settings [data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== tab));
   if (tab === 'engines') refreshEngines(true);
 }
@@ -943,11 +949,15 @@ async function openSettings(tab = 'general') {
   try {
     const info = await api('GET', '/api/app');
     S.app = info;
-    $('#set-data-dir').textContent = info.dataDir;
-    $('#set-projects-dir').textContent = info.projectsDir;
+    const tilde = (p) => String(p || '').replace(/^\/Users\/[^/]+/, '~'); // 像访达一样把个人目录写成 ~
+    $('#set-data-dir').textContent = tilde(info.dataDir);
+    $('#set-data-dir').title = info.dataDir;
+    $('#set-projects-dir').textContent = tilde(info.projectsDir);
+    $('#set-projects-dir').title = info.projectsDir;
     const ver = `${info.version}${info.commit ? `（${info.commit}）` : ''}`;
     $('#set-version').textContent = ver;
     $('#about-version').textContent = `版本 ${ver}`;
+    $('#upd-title').textContent = `ClawChat ${info.version}`;
     const repo = info.repo ? `<a href="${esc(info.repo)}" target="_blank" rel="noopener">${esc(info.repo.replace(/^https:\/\//, ''))}</a>` : '还没关联 GitHub 仓库';
     $('#set-repo').innerHTML = repo;
     $('#about-repo').textContent = info.repo ? info.repo.replace(/^https:\/\//, '') : '';
@@ -967,10 +977,11 @@ function setUpdateDot(on) {
 async function checkForUpdate(show = false) {
   const status = $('#update-status');
   const list = $('#update-changes');
+  const box = $('#update-changes-box');
   const btn = $('#btn-do-update');
   if (show) {
     status.textContent = '正在检查…';
-    list.hidden = true;
+    box.hidden = true;
     btn.hidden = true;
   }
   let res;
@@ -986,12 +997,12 @@ async function checkForUpdate(show = false) {
     return;
   }
   if (!res.behind) {
-    status.innerHTML = `<span class="ok-text">✓ 已经是最新版（${esc(res.current)}）</span>`;
+    status.innerHTML = `<span class="ok-text">已是最新版本</span>`;
     return;
   }
-  status.innerHTML = `<b>有新版本 ${esc(res.latest)}</b><span class="muted">（当前 ${esc(res.current)}，有 ${res.behind} 处更新）</span>`;
+  status.innerHTML = `<span class="new-text">有新版本 ${esc(res.latest)} 可以升级</span><span class="muted"> · ${res.behind} 处更新</span>`;
   list.innerHTML = res.changes.map((c) => `<li><span>${esc(c.subject)}</span><span class="muted">${esc(c.when)}</span></li>`).join('');
-  list.hidden = !res.changes.length;
+  box.hidden = !res.changes.length;
   btn.hidden = false;
   btn.disabled = !!res.dirty;
   if (res.dirty) status.insertAdjacentHTML('beforeend', '<br><span class="error">本地有没提交的改动，先处理掉才能升级。</span>');
@@ -1236,7 +1247,11 @@ function bind() {
     reportDragRegions.timer = setTimeout(reportDragRegions, 100);
   });
   $('#btn-app-settings').onclick = () => openSettings();
-  $('#btn-settings-done').onclick = () => $('#dlg-settings').close();
+  $('#btn-settings-close').onclick = () => $('#dlg-settings').close();
+  // 像 macOS 的设置窗口一样，点窗口外面也能关
+  $('#dlg-settings').addEventListener('click', (e) => {
+    if (e.target === $('#dlg-settings')) $('#dlg-settings').close();
+  });
   $('#dlg-settings').addEventListener('close', reportDragRegions);
   document.querySelectorAll('#settings-tabs [data-tab]').forEach((b) => (b.onclick = () => openSettings(b.dataset.tab)));
   $('#btn-check-update').onclick = () => checkForUpdate(true);

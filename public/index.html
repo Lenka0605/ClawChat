@@ -177,47 +177,77 @@
     </form>
   </dialog>
 
-  <!-- 应用设置 -->
-  <dialog id="dlg-settings" class="sheet wide">
-    <div class="settings">
-      <header class="sheet-head settings-head">
-        <h2>设置</h2>
-        <div class="segmented tabs" id="settings-tabs" role="tablist">
-          <button data-tab="general" role="tab">通用</button>
-          <button data-tab="engines" role="tab">程序与模型</button>
-          <button data-tab="update" role="tab">更新<span class="update-dot" hidden></span></button>
-          <button data-tab="about" role="tab">关于</button>
-        </div>
+  <!-- 应用设置：仿 macOS 的设置窗口（顶部图标工具栏 + 分组列表） -->
+  <dialog id="dlg-settings" class="prefs">
+    <div class="prefs-window">
+      <header class="prefs-toolbar">
+        <button class="prefs-close" id="btn-settings-close" title="关闭（Esc）" aria-label="关闭">
+          <svg viewBox="0 0 12 12" width="8" height="8"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <h2 id="prefs-title">通用</h2>
+        <nav class="prefs-tabs" id="settings-tabs" role="tablist">
+          <button data-tab="general" role="tab" data-title="通用">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/><circle cx="12" cy="12" r="6.6"/></svg>
+            <span>通用</span>
+          </button>
+          <button data-tab="engines" role="tab" data-title="程序与模型">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" stroke-linecap="round"/></svg>
+            <span>程序与模型</span>
+          </button>
+          <button data-tab="update" role="tab" data-title="软件更新">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v8.5M8.2 12.4 12 16.2l3.8-3.8"/></svg>
+            <span>软件更新</span><i class="update-dot" hidden></i>
+          </button>
+          <button data-tab="about" role="tab" data-title="关于">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r="0.9" fill="currentColor" stroke="none"/></svg>
+            <span>关于</span>
+          </button>
+        </nav>
       </header>
-      <div class="sheet-body">
+      <div class="prefs-body">
         <section class="tab-panel" data-panel="general">
           <section class="form-section">
             <h3>外观</h3>
-            <div class="group-box">
-              <div class="form-row"><span>主题</span>
-                <div class="segmented" id="theme-switch" role="radiogroup" aria-label="外观">
-                  <button data-theme-value="light" role="radio">浅色</button>
-                  <button data-theme-value="dark" role="radio">深色</button>
-                  <button data-theme-value="system" role="radio">跟随系统</button>
-                </div>
+            <div class="group-box appearance-box">
+              <div class="appearance" id="theme-switch" role="radiogroup" aria-label="外观">
+                <button data-theme-value="light" role="radio">
+                  <span class="thumb t-light"><i class="t-side"></i><i class="t-main"><b></b><b class="me"></b><b></b></i></span>
+                  <span class="thumb-label">浅色</span>
+                </button>
+                <button data-theme-value="dark" role="radio">
+                  <span class="thumb t-dark"><i class="t-side"></i><i class="t-main"><b></b><b class="me"></b><b></b></i></span>
+                  <span class="thumb-label">深色</span>
+                </button>
+                <button data-theme-value="system" role="radio">
+                  <span class="thumb t-auto"><span class="half t-light"><i class="t-side"></i><i class="t-main"><b></b><b class="me"></b><b></b></i></span><span class="half t-dark"><i class="t-side"></i><i class="t-main"><b></b><b class="me"></b><b></b></i></span></span>
+                  <span class="thumb-label">自动</span>
+                </button>
               </div>
             </div>
+            <p class="hint">「自动」会跟着 Mac 的系统外观在浅色和深色之间切换。</p>
           </section>
           <section class="form-section">
             <h3>存储</h3>
             <div class="group-box">
-              <div class="form-row"><span>聊天记录和图片</span><span class="row-value"><code id="set-data-dir"></code><button class="secondary" id="btn-open-data">在访达中显示</button></span></div>
-              <div class="form-row"><span>默认项目文件夹</span><span class="row-value"><code id="set-projects-dir"></code></span></div>
+              <div class="list-row">
+                <span class="row-icon folder"></span>
+                <span class="row-text"><b>聊天记录和图片</b><code id="set-data-dir"></code></span>
+                <button class="link-btn" id="btn-open-data">在访达中显示</button>
+              </div>
+              <div class="list-row">
+                <span class="row-icon folder"></span>
+                <span class="row-text"><b>默认项目文件夹</b><code id="set-projects-dir"></code></span>
+              </div>
             </div>
-            <p class="hint">退出再打开，聊天记录、私聊和两位的记忆都会保留。</p>
+            <p class="hint">退出再打开，聊天记录、私聊和两位的记忆都会保留。全部只存在这台 Mac 上。</p>
           </section>
         </section>
 
         <section class="tab-panel" data-panel="engines" hidden>
           <section class="form-section">
-            <h3>程序 <small>两位用的都是你电脑上登录好的官方程序</small></h3>
+            <h3>程序</h3>
             <div class="group-box" id="set-engines"></div>
-            <p class="hint">新模型常常要新版本的程序才看得到。ClawChat 每 5 分钟会自动重新读一次模型列表。</p>
+            <p class="hint">两位用的都是你电脑上登录好的官方程序。新模型常常要新版本的程序才看得到；ClawChat 每 5 分钟会自动重新读一次模型列表。</p>
           </section>
           <section class="form-section">
             <h3>现在能用的模型</h3>
@@ -226,22 +256,25 @@
         </section>
 
         <section class="tab-panel" data-panel="update" hidden>
+          <div class="update-hero">
+            <img src="/app-icon.png" alt="" class="hero-icon" onerror="this.style.visibility='hidden'">
+            <div class="hero-text">
+              <b id="upd-title">ClawChat</b>
+              <div class="update-status" id="update-status">还没检查</div>
+            </div>
+            <div class="hero-actions">
+              <button class="secondary" id="btn-check-update">检查更新</button>
+              <button class="primary" id="btn-do-update" hidden>立即升级</button>
+            </div>
+          </div>
+          <section class="form-section" id="update-changes-box" hidden>
+            <h3>这次更新的内容</h3>
+            <div class="group-box"><ul class="update-changes" id="update-changes"></ul></div>
+          </section>
           <section class="form-section">
-            <h3>ClawChat</h3>
             <div class="group-box">
               <div class="form-row"><span>当前版本</span><span class="row-value" id="set-version"></span></div>
               <div class="form-row"><span>代码仓库</span><span class="row-value" id="set-repo"></span></div>
-            </div>
-          </section>
-          <section class="form-section">
-            <div class="update-card" id="update-card">
-              <div class="update-status" id="update-status">还没检查</div>
-              <ul class="update-changes" id="update-changes" hidden></ul>
-              <div class="dlg-actions">
-                <span class="spacer"></span>
-                <button class="secondary" id="btn-check-update">检查更新</button>
-                <button class="primary" id="btn-do-update" hidden>立即升级</button>
-              </div>
             </div>
             <p class="hint">升级会从 GitHub 拉取最新代码、重新打包，然后自动重启。聊天记录和记忆不受影响；正在干的活会在重启后提示你接着做。</p>
           </section>
@@ -249,17 +282,15 @@
 
         <section class="tab-panel" data-panel="about" hidden>
           <div class="about">
-            <img src="/app-icon.png" alt="" class="about-icon" onerror="this.hidden=true">
+            <img src="/app-icon.png" alt="" class="about-icon" onerror="this.style.visibility='hidden'">
             <h3>ClawChat</h3>
             <p id="about-version" class="muted"></p>
-            <p>本地 AI 群聊：你、Claude（Claude Code）和 GPT（Codex）在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用你已经登录的官方账号。</p>
+            <p class="about-desc">本地 AI 群聊：你、Claude 和 GPT 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的 Mac 上运行，用的是你已经登录的官方账号。</p>
+            <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span></div>
             <p><a id="about-repo" href="#" target="_blank" rel="noopener"></a></p>
           </div>
         </section>
       </div>
-      <footer class="sheet-foot">
-        <div class="dlg-actions"><span class="spacer"></span><button class="primary" id="btn-settings-done">完成</button></div>
-      </footer>
     </div>
   </dialog>
 
