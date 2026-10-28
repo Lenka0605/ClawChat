@@ -108,6 +108,21 @@ function validModel(engine, id) {
 }
 
 const AGENT_ENGINE = { claude: 'claude', gpt: 'codex' };
+const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
+
+// 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex 看模型目录（「默认」就看 Codex 的默认模型）
+function effortsFor(agent, modelId) {
+  if (agent === 'claude') return engines.claude?.efforts || [];
+  const e = engines.codex || {};
+  const model = e.models?.find((m) => m.id === (modelId || e.defaultModel));
+  return model?.efforts || [];
+}
+
+function effortName(agent, id) {
+  if (id) return EFFORT_LABEL[id] || id;
+  const def = engines[AGENT_ENGINE[agent]]?.defaultEffort;
+  return `默认${def ? `（${EFFORT_LABEL[def] || def}）` : ''}`;
+}
 
 function modelName(agent, id) {
   const e = engines[AGENT_ENGINE[agent]] || {};
@@ -209,6 +224,19 @@ function normalizeRoom(body, creating, room = null) {
       throw httpError(400, `Claude 没有 ${out.models.claude} 这个模型，请从列表里选一个`);
     }
   }
+  if (body.efforts !== undefined || out.models) {
+    const efforts = { ...ROOM_DEFAULTS.efforts, ...room?.efforts };
+    for (const a of ['claude', 'gpt']) {
+      if (body.efforts?.[a] !== undefined) efforts[a] = String(body.efforts[a] || '').trim();
+      const allowed = effortsFor(a, (out.models || room?.models || {})[a]);
+      if (efforts[a] && allowed.length && !allowed.includes(efforts[a])) {
+        // 换了模型、新模型不支持原来的强度：退回默认，而不是报错
+        if (body.efforts?.[a] !== undefined) throw httpError(400, `${AGENTS[a].name} 现在的模型不支持「${EFFORT_LABEL[efforts[a]] || efforts[a]}」`);
+        efforts[a] = '';
+      }
+    }
+    out.efforts = efforts;
+  }
   return out;
 }
 
@@ -246,7 +274,7 @@ async function api(req, res, url) {
   if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
   if (method === 'GET' && parts[0] === 'events') return events(req, res);
   if (method === 'GET' && parts[0] === 'state') {
-    return send(res, 200, { rooms: store.listRooms(), runs: hub.status(), engines, agents: AGENTS, defaults: ROOM_DEFAULTS, projectsDir: PROJECTS_DIR });
+    return send(res, 200, { rooms: store.listRooms(), runs: hub.status(true), engines, agents: AGENTS, defaults: ROOM_DEFAULTS, projectsDir: PROJECTS_DIR });
   }
   if (method === 'POST' && parts[0] === 'pick-folder') return send(res, 200, { path: await pickFolder() });
   if (parts[0] === 'app') {
@@ -259,6 +287,11 @@ async function api(req, res, url) {
         scheduleRestart(); // 正在干的活会在退出时记成「被打断」，重新打开后可以接着做
       }
       return send(res, 200, result);
+    }
+    if (method === 'POST' && parts[1] === 'restart') {
+      hub.emit('event', { type: 'restarting' });
+      scheduleRestart();
+      return send(res, 200, { ok: true });
     }
     if (method === 'POST' && parts[1] === 'open-data') {
       execFile('open', [DATA_DIR]);
@@ -300,11 +333,13 @@ async function api(req, res, url) {
       const switched = patch.models
         ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.models[a] || '') !== (room.models?.[a] || ''))
         : [];
+      const effortSwitched = patch.efforts
+        ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.efforts[a] || '') !== (room.efforts?.[a] || ''))
+        : [];
       store.updateRoom(room.id, patch);
-      for (const a of switched) {
-        const busy = hub.runs.has(hub.key(room.id, a)) ? '，它手上这一轮做完后' : '，下一轮';
-        hub.notice(room.id, `${AGENTS[a].name} 换成了 ${modelName(a, patch.models[a])}${busy}开始生效`);
-      }
+      const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? '，它手上这一轮做完后' : '，下一轮');
+      for (const a of switched) hub.notice(room.id, `${AGENTS[a].name} 换成了 ${modelName(a, patch.models[a])}${when(a)}开始生效`);
+      for (const a of effortSwitched) hub.notice(room.id, `${AGENTS[a].name} 的思考强度换成了「${effortName(a, patch.efforts[a])}」${when(a)}开始生效`);
       if (cwdChanged) {
         hub.resetSessions(room.id);
         hub.notice(room.id, `项目文件夹改成了：${patch.cwd}`);
@@ -332,7 +367,15 @@ async function api(req, res, url) {
       }
       if (!text && !images.length) return send(res, 400, { error: '消息是空的' });
       const dm = AGENTS[body.dm] && room.members.includes(body.dm) ? body.dm : null;
-      hub.postUserMessage(room.id, text, images, dm);
+      // 回复：只能回复同一个会话里的消息（群里回群里的，私聊里回私聊的），存一段原话摘要
+      let replyTo = null;
+      if (body.replyTo !== undefined && body.replyTo !== null) {
+        const target = store.getMessages(room.id)[Number(body.replyTo)];
+        const sameConv = target && (target.dm || null) === (room.members.length > 1 ? dm : null);
+        if (!target || target.from === 'system' || !sameConv) return send(res, 400, { error: '要回复的消息找不到了' });
+        replyTo = { seq: target.seq, from: target.from, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
+      }
+      hub.postUserMessage(room.id, text, images, dm, replyTo);
       return send(res, 200, { ok: true });
     }
     if (sub === 'uploads' && !parts[3] && method === 'POST') return send(res, 201, await saveUpload(room, req));

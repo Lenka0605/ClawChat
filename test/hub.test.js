@@ -300,6 +300,28 @@ test('回复上记下这一轮实际用的模型（群聊和私聊两条都记�
   assert.ok(replies.every((m) => m.model === 'gpt-6-astra'));
 });
 
+test('回复 GPT 的消息：只有 GPT 回答，而且知道是在回它哪句话；回复时 @ 了别人就按 @ 的来', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => `${agent} 收到`);
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '你俩各说一句');
+  await settle(hub);
+  const gptMsg = store.getMessages(room.id).find((m) => m.from === 'gpt');
+  const before = calls.length;
+  hub.postUserMessage(room.id, '展开说说', [], null, { seq: gptMsg.seq, from: 'gpt', text: gptMsg.text });
+  await settle(hub);
+  assert.deepEqual(calls.slice(before).map((c) => c.agent), ['gpt']); // Claude 没被叫醒
+  assert.match(calls.at(-1).prompt, /老板，回复你的「gpt 收到」\] 展开说说/);
+  assert.equal(store.getMessages(room.id).find((m) => m.text === '展开说说').replyTo.from, 'gpt');
+
+  const mid = calls.length;
+  hub.postUserMessage(room.id, '@Claude 你怎么看', [], null, { seq: gptMsg.seq, from: 'gpt', text: gptMsg.text });
+  await settle(hub);
+  assert.deepEqual(calls.slice(mid).map((c) => c.agent), ['claude']);
+  assert.match(calls.at(-1).prompt, /回复GPT的「gpt 收到」/);
+});
+
 test('单聊：没有 @ 规则，消息只发给这一位', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner(() => '好的');

@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (s) => document.querySelector(s);
-const STEP_ICON = { run: '▶', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', todo: '☑', task: '🤖', tool: '🔧' };
+const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧' };
 const PERM_LABEL = { project: '项目内放手干', full: '完全放开', readonly: '只读讨论' };
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
@@ -12,7 +12,9 @@ const S = {
   messages: new Map(), // roomId -> message[]
   early: new Map(), // 消息列表还没加载完时收到的新消息
   runs: [],
-  live: new Map(), // `${roomId}:${agent}` -> 最近的过程步骤
+  live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
+  liveOpen: new Set(), // 展开了过程的那几个
+  replyTo: null, // 正在回复哪条消息
   unread: new Map(), // 会话 key -> 未读数
   openedDms: new Map(), // 打开过但还没消息的私聊，key -> 打开时间
   attachments: [], // 待发送的图片
@@ -164,6 +166,33 @@ function modelLabel(id) {
   const known = [...(S.engines.claude?.models || []), ...(S.engines.codex?.models || [])].find((x) => x.id === id);
   if (known) return known.name;
   return String(id || '').replace(/^gpt-/i, 'GPT-').replace(/-([a-z])/g, (_, c) => `-${c.toUpperCase()}`);
+}
+
+// 思考强度：Claude 固定五档；Codex 每个模型支持的不一样（Luna 没有「极限」）
+const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
+const EFFORT_HINT = {
+  low: '最快，适合简单的事',
+  medium: '速度和深度兼顾',
+  high: '想得更深，适合复杂问题',
+  xhigh: '比「高」再深一档',
+  max: '最深，最难的问题用',
+  ultra: '最深，还会自动把任务拆给帮手',
+};
+
+function effortsFor(agent, modelId) {
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  if (agent === 'claude') return e.efforts || [];
+  return e.models?.find((m) => m.id === (modelId || e.defaultModel))?.efforts || [];
+}
+
+function effortSelectHtml(agent, modelId, current, attrs = '') {
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  const list = effortsFor(agent, modelId);
+  const def = e.defaultEffort ? `默认 · ${EFFORT_LABEL[e.defaultEffort] || e.defaultEffort}` : '默认';
+  const opts = [{ id: '', name: def, hint: '跟随自己的设置' }, ...list.map((id) => ({ id, name: EFFORT_LABEL[id] || id, hint: EFFORT_HINT[id] || '' }))];
+  return `<select ${attrs}>${opts
+    .map((o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.hint)}">${esc(o.name)}</option>`)
+    .join('')}</select>`;
 }
 
 const CUSTOM_MODEL = '__custom__';
@@ -368,10 +397,12 @@ function engineState(e) {
 
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
 function renderEngines() {
-  $('#engine-dots').innerHTML = ENGINE_INFO.map(({ key, name }) => {
-    const e = S.engines[key];
-    return `<span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}" title="${esc(name)}：${engineState(e)}"></span>`;
-  }).join('');
+  // 侧栏底部：一切正常时什么都不显示，哪个程序找不到才亮一个黄色提醒
+  const missing = ENGINE_INFO.filter(({ key }) => S.engines[key] && !S.engines[key].ok).map(({ name }) => name);
+  const warn = $('#engine-warn');
+  warn.hidden = !missing.length;
+  warn.textContent = missing.length ? `${missing.join('、')} 没找到` : '';
+  warn.title = missing.length ? '请先安装并登录，打开设置看详情' : '';
   $('#welcome-engines').innerHTML = ENGINE_INFO.map(({ key, name }) => {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e)}</div>`;
@@ -466,12 +497,17 @@ function renderShell() {
   // 顶部的模型切换：群里显示所有成员，私聊只显示对方
   setHtml($('#model-switch'), (dm ? [dm] : room.members)
     .map(
-      (a) => `<label class="model-chip" title="切换 ${esc(agentName(a))} 的模型，下一轮生效">${avatarHtml(a)}${modelSelectHtml(
+      (a) => `<span class="model-chip" title="切换 ${esc(agentName(a))} 的模型和思考强度，下一轮生效">${avatarHtml(a)}${modelSelectHtml(
         a,
         room.models?.[a],
         `data-agent="${esc(a)}" aria-label="${esc(agentName(a))} 的模型"`,
         true,
-      )}</label>`,
+      )}<span class="chip-sep"></span><span class="chip-label">思考</span>${effortSelectHtml(
+        a,
+        room.models?.[a],
+        room.efforts?.[a],
+        `data-effort="${esc(a)}" class="effort-select" aria-label="${esc(agentName(a))} 的思考强度"`,
+      )}</span>`,
     )
     .join(''));
   const entry = $('#dm-entry');
@@ -500,7 +536,7 @@ function syncToolsRow() {
 }
 
 function stepHtml(s) {
-  return `<li class="step-${esc(s.kind)}">${STEP_ICON[s.kind] || '·'} ${esc(s.text)}</li>`;
+  return `<li class="step step-${esc(s.kind)}"><span class="step-icon">${STEP_ICON[s.kind] || '·'}</span><span class="step-text">${esc(s.text)}</span></li>`;
 }
 
 function imagesHtml(roomId, images) {
@@ -510,12 +546,30 @@ function imagesHtml(roomId, images) {
     .join('')}</div>`;
 }
 
+const REPLY_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+
+function whoLabel(from) {
+  return from === 'user' ? '我' : agentLabel(from);
+}
+
+function snippet(m) {
+  return String(m.text || (m.images?.length ? '[图片]' : '')).replace(/\s+/g, ' ').slice(0, 80);
+}
+
+// 引用：回复别人的消息时，气泡上方带一小段原话，点一下跳回原消息
+function quoteHtml(q) {
+  return `<button class="quote" data-jump="${q.seq}" title="跳到原消息"><b>${esc(whoLabel(q.from))}</b><span>${esc(String(q.text || '').replace(/\s+/g, ' '))}</span></button>`;
+}
+
 function messageHtml(roomId, m, prev, conv) {
   const sep = !prev || m.ts - prev.ts > 5 * 60 * 1000 ? `<div class="time-sep">${fmtTime(m.ts)}</div>` : '';
   if (m.from === 'system') return `${sep}<div class="notice"><span>${esc(m.text)}</span></div>`;
+  const replyBtn = `<button class="reply-btn" data-reply="${m.seq}" title="回复这条">${REPLY_ICON}</button>`;
   if (m.from === 'user') {
     const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
-    return `${sep}<div class="msg user">${avatarHtml('user')}<div class="msg-body">${imagesHtml(roomId, m.images)}${text}</div></div>`;
+    const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
+    return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${quote}${imagesHtml(roomId, m.images)}${text}${replyBtn}</div></div>`;
   }
   const dur = m.durationMs ? `用时 ${fmtDur(m.durationMs)}` : '';
   const foot = m.steps?.length
@@ -523,10 +577,11 @@ function messageHtml(roomId, m, prev, conv) {
     : dur;
   const canDm = !conv.dm && conv.room.members.length > 1;
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="私聊 ${esc(agentLabel(m.from))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
-  const model = m.model ? `<span class="msg-model">${esc(modelLabel(m.model))}</span>` : '';
-  return `${sep}<div class="msg agent">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
+  const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? `思考 ${EFFORT_LABEL[m.effort] || m.effort}` : ''].filter(Boolean).join(' · ');
+  const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
+  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
     m.text,
-  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}</div></div>`;
+  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${replyBtn}</div></div>`;
 }
 
 function convMessages(conv) {
@@ -549,15 +604,24 @@ function renderLive() {
   const runs = conv ? convRuns(conv) : [];
   $('#live').innerHTML = runs
     .map((r) => {
-      const steps = (S.live.get(`${r.roomId}:${r.agent}`) || []).slice(-3);
+      const key = `${r.roomId}:${r.agent}`;
+      const all = S.live.get(key) || [];
+      const open = S.liveOpen.has(key);
+      const shown = open ? all : all.slice(-3);
+      const toggle = all.length
+        ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? '收起' : '展开'}过程 · ${all.length} 步
+            <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+        : '';
       return `<div class="msg agent live">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>正在干活 · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
-        <button class="live-stop" data-agent="${esc(r.agent)}">停止</button></div>
-        ${steps.length ? `<ul class="live-steps">${steps.map((s) => `<li>${STEP_ICON[s.kind] || '·'} ${esc(firstLine(s.text))}</li>`).join('')}</ul>` : ''}
+        ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}">停止</button></div>
+        ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
     .join('');
+  // 展开时滚到最新一步
+  document.querySelectorAll('.live-steps.open').forEach((ol) => (ol.scrollTop = ol.scrollHeight));
   renderStopControls(conv);
   syncToolsRow();
 }
@@ -605,9 +669,11 @@ function setRuns(runs) {
   S.runs = runs;
   const keys = new Set(runs.map((r) => `${r.roomId}:${r.agent}`));
   for (const k of [...S.live.keys()]) if (!keys.has(k)) S.live.delete(k);
+  for (const k of [...S.liveOpen]) if (!keys.has(k)) S.liveOpen.delete(k);
   for (const r of runs) {
     const k = `${r.roomId}:${r.agent}`;
-    if (!S.live.has(k)) S.live.set(k, [...(r.steps || [])]);
+    if ((r.steps?.length || 0) > (S.live.get(k)?.length || 0)) S.live.set(k, [...r.steps]);
+    else if (!S.live.has(k)) S.live.set(k, []);
   }
 }
 
@@ -630,7 +696,10 @@ async function openConv(key) {
   const c = parseKey(key);
   if (!c || !roomById(c.roomId)) return;
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
-  if (S.current !== key) clearAttachments();
+  if (S.current !== key) {
+    clearAttachments();
+    cancelReply();
+  }
   S.current = key;
   storeSet('clawchat.current', key);
   S.unread.delete(key);
@@ -681,7 +750,7 @@ function handleEvent(ev) {
       const k = `${ev.roomId}:${ev.agent}`;
       const arr = S.live.get(k) || [];
       arr.push(ev.step);
-      if (arr.length > 20) arr.splice(0, arr.length - 20);
+      if (arr.length > 300) arr.splice(0, arr.length - 300);
       S.live.set(k, arr);
       if (currentConv()?.roomId === ev.roomId) keepBottom(renderLive);
       break;
@@ -820,19 +889,126 @@ async function sendMessage() {
   if (!text && !sent.length) return;
   el.value = '';
   const kept = S.attachments;
+  const reply = S.replyTo;
   S.attachments = [];
   renderAttachments();
+  cancelReply();
   autoGrow();
   try {
-    await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined });
+    await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined, replyTo: reply?.seq });
     for (const a of kept) URL.revokeObjectURL(a.url);
   } catch (err) {
     el.value = text;
     S.attachments = kept;
     renderAttachments();
+    if (reply) startReply(reply.seq);
     autoGrow();
     toast(err.message);
   }
+}
+
+// ---------------- 输入 @ 时弹出的成员菜单 ----------------
+
+const MENTION_ITEMS = [
+  { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
+  { id: 'gpt', label: 'GPT', sub: 'OpenAI Codex', insert: 'GPT', keys: ['gpt', 'codex', 'chatgpt', 'openai'] },
+  { id: 'all', label: '所有人', sub: '两位一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
+];
+
+// 光标前面是不是正在打「@xxx」：返回 @ 的位置和已经打的字
+function mentionQuery() {
+  const el = $('#input');
+  if (el.selectionStart !== el.selectionEnd) return null;
+  const before = el.value.slice(0, el.selectionStart);
+  const m = before.match(/(?:^|[\s(（，。,.!?！？:：])@([^\s@]{0,20})$/);
+  return m ? { start: el.selectionStart - m[1].length - 1, q: m[1].toLowerCase() } : null;
+}
+
+function hideMentionMenu() {
+  S.mention = null;
+  $('#mention-menu').hidden = true;
+}
+
+function updateMentionMenu() {
+  const conv = currentConv();
+  const mq = conv && !conv.dm && conv.room.members.length > 1 ? mentionQuery() : null;
+  if (!mq) return hideMentionMenu();
+  const items = MENTION_ITEMS.filter(
+    (it) => (it.id === 'all' || conv.room.members.includes(it.id)) && (!mq.q || [it.label.toLowerCase(), ...it.keys].some((k) => k.startsWith(mq.q))),
+  );
+  if (!items.length) return hideMentionMenu();
+  const keepIndex = S.mention && S.mention.q === mq.q ? S.mention.index : 0;
+  S.mention = { ...mq, items, index: Math.min(keepIndex, items.length - 1) };
+  const icon = (it) => (it.id === 'all' ? `<span class="mention-all">${avatarHtml('claude')}${avatarHtml('gpt')}</span>` : avatarHtml(it.id));
+  $('#mention-menu').innerHTML = items
+    .map(
+      (it, i) => `<div class="mention-item${i === S.mention.index ? ' active' : ''}" role="option" data-mention-pick="${i}">
+        ${icon(it)}<span class="mention-label"><b>${esc(it.label)}</b><small>${esc(it.sub)}</small></span>${i === S.mention.index ? '<kbd>↩</kbd>' : ''}</div>`,
+    )
+    .join('');
+  $('#mention-menu').hidden = false;
+}
+
+function pickMention(i) {
+  const el = $('#input');
+  const it = S.mention?.items[i];
+  if (!it) return;
+  const start = S.mention.start;
+  const tail = el.value.slice(el.selectionStart);
+  const token = `@${it.insert} `;
+  el.value = el.value.slice(0, start) + token + tail.replace(/^\S*/, '').replace(/^ /, '');
+  el.selectionStart = el.selectionEnd = start + token.length;
+  hideMentionMenu();
+  el.focus();
+  autoGrow();
+}
+
+// 菜单开着时，↑↓ 选、Enter / Tab 填进去、Esc 关掉；返回 true 表示这个按键被菜单用掉了
+function mentionKeydown(e) {
+  if (!S.mention || e.isComposing || e.keyCode === 229) return false;
+  const n = S.mention.items.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    S.mention.index = (S.mention.index + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+    updateMentionMenu();
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    pickMention(S.mention.index);
+  } else if (e.key === 'Escape') {
+    hideMentionMenu();
+  } else {
+    return false;
+  }
+  e.preventDefault();
+  return true;
+}
+
+// ---------------- 回复 ----------------
+
+function startReply(seq) {
+  const conv = currentConv();
+  const m = conv && (S.messages.get(conv.roomId) || []).find((x) => x.seq === seq);
+  if (!m) return;
+  S.replyTo = { seq: m.seq, from: m.from };
+  $('#reply-who').textContent = `回复 ${whoLabel(m.from)}`;
+  $('#reply-snippet').textContent = snippet(m);
+  // 回复某位 AI：只有它会回答（又 @ 了别人的话，就按 @ 的来）
+  const solo = conv.dm || conv.room.members.length < 2;
+  $('#reply-hint').textContent = m.from !== 'user' && !solo ? `只有 ${agentName(m.from)} 会回复` : '';
+  $('#reply-bar').hidden = false;
+  $('#input').focus();
+}
+
+function cancelReply() {
+  S.replyTo = null;
+  $('#reply-bar').hidden = true;
+}
+
+function jumpTo(seq) {
+  const el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
+  if (!el) return toast('原消息不在这个会话里了');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('flash');
+  void el.offsetWidth; // 重新触发闪一下的动画
+  el.classList.add('flash');
 }
 
 function insertMention(name) {
@@ -866,6 +1042,20 @@ async function pickFolder() {
   }
   const { path } = await api('POST', '/api/pick-folder');
   return path;
+}
+
+async function switchEffort(agent, id) {
+  const conv = currentConv();
+  if (!conv) return;
+  try {
+    const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { efforts: { ...conv.room.efforts, [agent]: id } });
+    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+    toast(`${agentName(agent)} 的思考强度换成了「${id ? EFFORT_LABEL[id] || id : '默认'}」，下一轮生效`);
+  } catch (err) {
+    toast(err.message);
+  }
+  $('#model-switch')._html = null;
+  renderShell();
 }
 
 // 自定义模型：先用一句话试一下能不能用，能用才换
@@ -990,12 +1180,23 @@ async function checkForUpdate(show = false) {
   } catch (err) {
     res = { ok: false, error: err.message };
   }
-  setUpdateDot(res.ok && res.behind > 0);
+  setUpdateDot(res.ok && (res.behind > 0 || res.needsRestart));
   if (!show) return;
   if (!res.ok) {
     status.innerHTML = `<span class="error">${esc(res.error)}</span>`;
     return;
   }
+  if (!res.behind && res.needsRestart) {
+    // 代码已经是新的了，只是还没重启
+    status.innerHTML = `<span class="new-text">新版本 ${esc(res.current)} 已经装好，重启 ClawChat 后生效</span>`;
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.textContent = '立即重启';
+    btn.dataset.mode = 'restart';
+    return;
+  }
+  btn.textContent = '立即升级';
+  btn.dataset.mode = 'update';
   if (!res.behind) {
     status.innerHTML = `<span class="ok-text">已是最新版本</span>`;
     return;
@@ -1018,6 +1219,18 @@ async function doUpdate() {
   }
   btn.dataset.armed = '';
   btn.disabled = true;
+  if (btn.dataset.mode === 'restart') {
+    btn.textContent = '正在重启…';
+    try {
+      await api('POST', '/api/app/restart');
+      showRestarting();
+    } catch (err) {
+      $('#update-status').innerHTML = `<span class="error">${esc(err.message)}</span>`;
+      btn.disabled = false;
+      btn.textContent = '立即重启';
+    }
+    return;
+  }
   btn.textContent = '正在升级…';
   $('#update-status').textContent = '正在从 GitHub 拉取最新代码…';
   try {
@@ -1065,8 +1278,20 @@ function formField(name) {
 
 function fillModelOptions(room) {
   const models = room?.models || S.defaults.models || {};
-  formField('modelClaude').outerHTML = modelSelectHtml('claude', models.claude, 'name="modelClaude"');
-  formField('modelGpt').outerHTML = modelSelectHtml('gpt', models.gpt, 'name="modelGpt"');
+  const efforts = room?.efforts || S.defaults.efforts || {};
+  formField('modelClaude').outerHTML = modelSelectHtml('claude', models.claude, 'name="modelClaude" data-pair="claude"');
+  formField('modelGpt').outerHTML = modelSelectHtml('gpt', models.gpt, 'name="modelGpt" data-pair="gpt"');
+  formField('effortClaude').outerHTML = effortSelectHtml('claude', models.claude, efforts.claude, 'name="effortClaude"');
+  formField('effortGpt').outerHTML = effortSelectHtml('gpt', models.gpt, efforts.gpt, 'name="effortGpt"');
+}
+
+// 设置弹窗里换了模型：思考强度的选项跟着换（新模型不支持原来的强度就退回默认）
+function refreshEffortField(agent) {
+  const name = agent === 'claude' ? 'effortClaude' : 'effortGpt';
+  const model = formField(agent === 'claude' ? 'modelClaude' : 'modelGpt').value;
+  const current = formField(name).value;
+  const keep = effortsFor(agent, model).includes(current) ? current : '';
+  formField(name).outerHTML = effortSelectHtml(agent, model, keep, `name="${name}"`);
 }
 
 async function switchModel(agent, id, custom = false) {
@@ -1137,6 +1362,7 @@ async function submitDialog(e) {
     collab: formField('collab').checked,
     maxAutoTurns: Number(formField('maxAutoTurns').value),
     models: { claude: formField('modelClaude').value, gpt: formField('modelGpt').value },
+    efforts: { claude: formField('effortClaude').value, gpt: formField('effortGpt').value },
   };
   const btn = $('#btn-save');
   btn.disabled = true;
@@ -1206,6 +1432,7 @@ function bind() {
   $('#room-form').addEventListener('submit', submitDialog);
   $('#room-form').addEventListener('change', (e) => {
     if (e.target.name === 'memberClaude' || e.target.name === 'memberGpt') syncMemberFields();
+    if (e.target.dataset.pair) refreshEffortField(e.target.dataset.pair);
   });
   $('#btn-pick').onclick = async () => {
     try {
@@ -1235,7 +1462,12 @@ function bind() {
     if (b && conv) openConv(`d:${conv.roomId}:${b.dataset.dm}`);
     const img = e.target.closest('img.zoomable');
     if (img) openLightbox(img.src);
+    const reply = e.target.closest('[data-reply]');
+    if (reply) startReply(Number(reply.dataset.reply));
+    const jump = e.target.closest('[data-jump]');
+    if (jump) jumpTo(Number(jump.dataset.jump));
   });
+  $('#btn-reply-cancel').onclick = cancelReply;
   $('#lightbox').onclick = closeLightbox;
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#lightbox').hidden) closeLightbox();
@@ -1273,6 +1505,8 @@ function bind() {
   $('#model-switch').addEventListener('change', (e) => {
     const sel = e.target.closest('select[data-agent]');
     if (sel) switchModel(sel.dataset.agent, sel.value);
+    const eff = e.target.closest('select[data-effort]');
+    if (eff) switchEffort(eff.dataset.effort, eff.value);
   });
   $('#room-folder').onclick = () => {
     const conv = currentConv();
@@ -1296,6 +1530,14 @@ function bind() {
     api('POST', `/api/rooms/${conv.roomId}/stop`, b.dataset.stop ? { agent: b.dataset.stop } : {}).catch((err) => toast(err.message));
   });
   $('#live').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-live-toggle]');
+    if (t) {
+      const k = t.dataset.liveToggle;
+      if (S.liveOpen.has(k)) S.liveOpen.delete(k);
+      else S.liveOpen.add(k);
+      renderLive();
+      return;
+    }
     const b = e.target.closest('.live-stop');
     const conv = currentConv();
     if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent }).catch((err) => toast(err.message));
@@ -1344,7 +1586,25 @@ function bind() {
   window.addEventListener('drop', (e) => e.preventDefault());
 
   input.addEventListener('input', autoGrow);
+  input.addEventListener('input', updateMentionMenu);
+  input.addEventListener('click', updateMentionMenu);
+  input.addEventListener('keyup', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu();
+  });
+  input.addEventListener('blur', () => setTimeout(hideMentionMenu, 150));
+  $('#mention-menu').addEventListener('mousedown', (e) => {
+    const item = e.target.closest('[data-mention-pick]');
+    if (!item) return;
+    e.preventDefault(); // 不让输入框失去焦点
+    pickMention(Number(item.dataset.mentionPick));
+  });
   input.addEventListener('keydown', (e) => {
+    if (mentionKeydown(e)) return;
+    if (e.key === 'Escape' && S.replyTo && !e.isComposing) {
+      e.preventDefault();
+      cancelReply();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       sendMessage();
