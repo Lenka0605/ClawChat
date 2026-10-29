@@ -495,7 +495,15 @@ async function api(req, res, url) {
         if (!target || target.from === 'system' || !sameConv) return send(res, 400, { error: '要回复的消息找不到了' });
         replyTo = { seq: target.seq, from: target.from, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
       }
-      hub.postUserMessage(room.id, text, images, dm, replyTo);
+      // 编辑：老板改了自己之前的一条消息，作为新消息发出去，并注明改的是哪条（大家已经看过原来那条了，没法真的改掉）
+      let editOf = null;
+      if (body.editOf !== undefined && body.editOf !== null) {
+        const target = store.getMessages(room.id)[Number(body.editOf)];
+        const sameConv = target && (target.dm || null) === (room.members.length > 1 ? dm : null);
+        if (!target || target.from !== 'user' || !sameConv) return send(res, 400, { error: '要修改的消息找不到了' });
+        editOf = { seq: target.seq, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
+      }
+      hub.postUserMessage(room.id, text, images, dm, replyTo, editOf);
       return send(res, 200, { ok: true });
     }
     if (sub === 'uploads' && !parts[3] && method === 'POST') return send(res, 201, await saveUpload(room, req));
@@ -536,7 +544,8 @@ async function api(req, res, url) {
     if (sub === 'reveal' && method === 'POST') {
       const file = roomFile(room, (await readBody(req)).path);
       if (!file) return send(res, 404, { error: '找不到这个文件，可能已经被移走或删掉了' });
-      revealPath(file);
+      if (fs.statSync(file).isDirectory()) openPath(file); // 文件夹直接打开，进到里面
+      else revealPath(file);
       return send(res, 200, { ok: true });
     }
     // 读本机的图片给缩略图用：只认 ClawChat 自己页面发来的请求（别的网站用 <img> 嵌进来时浏览器会标成跨站），只给图片

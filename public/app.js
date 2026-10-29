@@ -78,8 +78,11 @@ function applyTheme(mode) {
   };
   // 用「视图过渡」淡过去：只对新旧两张整页画面做一次交叉淡化，交给显卡合成，很流畅
   // （以前是让页面上每个元素各自做颜色过渡，元素一多就掉帧）。老系统不支持就直接切换
-  if (applyTheme.ready && document.startViewTransition && !reduceMotion()) document.startViewTransition(set);
-  else set();
+  // 过渡拍下的画面里没有背景模糊效果，半透明的顶栏、输入框会露出后面的字，所以过渡期间先把玻璃换成实色
+  if (applyTheme.ready && document.startViewTransition && !reduceMotion()) {
+    root.classList.add('theme-swap');
+    document.startViewTransition(set).finished.finally(() => root.classList.remove('theme-swap'));
+  } else set();
   applyTheme.ready = true;
   storeSet('clawchat.theme', mode);
   native({ type: 'theme', value: mode }); // 让窗口的毛玻璃和系统控件也跟着变
@@ -392,9 +395,13 @@ const FILE_EXT = 'png|jpe?g|gif|webp|bmp|heic|svg|psd|ai|fig|sketch|pdf|md|txt|j
 const FILE_RE = new RegExp(`^(?:~?/|\\.{1,2}/)?(?:[^\\s\`<>|*?"]+/)*[^\\s\`<>|*?"/]+\\.(?:${FILE_EXT}|[A-Za-z0-9]{1,6})$`, 'i');
 const KNOWN_EXT_RE = new RegExp(`\\.(?:${FILE_EXT})$`, 'i');
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
+// 文件夹：以 / 或 ~/ 开头、至少两级的绝对路径（比如 /Users/me/项目），或者以 / 结尾的相对路径（比如 output/）。
+// 不带扩展名的相对路径不算，免得把 fix/web-download 这种分支名也当成路径
+const ABS_PATH_RE = /^~?\/[^\s`<>|*?"]+\/[^\s`<>|*?"]*$/;
+const REL_DIR_RE = /^[^\s`<>|*?"/]+(?:\/[^\s`<>|*?"/]+)*\/$/;
 function looksLikeFile(s) {
   s = String(s || '').trim();
-  return FILE_RE.test(s) && (s.includes('/') || KNOWN_EXT_RE.test(s));
+  return (FILE_RE.test(s) && (s.includes('/') || KNOWN_EXT_RE.test(s))) || ABS_PATH_RE.test(s) || REL_DIR_RE.test(s);
 }
 
 function inline(s) {
@@ -727,6 +734,7 @@ function renderShell() {
   }
   const { room, dm } = conv;
   const group = room.members.length > 1;
+  setHtml($('#room-icon'), convAvatar(conv));
   $('#room-name').textContent = dm ? `${agentLabel(dm)}` : room.name;
   $('#room-count').textContent = dm ? '· 私聊' : group ? `(${room.members.length + 1})` : '';
   $('#room-from').textContent = dm ? `来自「${room.name}」` : '';
@@ -810,6 +818,12 @@ function imagesHtml(roomId, images) {
     .join('')}</div>`;
 }
 
+const svgIcon = (d, w = 15) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const COPY_ICON = svgIcon('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.6"/><path d="M15.5 8.5V6.6A2.6 2.6 0 0 0 12.9 4H6.6A2.6 2.6 0 0 0 4 6.6v6.3a2.6 2.6 0 0 0 2.6 2.6h1.9"/>');
+const COPIED_ICON = svgIcon('<path d="m5 12.5 4.5 4.5L19 7.5"/>');
+const EDIT_ICON = svgIcon('<path d="M14.5 5.5 18.5 9.5"/><path d="M4 20l1-4.6L15.6 4.8a2 2 0 0 1 2.8 0l.8.8a2 2 0 0 1 0 2.8L8.6 19 4 20z"/>');
+const SPEAK_ICON = svgIcon('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>');
+const STOP_SPEAK_ICON = svgIcon('<rect x="6.5" y="6.5" width="11" height="11" rx="2.2" fill="currentColor" stroke="none"/>');
 const REPLY_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
 
@@ -834,11 +848,24 @@ function messageHtml(roomId, m, prev, conv) {
   }
   const d = new Date(m.ts);
   const full = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const replyBtn = `<button class="reply-btn" data-reply="${m.seq}" title="回复这条">${REPLY_ICON}</button><time class="msg-time" datetime="${new Date(m.ts).toISOString()}" title="${full}">${fmtExact(m.ts)}</time>`;
+  const time = `<time class="msg-time" datetime="${d.toISOString()}" title="${full}">${fmtExact(m.ts)}</time>`;
+  const act = (attr, title, icon) => `<button class="act-btn" ${attr} title="${title}" aria-label="${title}">${icon}</button>`;
+  const copyBtn = m.text ? act(`data-copy="${m.seq}"`, '复制', COPY_ICON) : '';
+  const replyBtn = act(`data-reply="${m.seq}"`, '回复这条', REPLY_ICON);
   if (m.from === 'user') {
+    if (S.editMsg?.roomId === roomId && S.editMsg.seq === m.seq) {
+      return `${sep}<div class="msg user editing" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body"><div class="edit-box">
+        <textarea class="edit-input" rows="1" aria-label="修改这条消息">${esc(S.editMsg.text)}</textarea>
+        <div class="edit-actions"><span class="edit-hint">改好后会作为新消息发出，大家会知道你改了哪条</span><button class="secondary" data-edit-cancel>取消</button><button class="primary" data-edit-send>发送</button></div>
+      </div></div></div>`;
+    }
     const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
     const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
-    return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${quote}${imagesHtml(roomId, m.images)}${text}${replyBtn}</div></div>`;
+    const edited = m.editOf
+      ? `<button class="quote edit-quote" data-jump="${m.editOf.seq}" title="跳到原消息"><b>修改了</b><span>${esc(String(m.editOf.text || '').replace(/\s+/g, ' '))}</span></button>`
+      : '';
+    const actions = `<div class="msg-actions">${time}${copyBtn}${act(`data-edit="${m.seq}"`, '编辑', EDIT_ICON)}${replyBtn}</div>`;
+    return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${edited}${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
   }
   const dur = m.durationMs ? `用时 ${fmtDur(m.durationMs)}` : '';
   const foot = m.steps?.length
@@ -849,9 +876,14 @@ function messageHtml(roomId, m, prev, conv) {
   const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? `思考 ${EFFORT_LABEL[m.effort] || m.effort}` : ''].filter(Boolean).join(' · ');
   const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
   const sideTag = m.side ? '<span class="side-tag" title="本体当时在群里忙，这条是分身先回的">分身</span>' : '';
+  const speaking = S.speaking?.roomId === roomId && S.speaking.seq === m.seq;
+  const speakBtn = m.text && HAS_SPEECH
+    ? act(`data-speak="${m.seq}" class="act-btn${speaking ? ' on' : ''}"`, speaking ? '停止朗读' : '朗读', speaking ? STOP_SPEAK_ICON : SPEAK_ICON)
+    : '';
+  const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${replyBtn}${time}</div>`;
   return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
     m.text,
-  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${replyBtn}</div></div>`;
+  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
 }
 
 function convMessages(conv) {
@@ -862,7 +894,148 @@ function renderMessages() {
   const conv = currentConv();
   if (!conv) return;
   const list = convMessages(conv);
+  const typing = document.activeElement?.classList.contains('edit-input');
   $('#messages').innerHTML = list.map((m, i) => messageHtml(conv.roomId, m, list[i - 1], conv)).join('');
+  const ta = document.querySelector('.edit-input');
+  if (ta) {
+    fitEditor(ta);
+    if (typing || S.editMsg.focus) {
+      S.editMsg.focus = false;
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(S.editMsg.sel, S.editMsg.sel);
+    }
+  }
+}
+
+// ---------------- 消息上的操作：复制、编辑、朗读 ----------------
+
+function findMessage(seq) {
+  const conv = currentConv();
+  return conv ? (S.messages.get(conv.roomId) || []).find((m) => m.seq === seq) : null;
+}
+
+async function copyMessage(seq, btn) {
+  const text = String(findMessage(seq)?.text || '').replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@');
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // 老系统不让用剪贴板接口：退回到选中再复制
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.append(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  btn.innerHTML = COPIED_ICON;
+  btn.title = '已复制';
+  setTimeout(() => {
+    btn.innerHTML = COPY_ICON;
+    btn.title = '复制';
+  }, 1500);
+}
+
+function fitEditor(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = `${Math.min(ta.scrollHeight, 320)}px`;
+}
+
+function startEdit(seq) {
+  const m = findMessage(seq);
+  if (!m) return;
+  const text = m.text || '';
+  S.editMsg = { roomId: currentConv().roomId, seq, text, sel: text.length, focus: true };
+  renderMessages();
+}
+
+function cancelEdit() {
+  S.editMsg = null;
+  renderMessages();
+}
+
+// 改好的消息作为新消息发出去，注明改的是哪条（原来的图片、回复的哪条都带上）
+async function sendEdit() {
+  const ed = S.editMsg;
+  const conv = currentConv();
+  const m = ed && findMessage(ed.seq);
+  if (!m || !conv) return;
+  const text = ed.text.replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').trim();
+  if (!text && !m.images?.length) return toast('消息是空的');
+  if (text === String(m.text || '').trim()) return cancelEdit(); // 没改
+  S.editMsg = null;
+  renderMessages();
+  try {
+    await api('POST', `/api/rooms/${conv.roomId}/messages`, {
+      text,
+      images: (m.images || []).map((i) => i.id),
+      dm: conv.dm || undefined,
+      replyTo: m.replyTo?.seq,
+      editOf: m.seq,
+    });
+  } catch (err) {
+    S.editMsg = { ...ed, focus: true };
+    renderMessages();
+    toast(err.message);
+  }
+}
+
+// 朗读：用系统自带的语音（Mac 上和「朗读」功能同一套声音），有中文就挑中文语音
+const HAS_SPEECH = 'speechSynthesis' in window;
+
+// 朗读前把 Markdown 收拾成平常说话的文字：代码不念，链接只念文字
+function speechText(src) {
+  return String(src || '')
+    .replace(/```[\s\S]*?```/g, '（这里有一段代码）')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!?\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, '链接')
+    .replace(/^\s{0,3}(#{1,6}|[-*+]|\d+\.|>)\s+/gm, '')
+    .replace(/\*\*|__|~~|\|/g, ' ')
+    .replace(/<\/?私聊老板>/g, '');
+}
+
+function pickVoice(lang) {
+  const voices = speechSynthesis.getVoices().filter((v) => v.lang.replace('_', '-').toLowerCase().startsWith(lang));
+  const best = (v) => (/premium|enhanced|高级|优化/i.test(v.name) ? 2 : 0) + (v.lang.replace('_', '-').toLowerCase() === 'zh-cn' ? 1 : 0);
+  return voices.sort((a, b) => best(b) - best(a))[0] || null;
+}
+
+function stopSpeaking() {
+  if (!HAS_SPEECH) return;
+  S.speaking = null;
+  speechSynthesis.cancel();
+}
+
+function toggleSpeak(seq) {
+  const conv = currentConv();
+  const m = findMessage(seq);
+  if (!conv || !m) return;
+  const same = S.speaking?.roomId === conv.roomId && S.speaking.seq === seq;
+  stopSpeaking();
+  if (same) return renderMessages();
+  const text = speechText(m.text);
+  const zh = /[\u4e00-\u9fff]/.test(text);
+  const voice = pickVoice(zh ? 'zh' : 'en');
+  // 按句子切成小段排队念：一口气念太长，有的浏览器念到一半会自己停掉
+  const parts = text.match(/[^。！？!?\n]+[。！？!?\n]*|[。！？!?\n]+/g)?.map((s) => s.trim()).filter(Boolean) || [];
+  if (!parts.length) return;
+  const token = { roomId: conv.roomId, seq };
+  S.speaking = token;
+  parts.forEach((part, i) => {
+    const u = new SpeechSynthesisUtterance(part);
+    u.lang = voice?.lang || (zh ? 'zh-CN' : 'en-US');
+    if (voice) u.voice = voice;
+    if (i === parts.length - 1) {
+      u.onend = u.onerror = () => {
+        if (S.speaking !== token) return;
+        S.speaking = null;
+        renderMessages();
+      };
+    }
+    speechSynthesis.speak(u);
+  });
+  renderMessages();
 }
 
 function liveKey(r) {
@@ -1704,8 +1877,40 @@ async function openSettings(tab = 'general') {
 }
 window.__clawchatOpenSettings = (tab) => openSettings(tab || 'general');
 
-function setUpdateDot(on) {
-  document.querySelectorAll('.update-dot').forEach((d) => (d.hidden = !on));
+// 有新版本（或者新版本已经下载好、等重启）：左下角「设置」右边亮出更新按钮（仿 ChatGPT）
+function setUpdateDot(on, res = null) {
+  S.update = on ? res : null;
+  document.querySelectorAll('i.update-dot').forEach((d) => (d.hidden = !on)); // 设置里「软件更新」那一页的小红点
+  const badge = $('#btn-update-badge');
+  badge.hidden = !on;
+  if (on) badge.title = res?.behind ? `有新版本 ${res.latest || ''}，点这里更新` : '新版本已经下载好，点这里重启生效';
+}
+
+async function updateFromBadge() {
+  const res = S.update;
+  if (!res) return;
+  if (res.dirty) return toast('本地有没提交的改动，先处理掉才能升级', 5000);
+  const restartOnly = !res.behind && res.needsRestart;
+  const busy = S.runs.length;
+  const changes = (res.changes || []).slice(0, 4).map((c) => `· ${c.subject}`).join('\n');
+  const ok = await askConfirm({
+    title: restartOnly ? '新版本已经下载好' : `有新版本 ${res.latest || ''}`,
+    text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? '重启 ClawChat 后生效。' : '会从 GitHub 拉取最新代码，然后自动重启。'}聊天记录和记忆都不受影响${busy ? `；现在有 ${busy} 位正在干活，重启后会提示你接着做` : ''}。`,
+    ok: restartOnly ? '立即重启' : '更新并重启',
+  });
+  if (!ok) return;
+  try {
+    if (restartOnly) await api('POST', '/api/app/restart');
+    else {
+      toast('正在从 GitHub 拉取最新代码…', 20000);
+      const r = await api('POST', '/api/app/update');
+      if (!r.ok) throw new Error(r.error);
+      if (!r.updated) return toast('已经是最新版');
+    }
+    showRestarting();
+  } catch (err) {
+    toast(err.message, 5000);
+  }
 }
 
 // 检查更新：show=true 时把结果显示在设置页里；启动时也会悄悄查一次，有新版就在「设置」上亮个小点
@@ -1725,7 +1930,7 @@ async function checkForUpdate(show = false) {
   } catch (err) {
     res = { ok: false, error: err.message };
   }
-  setUpdateDot(res.ok && (res.behind > 0 || res.needsRestart));
+  setUpdateDot(res.ok && (res.behind > 0 || res.needsRestart), res);
   if (!show) return;
   if (!res.ok) {
     status.innerHTML = `<span class="error">${esc(res.error)}</span>`;
@@ -1904,6 +2109,17 @@ function refreshEngines(force = false) {
   api('POST', '/api/engines/refresh').catch(() => {}); // 有变化会通过事件推回来
 }
 
+// 群设置里的下拉框做成 macOS 的弹出按钮：带框，宽度刚好包住选中的字（原生下拉框默认按最长的选项算宽度）
+const measureCtx = document.createElement('canvas').getContext('2d');
+function fitSelects(root = $('#dlg-room')) {
+  root.querySelectorAll('.group-box select').forEach((sel) => {
+    const cs = getComputedStyle(sel);
+    measureCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const w = measureCtx.measureText(sel.selectedOptions[0]?.textContent || '').width;
+    sel.style.width = `${Math.ceil(w + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2)}px`;
+  });
+}
+
 function formField(name) {
   return $('#room-form').elements.namedItem(name);
 }
@@ -1920,6 +2136,7 @@ function fillModelOptions(room) {
   }
   formField('fastGpt').value = room?.fast?.gpt ? '1' : '';
   refreshSpeedField();
+  fitSelects();
 }
 
 // 群设置里单独的「速度」分区：ChatGPT 在群里、当前模型支持快速模式才显示
@@ -2106,8 +2323,12 @@ function bind() {
     if (e.target.dataset.pair) refreshEffortField(e.target.dataset.pair);
     if (e.target.dataset.pair === 'gpt') refreshSpeedField();
     if (e.target.name === 'fastGpt' && e.target.value === '1') {
-      confirmFast(fastSpeed('gpt', formField('modelGpt').value)).then((yes) => yes || (e.target.value = ''));
+      confirmFast(fastSpeed('gpt', formField('modelGpt').value)).then((yes) => {
+        if (!yes) e.target.value = '';
+        fitSelects();
+      });
     }
+    if (e.target.tagName === 'SELECT') fitSelects();
   });
   $('#btn-pick').onclick = async () => {
     try {
@@ -2147,12 +2368,21 @@ function bind() {
     if (img) openLightbox(img.src);
     const reply = e.target.closest('[data-reply]');
     if (reply) startReply(Number(reply.dataset.reply));
+    const copy = e.target.closest('[data-copy]');
+    if (copy) copyMessage(Number(copy.dataset.copy), copy);
+    const edit = e.target.closest('[data-edit]');
+    if (edit) startEdit(Number(edit.dataset.edit));
+    if (e.target.closest('[data-edit-cancel]')) cancelEdit();
+    if (e.target.closest('[data-edit-send]')) sendEdit();
+    const speak = e.target.closest('[data-speak]');
+    if (speak) toggleSpeak(Number(speak.dataset.speak));
     const jump = e.target.closest('[data-jump]');
     if (jump) jumpTo(Number(jump.dataset.jump));
     const fresh = e.target.closest('[data-fresh]');
     if (fresh) freshAgent(fresh.dataset.fresh, fresh, $('#dlg-room').open ? S.editing : currentConv()?.roomId);
   });
   $('#btn-reply-cancel').onclick = cancelReply;
+  $('#btn-update-badge').onclick = updateFromBadge;
   $('#lightbox').onclick = closeLightbox;
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#lightbox').hidden) closeLightbox();
@@ -2210,6 +2440,27 @@ function bind() {
     closeModelMenu();
     if (!again) openModelMenu(chip.dataset.menu, chip);
   });
+  // 编辑框：打字时记下内容和光标（消息列表重画后能接着改），Enter 发送、Shift+Enter 换行、Esc 取消
+  $('#messages').addEventListener('input', (e) => {
+    if (!e.target.classList.contains('edit-input') || !S.editMsg) return;
+    S.editMsg.text = e.target.value;
+    S.editMsg.sel = e.target.selectionStart;
+    fitEditor(e.target);
+  });
+  $('#messages').addEventListener('keyup', (e) => {
+    if (e.target.classList.contains('edit-input') && S.editMsg) S.editMsg.sel = e.target.selectionStart;
+  });
+  $('#messages').addEventListener('keydown', (e) => {
+    if (!e.target.classList.contains('edit-input') || e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelEdit();
+    }
+  });
   $('#messages').addEventListener('mouseover', (e) => {
     const ref = e.target.closest('.file-ref');
     if (ref && !ref.contains(e.relatedTarget)) showFilePreview(ref);
@@ -2226,6 +2477,10 @@ function bind() {
     revealFile(ref.dataset.path);
   });
   $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
+  // 图片是慢慢加载的，加载完会把消息撑高：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
+  let pinned = true;
+  $('#scroller').addEventListener('scroll', () => (pinned = nearBottom()), { passive: true });
+  $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && pinned && scrollToBottom(), true);
   $('#model-menu').addEventListener('click', (e) => {
     const item = e.target.closest('.menu-item');
     if (item) pickFromMenu(item);
@@ -2419,9 +2674,9 @@ async function init() {
   if (first) openConv(first);
   else renderShell();
   connect();
-  // 启动后悄悄查一次有没有新版本，之后每 6 小时查一次
+  // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);
-  setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000);
+  setInterval(() => checkForUpdate(false), 60 * 60 * 1000);
 }
 
 init();

@@ -389,6 +389,21 @@ test('回复 GPT 的消息：只有 GPT 回答，而且知道是在回它哪句�
   assert.match(calls.at(-1).prompt, /回复ChatGPT的「gpt 收到」/);
 });
 
+test('老板编辑了自己的消息：作为新消息发出，大家看得到改的是哪条、以新的为准', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => `${agent} 收到`);
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@Claude 把海报改成蓝色');
+  await settle(hub);
+  const orig = store.getMessages(room.id).find((m) => m.text === '@Claude 把海报改成蓝色');
+  hub.postUserMessage(room.id, '@Claude 把海报改成绿色', [], null, null, { seq: orig.seq, text: orig.text });
+  await settle(hub);
+  assert.equal(calls.at(-1).agent, 'claude');
+  assert.match(calls.at(-1).prompt, /老板，修改了自己之前那条「@Claude 把海报改成蓝色」，以这条为准\] @Claude 把海报改成绿色/);
+  assert.equal(store.getMessages(room.id).at(-2).editOf.seq, orig.seq);
+});
+
 test('本体在群里忙时私聊它：分身马上回；本体干完后看到分身聊了什么', async () => {
   const store = new Store();
   const { run, calls } = heldRunner();

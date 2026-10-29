@@ -34,7 +34,7 @@
   --fast: #e68600;
   /* Liquid Glass：半透明 + 背景模糊 + 顶部一道高光边 */
   --glass: rgba(255, 255, 255, 0.6);
-  --glass-strong: rgba(252, 252, 253, 0.74);
+  --glass-strong: rgba(252, 252, 253, 0.8);
   --glass-blur: blur(24px) saturate(180%);
   --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.07);
@@ -85,7 +85,7 @@
     --menu-bg: rgba(44, 44, 46, 0.94);
     --fast: #ffb340;
     --glass: rgba(50, 50, 52, 0.55);
-    --glass-strong: rgba(34, 34, 36, 0.72);
+    --glass-strong: rgba(34, 34, 36, 0.78);
     --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
     --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
     --sheet-glass: rgba(36, 36, 38, 0.84);
@@ -130,7 +130,7 @@
   --menu-bg: rgba(44, 44, 46, 0.94);
   --fast: #ffb340;
   --glass: rgba(50, 50, 52, 0.55);
-  --glass-strong: rgba(34, 34, 36, 0.72);
+  --glass-strong: rgba(34, 34, 36, 0.78);
   --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
   --sheet-glass: rgba(36, 36, 38, 0.84);
@@ -375,7 +375,8 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 .dm-entry .avatar { width: 24px; height: 24px; }
 
 #scroller { flex: 1; overflow-y: auto; padding: calc(var(--head-h, 52px) + 14px) 20px calc(var(--composer-h, 96px) + 8px); min-height: 0; -webkit-user-select: text; user-select: text; }
-.msg { display: flex; gap: 8px; margin: 0 0 12px; align-items: flex-start; }
+.msg { display: flex; gap: 8px; margin: 0 0 4px; align-items: flex-start; }
+.msg.live { margin-bottom: 12px; }
 .msg.user { justify-content: flex-end; }
 .msg.user > .avatar { display: none; }
 .msg-body { max-width: min(70%, 680px); min-width: 0; display: flex; flex-direction: column; }
@@ -784,25 +785,7 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .about-agents .avatar { width: 28px; height: 28px; }
 
 /* ---------- 回复 ---------- */
-/* 鼠标移到消息上，气泡旁边出现「回复」小按钮（AI 的在右边，自己的在左边） */
 .msg-body { position: relative; }
-.reply-btn {
-  position: absolute; bottom: 2px; width: 26px; height: 26px; border-radius: 50%; border: 0; padding: 0;
-  display: grid; place-items: center; background: var(--fill); color: var(--muted); opacity: 0; transition: opacity 0.12s;
-}
-.msg.agent .reply-btn { right: -34px; }
-.msg.user .reply-btn { left: -34px; }
-.msg:hover .reply-btn, .reply-btn:focus-visible { opacity: 1; }
-.reply-btn:hover { background: var(--fill-hover); color: var(--accent); }
-.msg.live .reply-btn { display: none; }
-/* 发送时间：和回复按钮一起出现，在它外侧 */
-.msg-time {
-  position: absolute; bottom: 7px; font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
-  opacity: 0; transition: opacity 0.12s; pointer-events: none;
-}
-.msg.agent .msg-time { left: calc(100% + 42px); }
-.msg.user .msg-time { right: calc(100% + 42px); }
-.msg:hover .msg-time { opacity: 1; }
 /* 引用的原话：气泡上方一小块，点一下跳回原消息 */
 .quote {
   border: 0; display: flex; gap: 6px; align-items: baseline; max-width: 100%; margin: 0 0 3px; padding: 4px 10px;
@@ -834,8 +817,12 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .model-pair { display: inline-flex; align-items: center; gap: 6px; }
 .model-pair select { max-width: 200px; }
 .pair-sep { font-size: 11px; color: var(--muted); padding-left: 6px; border-left: 0.5px solid var(--line); }
-/* 下拉框比选中的字宽时，字靠右、贴着右边的箭头 */
-.group-box select { text-align: right; text-align-last: right; }
+/* 群设置里的下拉框：和「轮数」输入框一样带框，宽度刚好包住选中的字（app.js 的 fitSelects） */
+.group-box select {
+  height: 24px; padding: 0 22px 0 9px; border: 0.5px solid var(--faint); border-radius: 6px; background-color: var(--field);
+  background-position: right 7px center; max-width: 220px;
+}
+.group-box select:hover { border-color: var(--muted); }
 /* 文件路径：点一下在访达中显示；图片悬停时弹出缩略图 */
 .file-ref { cursor: pointer; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
 .file-ref:hover { color: var(--accent); text-decoration-color: var(--accent); }
@@ -850,6 +837,59 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   background: repeating-conic-gradient(var(--fill) 0% 25%, transparent 0% 50%) 50% / 16px 16px; /* 透明图片底下的棋盘格 */
 }
 .fp-name { font-size: 11px; color: var(--muted); padding: 0 4px 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 消息下面的一排操作（仿 ChatGPT）：鼠标移到消息上才出现 */
+.msg-actions { display: flex; align-items: center; gap: 1px; height: 26px; margin-top: 2px; opacity: 0; transition: opacity 0.12s; }
+.msg.user .msg-actions { justify-content: flex-end; }
+.msg:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg-actions .msg-time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; padding: 0 6px; white-space: nowrap; }
+.act-btn {
+  width: 26px; height: 26px; border: 0; padding: 0; border-radius: 7px; background: none; color: var(--muted);
+  display: grid; place-items: center; flex: none;
+}
+.act-btn:hover { background: var(--fill); color: var(--text); }
+.act-btn.on { color: var(--accent); }
+/* 就地编辑自己的消息 */
+.msg.user.editing .msg-body { width: min(560px, 100%); max-width: 100%; }
+.edit-box {
+  width: 100%; border-radius: 18px; padding: 10px 12px 10px 14px; background: var(--fill);
+  box-shadow: inset 0 0 0 0.5px var(--line); display: grid; gap: 8px;
+}
+.edit-input {
+  width: 100%; resize: none; border: 0; background: none; outline: none; font-size: 14px; line-height: 1.45; color: var(--text); padding: 0;
+  -webkit-user-select: text; user-select: text;
+}
+.edit-input:focus-visible { box-shadow: none; }
+.edit-box:focus-within { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.edit-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.edit-actions button { height: 28px; padding: 0 14px; border-radius: 14px; font-size: 13px; }
+.edit-hint { margin-right: auto; font-size: 11px; color: var(--muted); }
+.edit-quote b { color: var(--muted); }
+
+/* 顶栏标题前的图标：群聊是成员叠在一起，私聊是对方的头像 */
+.room-icon { flex: none; width: 32px; height: 32px; position: relative; }
+.room-icon .conv-avatar, .room-icon .conv-avatar > .avatar { width: 32px; height: 32px; }
+.room-icon .conv-avatar.stack .avatar { width: 22px; height: 22px; box-shadow: 0 0 0 1.5px var(--bg); }
+.room-icon .conv-avatar.stack.three .avatar { width: 18px; height: 18px; }
+.room-icon .conv-avatar.stack.three .avatar:last-child { left: 7px; }
+
+/* 有新版本时「设置」右边的更新按钮（仿 ChatGPT） */
+.side-foot { display: flex; align-items: center; gap: 6px; }
+.side-foot .side-settings { flex: 1; min-width: 0; }
+.update-badge {
+  width: 26px; height: 26px; border-radius: 50%; border: 0; padding: 0; flex: none; display: grid; place-items: center;
+  background: var(--accent); color: #fff; box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45), 0 2px 8px rgba(0, 122, 255, 0.35);
+  animation: badge-in 0.4s var(--spring);
+}
+.update-badge:hover { background: var(--accent-hover); }
+@keyframes badge-in { from { transform: scale(0.4); opacity: 0; } }
+
+/* 切换外观的过渡期间：玻璃先换成实色（app.js 的 applyTheme） */
+/* 系统不支持背景模糊（比如关了显卡加速的 Windows）：玻璃直接用实色，免得后面的字透出来 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root:root:root { --glass: var(--bg); --glass-strong: var(--bg); --menu-bg: var(--sheet); --sheet-glass: var(--sheet); }
+}
+:root.theme-swap.theme-swap { --glass: var(--bg); --glass-strong: var(--bg); --menu-bg: var(--sheet); --sheet-glass: var(--sheet); }
+
 .confirm-text { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-line; max-width: 380px; }
 
 /* ---------- 过程（干完的和正在干的共用） ---------- */
@@ -966,8 +1006,6 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 .reply-bar:not([hidden]), .attachments:not([hidden]) { animation: rise 0.2s var(--ease); }
 .att.enter { animation: popIn 0.22s var(--spring); }
 .mention-menu:not([hidden]) { animation: popIn 0.18s var(--spring); transform-origin: 10% 100%; }
-.reply-btn { transition: opacity 0.15s var(--ease), background-color 0.15s, color 0.15s, transform 0.15s var(--ease); transform: scale(0.85); }
-.msg:hover .reply-btn, .reply-btn:focus-visible { transform: none; }
 
 /* 提示框、看大图、拖图片进来时的覆盖层 */
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0); } }
