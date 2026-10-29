@@ -647,7 +647,7 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 .welcome-avatars { display: flex; justify-content: center; }
 .welcome-avatars .avatar { width: 64px; height: 64px; box-shadow: 0 0 0 3px var(--bg); }
 .welcome-avatars .avatar + .avatar { margin-left: -14px; }
-.welcome-solo { margin-top: 14px; font-size: 12px; color: var(--muted); }
+.welcome-solo { margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 2.1; }
 .welcome-engines { margin-top: 26px; font-size: 11px; color: var(--muted); display: grid; gap: 2px; justify-items: center; }
 
 /* ---------- 对话框（macOS 表单风格：标题和按钮固定，中间滚动） ---------- */
