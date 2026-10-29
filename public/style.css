@@ -855,3 +855,9 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
 .hint.warn-text { color: var(--warn); }
 .quit-screen { height: 100%; display: grid; place-content: center; text-align: center; color: var(--muted); }
 .quit-screen h2 { color: var(--text); font-size: 20px; margin: 0 0 6px; }
+
+/* 好一阵没有动静：提示可能卡住了 */
+.live-idle { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 159, 10, 0.14); color: var(--warn); font-size: 12px; line-height: 1.45; }
+.live-idle span { flex: 1; }
+.live-fresh { flex: none; border: 0; border-radius: 6px; padding: 3px 9px; background: var(--warn); color: #fff; font-size: 12px; font-weight: 500; }
+.live-fresh:disabled { opacity: 0.5; }

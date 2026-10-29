@@ -451,6 +451,12 @@ async function api(req, res, url) {
       hub.stop(room.id, AGENTS[agent] ? agent : undefined, ['side', 'main'].includes(only) ? only : null);
       return send(res, 200, { ok: true });
     }
+    // 卡住了：换一个新会话，带上最近的聊天记录把这一轮重来
+    if (sub === 'fresh' && method === 'POST') {
+      const { agent } = await readBody(req);
+      if (!AGENTS[agent] || !hub.restartFresh(room.id, agent)) return send(res, 409, { error: '它现在没在干活' });
+      return send(res, 200, { ok: true });
+    }
     if (sub === 'open-folder' && method === 'POST') {
       openPath(room.cwd);
       return send(res, 200, { ok: true });

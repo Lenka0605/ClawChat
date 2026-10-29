@@ -15,6 +15,7 @@ const S = {
   early: new Map(), // 消息列表还没加载完时收到的新消息
   runs: [],
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
+  liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
   liveOpen: new Set(), // 展开了过程的那几个
   liveSeen: new Set(), // 已经播过进场动画的「正在干活」气泡
   replyTo: null, // 正在回复哪条消息
@@ -676,6 +677,30 @@ function convRuns(conv) {
   return S.runs.filter((r) => r.roomId === conv.roomId && (conv.dm ? r.dm && r.agent === conv.dm : !r.dm));
 }
 
+const IDLE_WARN = 2 * 60 * 1000; // 这么久没有任何动静，就提示可能卡住了
+
+// 「可能卡住了」的提示：本体可以换新会话重来，分身只能停止
+function idleText(r, key) {
+  const idle = Date.now() - (S.liveAt.get(key) || r.startedAt);
+  if (idle < IDLE_WARN) return '';
+  const last = (S.live.get(key) || []).at(-1);
+  const waiting = last?.kind === 'run' ? '它可能还在等一条命令跑完；' : '';
+  return r.side
+    ? `分身已经 ${fmtDur(idle)} 没有任何动静了，${waiting}一直这样的话可以点「停止」。`
+    : `已经 ${fmtDur(idle)} 没有任何动静了。${waiting}一直这样的话多半是卡住了（比如会话里的大图太多），可以点「换新会话重来」，它会带上最近的聊天记录重新开始。`;
+}
+
+function updateIdle() {
+  for (const r of S.runs) {
+    const key = liveKey(r);
+    const box = document.querySelector(`[data-idle="${CSS.escape(key)}"]`);
+    if (!box) continue;
+    const text = idleText(r, key);
+    box.hidden = !text;
+    if (text) box.firstElementChild.textContent = text;
+  }
+}
+
 function renderLive() {
   const conv = currentConv();
   const runs = conv ? convRuns(conv) : [];
@@ -696,6 +721,9 @@ function renderLive() {
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
+        <div class="live-idle" data-idle="${esc(key)}"${idleText(r, key) ? '' : ' hidden'}><span>${esc(idleText(r, key))}</span>${
+          r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">换新会话重来</button>`
+        }</div>
         ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
@@ -754,8 +782,10 @@ function setRuns(runs) {
   for (const k of [...S.live.keys()]) if (!keys.has(k)) S.live.delete(k);
   for (const k of [...S.liveOpen]) if (!keys.has(k)) S.liveOpen.delete(k);
   for (const k of [...S.liveSeen]) if (!keys.has(k)) S.liveSeen.delete(k);
+  for (const k of [...S.liveAt.keys()]) if (!keys.has(k)) S.liveAt.delete(k);
   for (const r of runs) {
     const k = liveKey(r);
+    S.liveAt.set(k, Math.max(S.liveAt.get(k) || 0, r.lastEventAt || r.startedAt));
     if ((r.steps?.length || 0) > (S.live.get(k)?.length || 0)) S.live.set(k, [...r.steps]);
     else if (!S.live.has(k)) S.live.set(k, []);
   }
@@ -840,6 +870,7 @@ function handleEvent(ev) {
       arr.push(ev.step);
       if (arr.length > 300) arr.splice(0, arr.length - 300);
       S.live.set(k, arr);
+      S.liveAt.set(k, Date.now());
       if (currentConv()?.roomId === ev.roomId) keepBottom(renderLive);
       break;
     }
@@ -865,6 +896,10 @@ function handleEvent(ev) {
       break;
     case 'quitting':
       showQuit();
+      break;
+    case 'activity':
+      S.liveAt.set(liveKey(ev), ev.at);
+      updateIdle();
       break;
   }
 }
@@ -1765,6 +1800,11 @@ function bind() {
     const b = e.target.closest('.live-stop');
     const conv = currentConv();
     if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent, only: b.dataset.only }).catch((err) => toast(err.message));
+    const fresh = e.target.closest('.live-fresh');
+    if (fresh && conv) {
+      fresh.disabled = true;
+      api('POST', `/api/rooms/${conv.roomId}/fresh`, { agent: fresh.dataset.agent }).catch((err) => toast(err.message));
+    }
   });
   document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention)));
 
@@ -1844,6 +1884,7 @@ function bind() {
   });
   setInterval(() => {
     document.querySelectorAll('.elapsed').forEach((el) => (el.textContent = fmtDur(Date.now() - Number(el.dataset.start))));
+    updateIdle();
   }, 1000);
 }
 

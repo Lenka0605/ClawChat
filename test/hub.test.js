@@ -482,3 +482,92 @@ test('单聊：没有 @ 规则，消息只发给这一位', async () => {
   assert.equal(calls[0].images.length, 1);
   assert.doesNotMatch(calls[0].prompt, /私聊老板/);
 });
+
+test('分身卡住时，群里的新消息照样马上开工；分身正在回的私聊会标出来，不会回两遍', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  // 老板现场：GPT 在群里干活 → 私聊问它卡了没（分身开工）→ 停掉本体 → 换模型后在群里再叫它
+  hub.postUserMessage(room.id, '@GPT 根据Claude的要求继续做');
+  await tick();
+  hub.postUserMessage(room.id, '你卡了吗？', [], 'gpt');
+  await tick();
+  const sideCall = calls.at(-1);
+  assert.equal(sideCall.side, true);
+  hub.stop(room.id, 'gpt', 'main');
+  await tick();
+  hub.postUserMessage(room.id, '@GPT 根据Claude的要求继续做');
+  await tick();
+  const mainCall = calls.at(-1);
+  assert.equal(mainCall.side, false); // 不用等卡住的分身，本体已经开工
+  assert.match(mainCall.prompt, /老板（私聊你，你的分身正在回）\] 你卡了吗/);
+  assert.match(mainCall.prompt, /这一轮不用回/);
+  assert.doesNotMatch(mainCall.prompt, /回应那部分请写在 <私聊老板>/);
+  mainCall.finish('好的，继续做');
+  sideCall.finish('没卡，在等图片生成');
+  await settle(hub);
+  const gptMsgs = store.getMessages(room.id).filter((m) => m.from === 'gpt');
+  assert.deepEqual(gptMsgs.map((m) => [m.text, !!m.dm]), [['好的，继续做', false], ['没卡，在等图片生成', true]]);
+  hub.stop(room.id);
+  await settle(hub);
+});
+
+test('分身在回私聊、本体空着时，只有新私聊不会叫醒本体，等分身回完再一起处理', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@GPT 干活');
+  await tick();
+  hub.postUserMessage(room.id, '进度？', [], 'gpt');
+  await tick();
+  const [mainCall, sideCall] = calls;
+  mainCall.finish('干完了');
+  await tick();
+  assert.equal(calls.length, 2); // 分身还在回「进度？」，本体没有别的活，不开新回合
+  hub.postUserMessage(room.id, '还有一件事', [], 'gpt');
+  await tick();
+  assert.equal(calls.length, 2);
+  sideCall.finish('快好了');
+  await tick();
+  const sync = calls.at(-1);
+  assert.equal(sync.side, false);
+  assert.match(sync.prompt, /你的分身（私聊老板）\] 快好了/);
+  assert.match(sync.prompt, /老板（私聊你）\] 还有一件事/);
+  sync.finish('[PASS]');
+  await settle(hub);
+});
+
+test('卡住时「换新会话重来」：丢掉旧会话，带上最近记录把这一轮重来', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@GPT 先记住项目叫火星计划');
+  await tick();
+  calls[0].finish('记住了');
+  await settle(hub);
+  hub.postUserMessage(room.id, '@GPT 出一张海报');
+  await tick();
+  assert.equal(calls[1].session, 'gpt-s');
+  assert.ok(hub.restartFresh(room.id, 'gpt'));
+  await tick();
+  const retried = calls[2];
+  assert.equal(retried.session, null);
+  assert.match(retried.prompt, /会话卡住不动了/);
+  assert.match(retried.prompt, /出一张海报/);
+  assert.match(retried.prompt, /火星计划/);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /换成了新会话/.test(m.text)));
+  assert.ok(!store.getMessages(room.id).some((m) => /已停止/.test(m.text)));
+  retried.finish('海报做好了');
+  await settle(hub);
+  assert.equal(store.getState(room.id).sessions.gpt, 'gpt-s');
+  assert.equal(hub.restartFresh(room.id, 'gpt'), false); // 没在干活时没什么可重来的
+});
+
+test('GPT 知道看图前先缩小，免得会话越来越重', () => {
+  assert.match(buildIntro({ name: 'r', members: ['claude', 'gpt'], cwd: '/p' }, 'gpt'), /先缩小/);
+  assert.match(buildIntro({ name: 'r', members: ['gpt'], cwd: '/p' }, 'gpt'), /先缩小/);
+  assert.doesNotMatch(buildIntro({ name: 'r', members: ['claude', 'gpt'], cwd: '/p' }, 'claude'), /先缩小/);
+});
