@@ -1,5 +1,5 @@
 ﻿# ClawChat 的 Windows 安装脚本（由 ClawChat 文件夹里的 Install-Windows.cmd 启动，可以重复运行，相当于「修复」）：
-# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 GPT）
+# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）
 # 2. 接上 GitHub，以后可以在 设置 → 软件更新 里一键升级
 # 3. 在桌面和开始菜单放一个 ClawChat 快捷方式，然后打开 ClawChat
 # 这个文件要存成带 BOM 的 UTF-8，Windows PowerShell 才能认出中文。
@@ -98,7 +98,7 @@ if ((Test-Path -LiteralPath (Join-Path $localBin 'claude.exe')) -and -not (($use
 if (Has 'claude') { Ok (claude --version) } else { Warn '没有 Claude Code：Claude 和 DeepSeek 暂时用不了。再运行一次这个安装程序就能补装。' }
 
 # ---------- Codex（可选） ----------
-Step '检查 Codex（群里的 GPT，要有 ChatGPT 账号，可以不装）'
+Step '检查 Codex（群里的 ChatGPT，要有 ChatGPT 账号，可以不装）'
 if (-not (Has 'codex')) {
   if (Ask '要装 Codex 吗？只用 DeepSeek / Claude 的话不用装' $false) {
     & npm.cmd install -g @openai/codex
@@ -106,7 +106,7 @@ if (-not (Has 'codex')) {
     if ((Has 'codex') -and (Ask '现在登录 ChatGPT 账号吗？会打开浏览器' $true)) { codex login }
   }
 }
-if (Has 'codex') { Ok (codex --version) } else { Say '   没装 Codex，群里就先不拉 GPT。以后想用，再运行一次这个安装程序。' }
+if (Has 'codex') { Ok (codex --version) } else { Say '   没装 Codex，群里就先不拉 ChatGPT。以后想用，再运行一次这个安装程序。' }
 
 # ---------- 接上 GitHub（在线升级） ----------
 Step '接上 GitHub（以后在 设置 → 软件更新 里一键升级）'

@@ -159,6 +159,18 @@ function fmtTime(ts) {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
+// 鼠标移到消息上显示的发送时间：24 小时制，精确到秒；不是今天的带上日期
+function fmtExact(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (sameDay(d, now)) return hms;
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (sameDay(d, y)) return `昨天 ${hms}`;
+  return `${d.getFullYear() === now.getFullYear() ? '' : `${d.getFullYear()}年`}${d.getMonth() + 1}月${d.getDate()}日 ${hms}`;
+}
+
 function fmtShort(ts) {
   const d = new Date(ts);
   const now = new Date();
@@ -254,8 +266,8 @@ function fastSpeed(agent, modelId) {
 
 function confirmFast(speed) {
   return askConfirm({
-    title: '打开 GPT 快速模式？',
-    text: `快速模式下 GPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 GPT 生效。`,
+    title: '打开 ChatGPT 快速模式？',
+    text: `快速模式下 ChatGPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 ChatGPT 生效。`,
     ok: '打开快速模式',
   });
 }
@@ -640,7 +652,7 @@ function renderShell() {
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = { Claude: 'claude', GPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
+    const id = { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   const who = room.members.length > 2 ? '大家' : '两位';
@@ -659,11 +671,21 @@ function renderShell() {
   requestAnimationFrame(reportDragRegions);
 }
 
+// 顶部的几个模型按钮一样宽（按最宽的那个来），看起来整齐
+function equalizeChips() {
+  const chips = [...$('#model-switch').children];
+  chips.forEach((c) => (c.style.width = ''));
+  if (chips.length < 2) return;
+  const w = Math.ceil(Math.max(...chips.map((c) => c.getBoundingClientRect().width)));
+  chips.forEach((c) => (c.style.width = `${w}px`));
+}
+
 // 窗口窄、成员多，顶栏一行放不下时，把模型切换挪到第二行，别把群名挤没了。
 // 量的是每个下拉框本来的宽度，两种排法下都一样，所以不会来回跳
 function fitHead() {
   const head = $('#room-head');
   if ($('#chat').hidden) return;
+  equalizeChips();
   const width = (el) => (el.hidden ? 0 : el.offsetWidth + 10); // 10 是顶栏各块之间的间距
   const chips = [...$('#model-switch').children].reduce((w, el) => w + el.offsetWidth + 6, 0);
   const need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
@@ -710,7 +732,9 @@ function messageHtml(roomId, m, prev, conv) {
     const act = m.action?.type === 'fresh' ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>` : '';
     return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
   }
-  const replyBtn = `<button class="reply-btn" data-reply="${m.seq}" title="回复这条">${REPLY_ICON}</button>`;
+  const d = new Date(m.ts);
+  const full = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const replyBtn = `<button class="reply-btn" data-reply="${m.seq}" title="回复这条">${REPLY_ICON}</button><time class="msg-time" datetime="${new Date(m.ts).toISOString()}" title="${full}">${fmtExact(m.ts)}</time>`;
   if (m.from === 'user') {
     const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
     const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
@@ -1183,7 +1207,7 @@ async function sendMessage() {
 
 const MENTION_ITEMS = [
   { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
-  { id: 'gpt', label: 'GPT', sub: 'OpenAI Codex', insert: 'GPT', keys: ['gpt', 'codex', 'chatgpt', 'openai'] },
+  { id: 'gpt', label: 'ChatGPT', sub: 'OpenAI Codex', insert: 'ChatGPT', keys: ['chatgpt', 'gpt', 'codex', 'openai'] },
   { id: 'deepseek', label: 'DeepSeek', sub: '深度求索', insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
   { id: 'all', label: '所有人', sub: '大家一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
@@ -1797,13 +1821,13 @@ function fillModelOptions(room) {
   refreshSpeedField();
 }
 
-// 群设置里的「GPT 速度」：GPT 在群里、当前模型支持快速模式才显示
+// 群设置里单独的「速度」分区：ChatGPT 在群里、当前模型支持快速模式才显示
 function refreshSpeedField() {
   const speed = fastSpeed('gpt', formField('modelGpt').value);
-  const row = $('#field-speed-gpt');
-  row.hidden = speed === null || !formField('memberGpt').checked;
+  $('#speed-fields').hidden = speed === null || !formField('memberGpt').checked;
   if (speed === null) formField('fastGpt').value = '';
-  formField('fastGpt').options[1].textContent = `快速 · ${speed ? `约 ${speed} 倍速，` : ''}额度按 2.5 倍消耗`;
+  formField('fastGpt').options[1].textContent = `快速 · ${speed ? `约 ${speed} 倍速` : '更快'}`;
+  $('#speed-hint').textContent = `快速模式下 ChatGPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（OpenAI 官方数据），所以默认用标准速度。聊天窗口顶部 ChatGPT 的按钮里也能随时切换。`;
 }
 
 // 设置弹窗里换了模型：思考强度的选项跟着换（新模型不支持原来的强度就退回默认）
@@ -1904,7 +1928,7 @@ async function submitDialog(e) {
     maxAutoTurns: Number(formField('maxAutoTurns').value),
     models: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('model', a)).value])),
     efforts: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('effort', a)).value])),
-    fast: { gpt: !$('#field-speed-gpt').hidden && formField('fastGpt').value === '1' },
+    fast: { gpt: !$('#speed-fields').hidden && formField('fastGpt').value === '1' },
   };
   const btn = $('#btn-save');
   btn.disabled = true;

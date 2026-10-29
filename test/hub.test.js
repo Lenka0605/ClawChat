@@ -72,7 +72,7 @@ test('buildTurn 标注发言人，图片按顺序编号', () => {
   ], false, '/up');
   assert.match(p, /老板\] 开工 〔图 #1〕/);
   assert.match(p, /Claude\] @GPT 写页面/);
-  assert.match(p, /你（GPT）\] 好/);
+  assert.match(p, /你（ChatGPT）\] 好/);
   assert.match(p, /老板\] 〔图 #2〕/);
   assert.match(p, /@Claude/);
   assert.deepEqual(images.map((i) => [i.n, i.path, i.type]), [[1, '/up/a.png', 'image/png'], [2, '/up/b.jpg', 'image/jpeg']]);
@@ -141,7 +141,7 @@ test('不 @ 时两位同时开工，并且知道对方也在干', async () => {
   hub.postUserMessage(room.id, '你俩看看这个文件夹');
   await tick();
   assert.deepEqual(calls.map((c) => c.agent).sort(), ['claude', 'gpt']); // 两位都已经开始，谁也没等谁
-  assert.match(calls.find((c) => c.agent === 'claude').prompt, /同时发给了你和 GPT/);
+  assert.match(calls.find((c) => c.agent === 'claude').prompt, /同时发给了你和 ChatGPT/);
   assert.match(calls.find((c) => c.agent === 'gpt').prompt, /同时发给了你和 Claude/);
   calls.forEach((c) => c.finish(`${c.agent} 看完了`));
   await settle(hub);
@@ -156,7 +156,7 @@ test('三人群：不 @ 时三位同时开工，各自知道另外两位也在�
   hub.postUserMessage(room.id, '大家看看这个文件夹');
   await tick();
   assert.deepEqual(calls.map((c) => c.agent).sort(), ['claude', 'deepseek', 'gpt']);
-  assert.match(calls.find((c) => c.agent === 'deepseek').prompt, /同时发给了你和 Claude、GPT/);
+  assert.match(calls.find((c) => c.agent === 'deepseek').prompt, /同时发给了你和 Claude、ChatGPT/);
   calls.forEach((c) => c.finish('[PASS]'));
   await settle(hub);
   hub.postUserMessage(room.id, '@DeepSeek 你来审一下');
@@ -386,7 +386,7 @@ test('回复 GPT 的消息：只有 GPT 回答，而且知道是在回它哪句�
   hub.postUserMessage(room.id, '@Claude 你怎么看', [], null, { seq: gptMsg.seq, from: 'gpt', text: gptMsg.text });
   await settle(hub);
   assert.deepEqual(calls.slice(mid).map((c) => c.agent), ['claude']);
-  assert.match(calls.at(-1).prompt, /回复GPT的「gpt 收到」/);
+  assert.match(calls.at(-1).prompt, /回复ChatGPT的「gpt 收到」/);
 });
 
 test('本体在群里忙时私聊它：分身马上回；本体干完后看到分身聊了什么', async () => {
@@ -589,8 +589,8 @@ test('GPT 换新会话后，上一个给它派活的 Claude 先把情况重新�
   await tick();
   const brief = calls.at(-1);
   assert.equal(brief.agent, 'claude'); // 先叫派活的 Claude
-  assert.match(brief.prompt, /老板给 GPT 换了一个新会话/);
-  assert.match(brief.prompt, /@GPT/);
+  assert.match(brief.prompt, /老板给 ChatGPT 换了一个新会话/);
+  assert.match(brief.prompt, /@ChatGPT/);
   assert.equal(hub.runs.has(hub.key(room.id, 'gpt')), false); // GPT 等交代完再干
   assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /先请 Claude 把前面的情况/.test(m.text)));
   brief.finish('@GPT 情况是：海报要中英两张，提示词在 prompts.md，Logo 用官方 SVG，做完放 output/');

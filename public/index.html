@@ -45,13 +45,13 @@
         <div class="welcome-drag" data-drag></div>
         <div class="welcome-card">
           <div class="welcome-avatars"><span class="avatar av-claude"></span><span class="avatar av-gpt"></span><span class="avatar av-deepseek"></span></div>
-          <h1>把 Claude、GPT 和 DeepSeek 拉进一个群</h1>
+          <h1>把 Claude、ChatGPT 和 DeepSeek 拉进一个群</h1>
           <p>你在群里说话，它们一起干活：分工、互相 @、在你的项目文件夹里改代码、跑命令。有话也可以私下找你。</p>
           <button id="btn-welcome-new" class="primary large">新建群聊</button>
           <div class="welcome-solo">
             或者先单独聊聊：
             <button class="link-btn" data-solo="claude">和 Claude 单聊</button>
-            <button class="link-btn" data-solo="gpt">和 GPT 单聊</button>
+            <button class="link-btn" data-solo="gpt">和 ChatGPT 单聊</button>
             <button class="link-btn" data-solo="deepseek">和 DeepSeek 单聊</button>
           </div>
           <div id="welcome-engines" class="welcome-engines"></div>
@@ -85,7 +85,7 @@
           <div class="composer-tools">
             <span id="group-tools">
               <button class="chip mention-chip" data-mention="Claude"><span class="avatar av-claude"></span>@Claude</button>
-              <button class="chip mention-chip" data-mention="GPT"><span class="avatar av-gpt"></span>@GPT</button>
+              <button class="chip mention-chip" data-mention="ChatGPT"><span class="avatar av-gpt"></span>@ChatGPT</button>
               <button class="chip mention-chip" data-mention="DeepSeek"><span class="avatar av-deepseek"></span>@DeepSeek</button>
               <button class="chip mention-chip" data-mention="所有人"><span class="chip-stack" id="mention-all-icons"></span>@所有人</button>
               <label class="target" title="不 @ 人或者 @所有人 时，大家怎么接">不 @ 时
@@ -134,7 +134,7 @@
           <h3>成员 <small>只选一位就是单聊</small></h3>
           <div class="members">
             <label class="member"><input type="checkbox" name="memberClaude" checked><span class="avatar av-claude"></span><span class="member-name">Claude<small>Anthropic</small></span><span class="check-mark"></span></label>
-            <label class="member"><input type="checkbox" name="memberGpt" checked><span class="avatar av-gpt"></span><span class="member-name">GPT<small>OpenAI Codex</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberGpt" checked><span class="avatar av-gpt"></span><span class="member-name">ChatGPT<small>OpenAI Codex</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberDeepseek"><span class="avatar av-deepseek"></span><span class="member-name">DeepSeek<small>深度求索</small></span><span class="check-mark"></span></label>
           </div>
           <p id="member-hint" class="hint warn-text" hidden></p>
@@ -160,7 +160,7 @@
             <label class="radio"><input type="radio" name="permission" value="readonly">
               <span><b>只读讨论</b><small>只看代码、出主意，不改文件、不跑命令。</small></span></label>
           </div>
-          <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude 和 DeepSeek 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。GPT 有自己的沙盒。</p>
+          <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude 和 DeepSeek 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 有自己的沙盒。</p>
         </section>
         <section class="form-section" id="group-fields">
           <h3>协作</h3>
@@ -174,18 +174,24 @@
           <div class="group-box">
             <div class="form-row" id="field-model-claude"><span class="with-icon"><span class="avatar av-claude"></span>Claude</span>
               <span class="model-pair"><select name="modelClaude" data-pair="claude"></select><span class="pair-sep">思考</span><select name="effortClaude"></select></span></div>
-            <div class="form-row" id="field-model-gpt"><span class="with-icon"><span class="avatar av-gpt"></span>GPT</span>
+            <div class="form-row" id="field-model-gpt"><span class="with-icon"><span class="avatar av-gpt"></span>ChatGPT</span>
               <span class="model-pair"><select name="modelGpt" data-pair="gpt"></select><span class="pair-sep">思考</span><select name="effortGpt"></select></span></div>
-            <div class="form-row" id="field-speed-gpt" hidden><span class="with-icon"><span class="speed-icon"></span>GPT 速度</span>
-              <select name="fastGpt"><option value="">标准</option><option value="1">快速</option></select></div>
             <div class="form-row" id="field-model-deepseek"><span class="with-icon"><span class="avatar av-deepseek"></span>DeepSeek</span>
               <span class="model-pair"><select name="modelDeepseek" data-pair="deepseek"></select><span class="pair-sep">思考</span><select name="effortDeepseek"></select></span></div>
           </div>
         </section>
+        <section class="form-section" id="speed-fields" hidden>
+          <h3>速度 <small>目前只有 ChatGPT 能开快速模式</small></h3>
+          <div class="group-box">
+            <div class="form-row"><span class="with-icon"><span class="avatar av-gpt"></span>ChatGPT</span>
+              <select name="fastGpt"><option value="">标准</option><option value="1">快速</option></select></div>
+          </div>
+          <p class="hint" id="speed-hint"></p>
+        </section>
         <section class="form-section" id="session-fields" hidden>
-          <h3>会话（记忆） <small>GPT 做图做多了要换</small></h3>
+          <h3>会话（记忆） <small>ChatGPT 做图做多了要换</small></h3>
           <div class="group-box" id="session-list"></div>
-          <p class="hint">让 GPT 做图时要留意：它每看一张图（包括它自己做出来的图），都会把整张图存进会话，之后每一轮都要整个重新发一遍。图片攒到 15MB 左右（大约看过 4～6 张大海报），它就会慢到像卡住一样。ClawChat 会帮你盯着：到 8MB 会在群里提醒，并附上「换新会话」按钮。换了以后，上一个给它派活的 AI（比如 Claude）会先把情况重新交代给它，再让它接着干；项目文件夹里的图和文件都还在。一批图做完、开始下一批之前，主动换一次最省心。</p>
+          <p class="hint">让 ChatGPT 做图时要留意：它每看一张图（包括它自己做出来的图），都会把整张图存进会话，之后每一轮都要整个重新发一遍。图片攒到 15MB 左右（大约看过 4～6 张大海报），它就会慢到像卡住一样。ClawChat 会帮你盯着：到 8MB 会在群里提醒，并附上「换新会话」按钮。换了以后，上一个给它派活的 AI（比如 Claude）会先把情况重新交代给它，再让它接着干；项目文件夹里的图和文件都还在。一批图做完、开始下一批之前，主动换一次最省心。</p>
         </section>
       </div>
       <footer class="sheet-foot">
@@ -328,7 +334,7 @@
             <img src="/app-icon.png" alt="" class="about-icon" onerror="this.style.visibility='hidden'">
             <h3>ClawChat</h3>
             <p id="about-version" class="muted"></p>
-            <p class="about-desc">本地 AI 群聊：你、Claude、GPT 和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
+            <p class="about-desc">本地 AI 群聊：你、Claude、ChatGPT 和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
             <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span><span class="plus">+</span><span class="avatar av-deepseek"></span></div>
             <p><a id="about-repo" href="#" target="_blank" rel="noopener"></a></p>
           </div>
