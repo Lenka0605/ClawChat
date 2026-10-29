@@ -494,7 +494,9 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 .chip.mention-chip { height: 24px; border-radius: 12px; padding: 0 10px 0 4px; gap: 5px; }
 .mention-chip .avatar { width: 16px; height: 16px; border-radius: 5px; }
 .chip-stack { display: inline-flex; }
-.chip-stack .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--bg); }
+/* 几个头像并排稍微叠一点：只叠 3 像素，每个都露出中间的标志（叠多了 Claude 只剩一条橙边） */
+.chip-stack { gap: 0; }
+.chip-stack .avatar + .avatar { margin-left: -3px; box-shadow: 0 0 0 1.5px var(--bg); }
 .stop-controls { display: inline-flex; gap: 6px; align-items: center; }
 #group-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: nowrap; flex: none; }
 .target {
