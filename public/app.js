@@ -1886,18 +1886,30 @@ function updateMentionMenu() {
   $('#mention-menu').hidden = false;
 }
 
+// 改输入框里的一段字，并且能用 ⌘Z 撤销、⇧⌘Z 重做：直接给 value 赋值会把浏览器记的撤销记录整个清掉
+function editInput(el, start, end, text) {
+  el.focus();
+  // 先把光标挪开一下：不然浏览器会把这次插入和前面刚打的字算成同一步，撤销时一起没了
+  el.setSelectionRange(start === 0 && end === 0 ? el.value.length : 0, start === 0 && end === 0 ? el.value.length : 0);
+  el.setSelectionRange(start, end);
+  // 「插入文字」会进撤销记录，也会触发 input 事件（自动长高、@ 标签、草稿都跟着更新）；万一不支持就退回直接改
+  if (!document.execCommand('insertText', false, text)) {
+    el.setRangeText(text, start, end, 'end');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
 function pickMention(i) {
   const el = $('#input');
   const it = S.mention?.items[i];
   if (!it) return;
   const start = S.mention.start;
-  const tail = el.value.slice(el.selectionStart);
+  // 光标后面紧跟着的半截名字和一个空格也一起换掉（比如在 @Cl|aude 中间选了菜单）
+  let end = el.selectionStart + (el.value.slice(el.selectionStart).match(/^\S*/)?.[0].length || 0);
+  if (el.value[end] === ' ') end++;
   const token = `@${it.id === 'all' ? '' : MENTION_GAP}${it.insert}${MENTION_SEP}`; // @所有人没有头像，不用留空隙
-  el.value = el.value.slice(0, start) + token + tail.replace(/^\S*/, '').replace(/^ /, '');
-  el.selectionStart = el.selectionEnd = start + token.length;
   hideMentionMenu();
-  el.focus();
-  autoGrow();
+  editInput(el, start, end, token);
 }
 
 // 菜单开着时，↑↓ 选、Enter / Tab 填进去、Esc 关掉；返回 true 表示这个按键被菜单用掉了
@@ -2035,10 +2047,7 @@ function insertMention(name) {
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
   const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' ? '' : MENTION_GAP}${name}${MENTION_SEP}`;
-  el.value = before + token + el.value.slice(end);
-  el.selectionStart = el.selectionEnd = start + token.length;
-  el.focus();
-  autoGrow();
+  editInput(el, start, end, token);
 }
 
 const pickResolvers = new Map();
