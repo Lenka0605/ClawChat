@@ -1,7 +1,7 @@
 import Cocoa
 
 // 用法：swift extract-icons.swift <输出目录>
-// 从本机装的官方 Claude / ChatGPT 应用里取出它们的图标（和访达里看到的一样），存成 claude.png / gpt.png。
+// 从本机装的官方 Claude / ChatGPT / Gemini 应用里取出它们的图标（和访达里看到的一样），存成 claude.png / gpt.png / gemini.png。
 // 图标不放进代码仓库，每台电脑打包时从自己装的官方应用里取；没装就继续用内置的简笔头像。
 
 let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icons"
@@ -10,6 +10,7 @@ try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirecto
 let apps: [(String, [String])] = [
     ("claude", ["/Applications/Claude.app", NSHomeDirectory() + "/Applications/Claude.app"]),
     ("gpt", ["/Applications/ChatGPT.app", NSHomeDirectory() + "/Applications/ChatGPT.app"]),
+    ("gemini", ["/Applications/Gemini.app", NSHomeDirectory() + "/Applications/Gemini.app"]),
 ]
 
 let px = 256

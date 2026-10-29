@@ -185,13 +185,20 @@ if ($linked) {
   }
 }
 
-# DeepSeek 的官方头像：从 DeepSeek 官方 GitHub 账号下载一份（不放进代码仓库）；下载不到就用内置的简笔头像
-$dsIcon = Join-Path $Root 'public\icons\deepseek.png'
-if (-not (Test-Path -LiteralPath $dsIcon)) {
-  try {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dsIcon) | Out-Null
-    Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri 'https://avatars.githubusercontent.com/u/148330874?s=256' -OutFile $dsIcon
-  } catch { Remove-Item -LiteralPath $dsIcon -ErrorAction SilentlyContinue }
+# DeepSeek、GLM、Gemini 的官方头像：从官方账号下载一份（不放进代码仓库）；下载不到就用内置的简笔头像
+$icons = [ordered]@{
+  'deepseek' = 'https://avatars.githubusercontent.com/u/148330874?s=256'
+  'glm'      = 'https://avatars.githubusercontent.com/u/223098841?s=256'
+  'gemini'   = 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png'
+}
+foreach ($name in $icons.Keys) {
+  $iconFile = Join-Path $Root "public\icons\$name.png"
+  if (-not (Test-Path -LiteralPath $iconFile)) {
+    try {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $iconFile) | Out-Null
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $icons[$name] -OutFile $iconFile
+    } catch { Remove-Item -LiteralPath $iconFile -ErrorAction SilentlyContinue }
+  }
 }
 
 # 记下 node.exe 的位置，桌面快捷方式用它启动（存成 UTF-16，路径里有中文也不怕）

@@ -337,21 +337,30 @@ function pickFolder() {
   });
 }
 
-// DeepSeek 的头像：从 DeepSeek 官方 GitHub 账号下载一份存在本机（和 Claude、GPT 的图标一样，不放进代码仓库）。
+// 没有本机官方应用可取图标的几位：从官方账号下载一份存在本机（和 Claude、ChatGPT 的图标一样，不放进代码仓库）。
+// DeepSeek、GLM 是官方 GitHub 账号（DeepSeek、智谱 Z.ai）的头像；Gemini 在 Mac 上打包时从 Gemini.app 取，取不到就用 Google 官方的图标。
 // Mac 打包、Windows 安装时也会下载；这里是兜底。下载不到就用界面里内置的简笔头像
-const DEEPSEEK_ICON_URL = 'https://avatars.githubusercontent.com/u/148330874?s=256';
-async function ensureDeepseekIcon() {
-  const file = path.join(PUBLIC, 'icons', 'deepseek.png');
-  if (fs.existsSync(file)) return;
-  try {
-    const res = await fetch(DEEPSEEK_ICON_URL, { signal: AbortSignal.timeout(20000) });
-    const buf = Buffer.from(await res.arrayBuffer());
-    const png = buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
-    if (!res.ok || !png || buf.length > 2 * 1024 * 1024) return;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, buf);
-    hub.emit('event', { type: 'icons' }); // 已经打开的窗口换上新头像
-  } catch {}
+const ICON_URLS = {
+  deepseek: 'https://avatars.githubusercontent.com/u/148330874?s=256',
+  glm: 'https://avatars.githubusercontent.com/u/223098841?s=256',
+  gemini: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
+};
+async function ensureIcons() {
+  let added = false;
+  for (const [name, url] of Object.entries(ICON_URLS)) {
+    const file = path.join(PUBLIC, 'icons', `${name}.png`);
+    if (fs.existsSync(file)) continue;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      const buf = Buffer.from(await res.arrayBuffer());
+      const png = buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
+      if (!res.ok || !png || buf.length > 2 * 1024 * 1024) continue;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, buf);
+      added = true;
+    } catch {}
+  }
+  if (added) hub.emit('event', { type: 'icons' }); // 已经打开的窗口换上新头像
 }
 
 // 在访达 / 资源管理器里打开
@@ -838,7 +847,7 @@ setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   hub.noticeInterrupted();
-  ensureDeepseekIcon();
+  ensureIcons();
   refreshEngines().then(() => console.log(`[clawchat] 程序：${engineSummary()}`));
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
 });
