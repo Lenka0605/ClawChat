@@ -805,8 +805,11 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .msg.flash .bubble { animation: flash 1.2s ease 2; }
 /* 输入框上方的「回复 某某：……」条 */
 .reply-bar {
-  display: flex; align-items: center; gap: 8px; margin: 0 0 8px 40px; padding: 6px 8px 6px 12px; border-radius: 10px;
-  background: var(--fill); color: var(--accent); font-size: 12px;
+  display: flex; align-items: center; gap: 8px; margin: 0 0 8px 40px; padding: 6px 8px 6px 12px; border-radius: 12px;
+  color: var(--accent); font-size: 12px;
+  /* 输入区浮在消息上面：要有玻璃底，不然后面滚过的字会透上来，和引用的原话叠在一起 */
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
 }
 .reply-text { flex: 1; min-width: 0; display: flex; gap: 6px; overflow: hidden; color: var(--muted); }
 .reply-text b { flex: none; color: var(--accent); font-weight: 600; }

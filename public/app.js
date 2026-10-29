@@ -834,13 +834,26 @@ function whoLabel(from) {
   return from === 'user' ? '我' : agentLabel(from);
 }
 
+// 一小段原话（回复栏、引用里用）：去掉 Markdown 符号，链接只留文字，读起来干净
+function plainSnippet(text, max = 80) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, '[代码]')
+    .replace(/!?\[([^\]\n]+)\]\([^)\n]*\)/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*|__|~~/g, '')
+    .replace(/^\s{0,3}(#{1,6}|[-*+]|\d+\.|>)\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
 function snippet(m) {
-  return String(m.text || (m.images?.length ? '[图片]' : '')).replace(/\s+/g, ' ').slice(0, 80);
+  return m.text ? plainSnippet(m.text) : m.images?.length ? '[图片]' : '';
 }
 
 // 引用：回复别人的消息时，气泡上方带一小段原话，点一下跳回原消息
 function quoteHtml(q) {
-  return `<button class="quote" data-jump="${q.seq}" title="跳到原消息"><b>${esc(whoLabel(q.from))}</b><span>${esc(String(q.text || '').replace(/\s+/g, ' '))}</span></button>`;
+  return `<button class="quote" data-jump="${q.seq}" title="跳到原消息"><b>${esc(whoLabel(q.from))}</b><span>${esc(plainSnippet(q.text, 140))}</span></button>`;
 }
 
 function messageHtml(roomId, m, prev, conv) {
