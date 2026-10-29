@@ -946,6 +946,12 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   -webkit-user-select: text; user-select: text;
 }
 .edit-input:focus-visible { box-shadow: none; }
+/* 编辑框里的 @ 标签：和底部输入框一样垫一层（行高、字号要和编辑框一模一样） */
+.edit-field { position: relative; }
+.edit-mirror { padding: 0; line-height: 1.45; font-size: 14px; color: var(--text); }
+.edit-field .edit-input { position: relative; z-index: 1; display: block; }
+.edit-field.mirrored .edit-input { color: transparent; caret-color: var(--text); }
+.edit-field.mirrored .edit-input::selection { background: rgba(0, 122, 255, 0.3); }
 .edit-box:focus-within { box-shadow: inset 0 0 0 1px var(--accent-ring); }
 .edit-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .edit-actions button { height: 28px; padding: 0 14px; border-radius: 14px; font-size: 13px; }
@@ -968,6 +974,10 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   animation: badge-in 0.4s var(--spring);
 }
 .update-badge:hover { background: var(--accent-hover); }
+/* 等大家干完再重启：按钮变浅，外面一圈在转 */
+.update-badge.pending { position: relative; background: var(--accent-soft); color: var(--accent); box-shadow: none; }
+.update-badge.pending::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: badge-spin 1s linear infinite; }
+@keyframes badge-spin { to { transform: rotate(360deg); } }
 @keyframes badge-in { from { transform: scale(0.4); opacity: 0; } }
 
 /* 切换外观的过渡期间：玻璃先换成实色（app.js 的 applyTheme） */
@@ -1007,6 +1017,7 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   background: var(--menu-bg); box-shadow: var(--glass-edge), var(--shadow);
   -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
 }
+.mention-menu.floating { position: fixed; bottom: auto; z-index: 40; } /* 编辑消息时：贴着编辑框 */
 .mention-item { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px; cursor: default; }
 .mention-item .avatar { width: 24px; height: 24px; }
 .mention-item.active { background: var(--accent); color: #fff; }

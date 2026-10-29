@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (s) => document.querySelector(s);
-const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧' };
+const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧', compact: '🗜' };
 const PERM_LABEL = { project: '项目内放手干', full: '完全放开', readonly: '只读讨论' };
 const IS_WIN = document.documentElement.classList.contains('win');
 const AGENT_IDS = ['claude', 'gpt', 'deepseek'];
@@ -422,15 +422,23 @@ function confirmFast(speed) {
 }
 
 // 通用的确认弹窗：点确认返回 true，取消、按 Esc 都返回 false
-function askConfirm({ title, text, ok }) {
+// 确认框：点主按钮返回 true，点 alt（第二个选择，可以不给）返回 'alt'，取消返回 false
+function askConfirm({ title, text, ok, alt = '' }) {
   const dlg = $('#dlg-confirm');
   $('#confirm-title').textContent = title;
   $('#confirm-text').textContent = text;
   $('#btn-confirm-ok').textContent = ok;
+  const altBtn = $('#btn-confirm-alt');
+  altBtn.hidden = !alt;
+  altBtn.textContent = alt;
   let answer = false;
   $('#btn-confirm-ok').onclick = (e) => {
     e.preventDefault();
     answer = true;
+    closeDialog(dlg);
+  };
+  altBtn.onclick = () => {
+    answer = 'alt';
     closeDialog(dlg);
   };
   $('#btn-confirm-cancel').onclick = () => closeDialog(dlg);
@@ -899,17 +907,14 @@ function renderShell() {
     const id = { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
-  const who = room.members.length > 2 ? '大家' : '两位';
-  const targets = [['all', `${who}同时开工`], ['sequential', `${who}依次回答`], ...room.members.map((a) => [a, `只发给 ${agentName(a)}`])];
-  setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
-  $('#default-target').value = room.defaultTarget;
+  renderTargets(room, dm);
   const hint = $('#dm-hint');
   hint.hidden = !dm;
   $('#chat').classList.toggle('can-mention', !dm && room.members.length > 1); // 群里点消息里的 @ 能填进输入框
   hint.firstElementChild.textContent = dm
     ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。别的 AI 私下找它的对话也显示在这里；它主动找别人的，在对方的私聊里。`
     : '';
-  $('#input').placeholder = dm ? `私聊 ${agentName(dm)}` : `发送给 ${room.name}`;
+
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
   syncToolsRow();
   fitHead();
@@ -1019,7 +1024,9 @@ function messageHtml(roomId, m, prev, conv) {
       ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>`
       : m.action?.type === 'forward'
         ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? '已发到群里' : '发到群里'}</button>`
-        : '';
+        : m.action?.type === 'resume'
+          ? resumeButton(roomId, m)
+          : '';
     return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
   }
   const d = new Date(m.ts);
@@ -1031,7 +1038,7 @@ function messageHtml(roomId, m, prev, conv) {
   if (m.from === 'user') {
     if (S.editMsg?.roomId === roomId && S.editMsg.seq === m.seq) {
       return `${sep}<div class="msg user editing" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body"><div class="edit-box">
-        <textarea class="edit-input" rows="1" aria-label="修改这条消息">${esc(S.editMsg.text)}</textarea>
+        <div class="edit-field"><div class="input-mirror edit-mirror" aria-hidden="true" hidden></div><textarea class="edit-input" rows="1" aria-label="修改这条消息">${esc(S.editMsg.text)}</textarea></div>
         <div class="edit-actions"><span class="edit-hint">改好后会作为新消息发出，大家会知道你改了哪条</span><button class="secondary" data-edit-cancel>取消</button><button class="primary" data-edit-send>发送</button></div>
       </div></div></div>`;
     }
@@ -1131,6 +1138,7 @@ function restoreEditor(typing) {
   const ta = document.querySelector('.edit-input');
   if (!ta || !S.editMsg) return;
   fitEditor(ta);
+  renderMirror(ta, ta.previousElementSibling);
   if (typing || S.editMsg.focus) {
     S.editMsg.focus = false;
     ta.focus({ preventScroll: true });
@@ -1143,6 +1151,28 @@ function restoreEditor(typing) {
 // 私聊里的这条回复是不是已经转到群里了
 function isForwarded(roomId, seq) {
   return (S.messages.get(roomId) || []).some((x) => x.forwardOf === seq);
+}
+
+// 「让它接着做」按钮：提醒之后它们已经说过话了（接着做过了），按钮就灰掉
+function resumeButton(roomId, m) {
+  const done = (S.messages.get(roomId) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
+  const names = m.action.agents.map(agentName).join('、');
+  return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? '已经接着做了' : `让 ${esc(names)} 接着做`}</button>`;
+}
+
+// 上次退出时被打断的活：点一下让它们接着做
+async function resumeAgents(btn) {
+  const conv = currentConv();
+  if (!conv) return;
+  const agents = btn.dataset.resume.split(',');
+  btn.disabled = true;
+  try {
+    await api('POST', `/api/rooms/${conv.roomId}/resume`, { agents });
+    btn.textContent = '已经让它接着做';
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message);
+  }
 }
 
 async function forwardMessage(seq, btn) {
@@ -1196,10 +1226,21 @@ function fitEditor(ta) {
   ta.style.height = `${Math.min(ta.scrollHeight, 320)}px`;
 }
 
+// 原文里的 @Claude 换成输入框里标签的写法（@、空隙、名字，后面原来有空格的换成全角空格），编辑时也显示成带头像的标签。
+// 发出去前 cleanMentions 会换回来，没改的话和原文一模一样
+function toTagForm(text) {
+  const conv = currentConv();
+  const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
+  if (!members.length) return text;
+  return text.replace(/(^|[^A-Za-z0-9_.])@(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索)( ?)/gi, (all, pre, name, sp) =>
+    members.includes(MENTION_WHO[name.toLowerCase()]) ? `${pre}@${MENTION_GAP}${name}${sp ? MENTION_SEP : ''}` : all,
+  );
+}
+
 function startEdit(seq) {
   const m = findMessage(seq);
   if (!m) return;
-  const text = m.text || '';
+  const text = toTagForm(m.text || '');
   const prev = S.editMsg?.seq;
   S.editMsg = { roomId: currentConv().roomId, seq, text, sel: text.length, focus: true };
   if (prev !== undefined && prev !== seq) rerenderMessage(prev); // 同时只改一条
@@ -1315,10 +1356,17 @@ function convRuns(conv) {
 const IDLE_WARN = 2 * 60 * 1000; // 这么久没有任何动静，就提示可能卡住了
 
 // 「可能卡住了」的提示：本体可以换新会话重来，分身只能停止
+// 最后一步是「正在整理记忆」、还没整理完
+const compacting = (key) => {
+  const last = (S.live.get(key) || []).at(-1);
+  return last?.kind === 'compact' && last.text.startsWith('正在整理记忆');
+};
+
 function idleText(r, key) {
   const idle = Date.now() - (S.liveAt.get(key) || r.startedAt);
   if (idle < IDLE_WARN) return '';
   const last = (S.live.get(key) || []).at(-1);
+  if (compacting(key)) return idle < 5 * 60 * 1000 ? '' : `记忆已经整理了 ${fmtDur(idle)}，比平时久。再等等；一直这样的话，可以点「换新会话重来」。`;
   const waiting = last?.kind === 'run' ? '它可能还在等一条命令跑完；' : '';
   return r.side
     ? `分身已经 ${fmtDur(idle)} 没有任何动静了，${waiting}一直这样的话可以点「停止」。`
@@ -1354,7 +1402,7 @@ function renderLive() {
       S.liveSeen.add(key);
       return `<div class="msg agent live from-${esc(r.agent)}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
-        <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
+        <span>${r.side ? '正在回复你' : compacting(key) ? '正在整理记忆' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
           r.side ? '' : `<button class="live-fresh-mini${S.freshArmed === key ? ' armed' : ''}" data-agent="${esc(r.agent)}" data-key="${esc(key)}" title="会话太重、卡住时用：结束这一轮，换个新会话重来">${S.freshArmed === key ? '确定换？' : '换新会话'}</button>`
         }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
@@ -1523,6 +1571,7 @@ function applyState(st) {
   S.engines = st.engines || {};
   S.projectsDir = st.projectsDir || '';
   setRuns(st.runs || []);
+  if (st.restartPending) setRestartPending(st.restartPending, '', true);
 }
 
 function setRuns(runs) {
@@ -1602,6 +1651,7 @@ async function openConv(key) {
   renderShell();
   if (!S.messages.has(c.roomId)) $('#messages').innerHTML = '';
   if (!(await loadMessages(c.roomId)) || S.current !== key) return;
+  if (currentConv()) renderTargets(currentConv().room, currentConv().dm); // 消息读到了，才知道「上一位」是谁
   renderMessages();
   renderLive();
   scrollToBottom();
@@ -1641,6 +1691,35 @@ function askNotifyPermission() {
 }
 window.__clawchatOpenConv = (key) => openConv(key);
 
+// 群里最后说话的那位 AI（不算私聊）：不 @ 人时「接着上一位」就发给它
+function lastSpeakerOf(room) {
+  const list = S.messages.get(room.id) || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m.dm && !m.pm && room.members.includes(m.from)) return m.from;
+  }
+  return null;
+}
+
+// 「不 @ 时」下拉框和输入框里的提示：接着上一位时写明现在是谁，打字前、打字时都看得到这条会发给谁
+function renderTargets(room, dm) {
+  const who = room.members.length > 2 ? '大家' : '两位';
+  const last = lastSpeakerOf(room);
+  const targets = [
+    ['last', `接着上一位${last ? `（${agentName(last)}）` : ''}`],
+    ['all', `${who}同时开工`],
+    ['sequential', `${who}依次回答`],
+    ...room.members.map((a) => [a, `只发给 ${agentName(a)}`]),
+  ];
+  setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
+  $('#default-target').value = room.defaultTarget;
+  $('#input').placeholder = dm
+    ? `私聊 ${agentName(dm)}`
+    : room.members.length > 1 && room.defaultTarget === 'last' && last
+      ? `发给 ${agentName(last)}（接着上一位），要找别人就 @ 它`
+      : `发送给 ${room.name}`;
+}
+
 function onMessage(roomId, m) {
   if (m.from === 'gpt' || (m.from === 'system' && m.action?.type === 'fresh')) refreshSessionImages(roomId);
   const list = S.messages.get(roomId);
@@ -1653,6 +1732,7 @@ function onMessage(roomId, m) {
   }
   const key = convOf(roomId, m);
   const conv = currentConv();
+  if (conv && conv.roomId === roomId && !m.dm && !m.pm && conv.room.members.includes(m.from)) renderTargets(conv.room, conv.dm);
   if (list && conv && conv.roomId === roomId && inConv(conv, m)) {
     const near = nearBottom() || m.from === 'user';
     if (!near && m.from !== 'system') S.newBelow = (S.newBelow || 0) + 1;
@@ -1712,6 +1792,9 @@ function handleEvent(ev) {
       break;
     case 'restarting':
       showRestarting();
+      break;
+    case 'restart-pending':
+      setRestartPending(ev.waiting, ev.error);
       break;
     case 'quitting':
       showQuit();
@@ -1890,8 +1973,12 @@ function mentionTokens(text) {
 }
 
 function renderInputMirror() {
-  const el = $('#input');
-  const mirror = $('#input-mirror');
+  renderMirror($('#input'), $('#input-mirror'));
+}
+
+// 输入框（或编辑框）底下的垫层：@成员画成带头像的标签
+function renderMirror(el, mirror) {
+  if (!el || !mirror) return;
   const text = el.value;
   let html = '';
   let last = 0;
@@ -1957,9 +2044,15 @@ const MENTION_ITEMS = [
   { id: 'all', label: '所有人', sub: '大家一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 
+// 正在用 @ 菜单的框：底部的输入框，或者正在改的那条消息的编辑框
+const fieldOf = (x) => (x instanceof HTMLTextAreaElement ? x : x?.target instanceof HTMLTextAreaElement ? x.target : null);
+function mentionField() {
+  return S.mentionEl?.isConnected ? S.mentionEl : $('#input');
+}
+
 // 光标前面是不是正在打「@xxx」：返回 @ 的位置和已经打的字
 function mentionQuery() {
-  const el = $('#input');
+  const el = mentionField();
   if (el.selectionStart !== el.selectionEnd) return null;
   const before = el.value.slice(0, el.selectionStart);
   const m = before.match(/(?:^|[\s(（，。,.!?！？:：])@([^\s@]{0,20})$/);
@@ -1971,7 +2064,8 @@ function hideMentionMenu() {
   $('#mention-menu').hidden = true;
 }
 
-function updateMentionMenu() {
+function updateMentionMenu(from) {
+  if (fieldOf(from)) S.mentionEl = fieldOf(from);
   const conv = currentConv();
   const mq = conv && !conv.dm && conv.room.members.length > 1 ? mentionQuery() : null;
   if (!mq) return hideMentionMenu();
@@ -1990,6 +2084,26 @@ function updateMentionMenu() {
     )
     .join('');
   $('#mention-menu').hidden = false;
+  placeMentionMenu();
+}
+
+// 菜单放在哪：底部输入框的就在输入框上面；编辑框的挪到页面最外层，贴着编辑框下面（下面放不下就放上面）
+function placeMentionMenu() {
+  const menu = $('#mention-menu');
+  const el = mentionField();
+  if (el.id === 'input') {
+    if (menu.parentElement !== el.parentElement) el.parentElement.appendChild(menu);
+    menu.classList.remove('floating');
+    menu.style.left = menu.style.top = '';
+    return;
+  }
+  if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  menu.classList.add('floating');
+  const box = (el.closest('.edit-box') || el).getBoundingClientRect();
+  const h = menu.offsetHeight;
+  const below = box.bottom + 6 + h < window.innerHeight - 8;
+  menu.style.left = `${Math.max(8, Math.min(box.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${below ? box.bottom + 6 : Math.max(8, box.top - h - 6)}px`;
 }
 
 // 改输入框里的一段字，并且能用 ⌘Z 撤销、⇧⌘Z 重做：直接给 value 赋值会把浏览器记的撤销记录整个清掉
@@ -2006,7 +2120,7 @@ function editInput(el, start, end, text) {
 }
 
 function pickMention(i) {
-  const el = $('#input');
+  const el = mentionField();
   const it = S.mention?.items[i];
   if (!it) return;
   // 按光标现在的位置重新算（菜单打开后光标可能被挪过，比如点进了别的 @ 标签）
@@ -2078,8 +2192,8 @@ function selectMentionOnDelete(e) {
 }
 
 // 鼠标点进标签中间、Option+方向键跳词、Shift 选到标签一半：光标贴到标签边上，选区扩成整个标签
-function snapToMentions() {
-  const el = $('#input');
+function snapToMentions(from) {
+  const el = fieldOf(from) || $('#input');
   const tokens = mentionTokens(el.value);
   if (!tokens.length) return;
   const s = el.selectionStart;
@@ -2089,7 +2203,7 @@ function snapToMentions() {
     if (t) {
       const p = s - t.start < t.end - s ? t.start : t.end;
       el.setSelectionRange(p, p);
-      updateMentionMenu(); // 光标挪了，@ 菜单跟着重新判断
+      updateMentionMenu(el); // 光标挪了，@ 菜单跟着重新判断
     }
     return;
   }
@@ -2158,8 +2272,7 @@ function jumpTo(seq) {
   el.classList.add('flash');
 }
 
-function insertMention(name) {
-  const el = $('#input');
+function insertMention(name, el = $('#input')) {
   const start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
@@ -2497,28 +2610,85 @@ function setUpdateDot(on, res = null) {
   if (on) badge.title = res?.behind ? `有新版本 ${res.latest || ''}，点这里更新` : '新版本已经下载好，点这里重启生效';
 }
 
+// 正在干活的有哪几位（名字）
+const busyNames = () => [...new Set(S.runs.map((r) => agentName(r.agent)))];
+
+// 更新、重启时有人在干活：可以等它们这一轮干完再自动重启，也可以现在重启（重启后被打断的活自动接着做）
+function busyText(busy) {
+  const it = busy.length > 1 ? '它们' : '它';
+  return `${busy.join('、')} 正在干活。可以等${it}这一轮干完再自动重启；现在重启的话，${it}手上的活会被打断，重启后自动接着做。`;
+}
+
+// restartOnly：新版本已经下载好，只差重启；否则先拉新代码再重启
+async function startRestart(restartOnly, when) {
+  if (restartOnly) {
+    const r = await api('POST', '/api/app/restart', { when });
+    if (r.waiting) return setRestartPending('restart');
+  } else {
+    if (when !== 'idle') toast('正在从 GitHub 拉取最新代码…', 20000);
+    const r = await api('POST', '/api/app/update', { when });
+    if (!r.ok) throw new Error(r.error);
+    if (r.waiting) return setRestartPending('update');
+    if (!r.updated) return toast('已经是最新版');
+  }
+  showRestarting();
+}
+
 async function updateFromBadge() {
+  if (S.restartPending) return askCancelPending();
   const res = S.update;
   if (!res) return;
   if (res.dirty) return toast('本地有没提交的改动，先处理掉才能升级', 5000);
   const restartOnly = !res.behind && res.needsRestart;
-  const busy = S.runs.length;
+  const busy = busyNames();
   const changes = (res.changes || []).slice(0, 4).map((c) => `· ${c.subject}`).join('\n');
   const ok = await askConfirm({
     title: restartOnly ? '新版本已经下载好' : `有新版本 ${res.latest || ''}`,
-    text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? '重启 ClawChat 后生效。' : '会从 GitHub 拉取最新代码，然后自动重启。'}聊天记录和记忆都不受影响${busy ? `；现在有 ${busy} 位正在干活，重启后会提示你接着做` : ''}。`,
-    ok: restartOnly ? '立即重启' : '更新并重启',
+    text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? '重启 ClawChat 后生效。' : '会从 GitHub 拉取最新代码，然后自动重启。'}聊天记录和记忆都不受影响。${busy.length ? `\n\n${busyText(busy)}` : ''}`,
+    ok: busy.length ? '等干完再重启' : restartOnly ? '立即重启' : '更新并重启',
+    alt: busy.length ? '现在重启' : '',
   });
   if (!ok) return;
   try {
-    if (restartOnly) await api('POST', '/api/app/restart');
-    else {
-      toast('正在从 GitHub 拉取最新代码…', 20000);
-      const r = await api('POST', '/api/app/update');
-      if (!r.ok) throw new Error(r.error);
-      if (!r.updated) return toast('已经是最新版');
+    await startRestart(restartOnly, busy.length && ok !== 'alt' ? 'idle' : 'now');
+  } catch (err) {
+    toast(err.message, 5000);
+  }
+}
+
+// 在等大家干完再重启：左下角的更新按钮转圈，点它可以马上重启或者不重启了
+function setRestartPending(kind, error = '', quiet = false) {
+  S.restartPending = kind || false;
+  const badge = $('#btn-update-badge');
+  badge.classList.toggle('pending', !!kind);
+  if (kind) {
+    badge.hidden = false;
+    badge.title = '等正在干活的这一轮干完，就自动重启。点这里可以马上重启，或者不重启了';
+    if (!quiet) toast(`等 ${busyNames().join('、') || '大家'} 这一轮干完，就自动${kind === 'update' ? '更新并' : ''}重启`, 4000);
+  } else {
+    setUpdateDot(!!S.update, S.update);
+    if (error) toast(error, 5000);
+  }
+  const status = $('#update-status');
+  if (status && kind) status.textContent = '等正在干活的这一轮干完，就自动重启…';
+}
+
+async function askCancelPending() {
+  const kind = S.restartPending;
+  const busy = busyNames();
+  const ok = await askConfirm({
+    title: '干完后自动重启',
+    text: `${busy.length ? `${busy.join('、')} 还在干活，` : ''}这一轮都干完后，ClawChat 会自动${kind === 'update' ? '更新并' : ''}重启。`,
+    ok: '现在就重启',
+    alt: '不重启了',
+  });
+  if (!ok) return;
+  try {
+    if (ok === 'alt') {
+      await api('POST', '/api/app/restart-cancel');
+      return;
     }
-    showRestarting();
+    await startRestart(kind === 'restart', 'now');
   } catch (err) {
     toast(err.message, 5000);
   }
@@ -2572,13 +2742,21 @@ async function checkForUpdate(show = false) {
 
 async function doUpdate() {
   const btn = $('#btn-do-update');
-  const busy = S.runs.length;
-  if (busy && btn.dataset.armed !== '1') {
-    btn.dataset.armed = '1';
-    btn.textContent = `有 ${busy} 位正在干活，再点一次确认升级`;
+  const busy = busyNames();
+  let when = 'now';
+  if (busy.length) {
+    const ok = await askConfirm({ title: `${busy.join('、')} 正在干活`, text: busyText(busy), ok: '等干完再重启', alt: '现在重启' });
+    if (!ok) return;
+    if (ok !== 'alt') when = 'idle';
+  }
+  if (when === 'idle') {
+    try {
+      await startRestart(btn.dataset.mode === 'restart', 'idle');
+    } catch (err) {
+      $('#update-status').innerHTML = `<span class="error">${esc(err.message)}</span>`;
+    }
     return;
   }
-  btn.dataset.armed = '';
   btn.disabled = true;
   if (btn.dataset.mode === 'restart') {
     btn.textContent = '正在重启…';
@@ -3045,6 +3223,8 @@ function bind() {
     if (forward && !forward.disabled) forwardMessage(Number(forward.dataset.forward), forward);
     const jump = e.target.closest('[data-jump]');
     if (jump) jumpTo(Number(jump.dataset.jump));
+    const resume = e.target.closest('[data-resume]');
+    if (resume && !resume.disabled) resumeAgents(resume);
     const fresh = e.target.closest('[data-fresh]');
     if (fresh) freshAgent(fresh.dataset.fresh, fresh, $('#dlg-room').open ? S.editing : currentConv()?.roomId);
   });
@@ -3129,17 +3309,34 @@ function bind() {
     true,
   );
   // 编辑框：打字时记下内容和光标（消息列表重画后能接着改），Enter 发送、Shift+Enter 换行、Esc 取消
+  // 编辑框里也能 @：和底部输入框一样弹成员菜单、显示成带头像的标签，标签是一个整体
   $('#messages').addEventListener('input', (e) => {
     if (!e.target.classList.contains('edit-input') || !S.editMsg) return;
     S.editMsg.text = e.target.value;
     S.editMsg.sel = e.target.selectionStart;
     fitEditor(e.target);
+    renderMirror(e.target, e.target.previousElementSibling);
+    updateMentionMenu(e.target);
   });
   $('#messages').addEventListener('keyup', (e) => {
-    if (e.target.classList.contains('edit-input') && S.editMsg) S.editMsg.sel = e.target.selectionStart;
+    if (!e.target.classList.contains('edit-input') || !S.editMsg) return;
+    S.editMsg.sel = e.target.selectionStart;
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) || e.shiftKey) snapToMentions(e.target);
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu(e.target);
+  });
+  $('#messages').addEventListener('click', (e) => {
+    if (e.target.classList.contains('edit-input')) updateMentionMenu(e.target);
+  });
+  $('#messages').addEventListener('mouseup', (e) => {
+    if (e.target.classList.contains('edit-input')) setTimeout(() => snapToMentions(e.target));
+  });
+  $('#messages').addEventListener('focusout', (e) => {
+    if (e.target.classList.contains('edit-input')) setTimeout(hideMentionMenu, 150);
   });
   $('#messages').addEventListener('keydown', (e) => {
-    if (!e.target.classList.contains('edit-input') || e.isComposing || e.keyCode === 229) return;
+    if (!e.target.classList.contains('edit-input')) return;
+    if (mentionKeydown(e) || selectMentionOnBackspace(e) || selectMentionOnDelete(e) || mentionArrow(e)) return;
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendEdit();
@@ -3156,9 +3353,9 @@ function bind() {
     if (!tag || !conv || conv.dm || conv.room.members.length < 2 || getSelection().toString()) return;
     const who = tag.dataset.who;
     if (who !== 'all' && !conv.room.members.includes(who)) return;
-    const el = $('#input');
+    const el = document.querySelector('.edit-input') || $('#input'); // 正在改消息：填进编辑框
     if (document.activeElement !== el) el.setSelectionRange(el.value.length, el.value.length);
-    insertMention(who === 'all' ? '所有人' : agentName(who));
+    insertMention(who === 'all' ? '所有人' : agentName(who), el);
   });
   // 文件路径：悬停看缩略图、点一下在访达里显示。挂在 #scroller 上，「正在干活」气泡（#live）里的过程也算
   $('#scroller').addEventListener('mouseover', (e) => {
@@ -3215,6 +3412,7 @@ function bind() {
     try {
       const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { defaultTarget: e.target.value });
       S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+      renderTargets(room, conv.dm);
     } catch (err) {
       toast(err.message);
     }
@@ -3313,7 +3511,7 @@ function bind() {
   input.addEventListener('click', updateMentionMenu);
   input.addEventListener('keyup', (e) => {
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) || e.shiftKey) snapToMentions();
-    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu();
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu(input);
   });
   input.addEventListener('mouseup', () => setTimeout(snapToMentions));
   input.addEventListener('select', snapToMentions);

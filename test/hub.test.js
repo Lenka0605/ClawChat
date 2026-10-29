@@ -926,3 +926,104 @@ test('群设置里显示每位记了多少：从会话记录里读出上下文�
   assert.deepEqual(await sessionUsage('gpt', 'g1'), { images: 0, used: 50000, window: 400000 });
   assert.equal(await sessionUsage('gpt', null), null);
 });
+
+test('不 @ 人时默认接着上一位：发给群里最后说话的那位 AI；还没人说过话就大家一起；回复、@ 照旧优先', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => (agent === 'gpt' ? '审完了，可以合' : '[PASS]'));
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  assert.equal(room.defaultTarget, 'last');
+  // 还没人说过话：大家一起
+  hub.postUserMessage(room.id, '大家好');
+  await settle(hub);
+  assert.deepEqual(calls.map((c) => c.agent).sort(), ['claude', 'deepseek', 'gpt']);
+  // ChatGPT 刚在群里说完话：「合了发」只发给它
+  calls.length = 0;
+  hub.postUserMessage(room.id, '合了发');
+  await settle(hub);
+  assert.deepEqual(calls.map((c) => c.agent), ['gpt']);
+  assert.deepEqual(store.getMessages(room.id).find((m) => m.text === '合了发').to, ['gpt']);
+  // @ 了别人就按 @ 的来
+  calls.length = 0;
+  hub.postUserMessage(room.id, '@DeepSeek 你也看看');
+  await settle(hub);
+  assert.deepEqual(calls.map((c) => c.agent), ['deepseek']);
+  // 私聊和 AI 之间的私聊不算「上一位」
+  store.appendMessage(room.id, { from: 'claude', dm: 'claude', text: '私下说一句' });
+  calls.length = 0;
+  hub.postUserMessage(room.id, '继续');
+  await settle(hub);
+  assert.deepEqual(calls.map((c) => c.agent), ['gpt']);
+});
+
+test('以前默认「大家同时开工」的群换成「接着上一位」，只换一次；自己选过别的不动', async () => {
+  const store = new Store();
+  const a = newRoom(store);
+  const b = newRoom(store);
+  // 模拟以前的数据：没有 targetV
+  for (const [r, t] of [[a, 'all'], [b, 'claude']]) {
+    const room = store.getRoom(r.id);
+    room.defaultTarget = t;
+    delete room.targetV;
+  }
+  store.saveRooms();
+  const again = new Store();
+  assert.equal(again.getRoom(a.id).defaultTarget, 'last');
+  assert.equal(again.getRoom(b.id).defaultTarget, 'claude');
+  // 换过以后老板又选回「大家同时开工」：下次打开不再改
+  again.getRoom(a.id).defaultTarget = 'all';
+  again.saveRooms();
+  assert.equal(new Store().getRoom(a.id).defaultTarget, 'all');
+});
+
+test('更新重启打断的活：重新打开后自动接着做；退出应用打断的：提醒里带「让它接着做」按钮', async () => {
+  const hang = () => {
+    const calls = [];
+    const run = (agent, opts) => {
+      calls.push({ agent, prompt: opts.prompt });
+      let resolve;
+      const done = new Promise((r) => (resolve = r));
+      return { done, kill: () => resolve({ ok: false, error: 'killed', steps: [], session: 's1' }) };
+    };
+    return { run, calls };
+  };
+  // 更新重启
+  const store = new Store();
+  const hub = new Hub(store, hang());
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '把黑夜模式的图换上');
+  await tick();
+  hub.restarting = true;
+  hub.shutdown();
+  await tick();
+  const store2 = new Store();
+  const { run, calls } = fakeRunner(() => '换好了');
+  const hub2 = new Hub(store2, { run });
+  hub2.noticeInterrupted();
+  await settle(hub2);
+  assert.match(store2.getMessages(room.id).find((m) => m.from === 'system').text, /重启前 Claude 正在干活，已经让它接着做/);
+  assert.match(calls[0].prompt, /被打断/);
+  assert.match(calls[0].prompt, /把黑夜模式的图换上/);
+  assert.equal(store2.getMessages(room.id).at(-1).text, '换好了');
+
+  // 退出应用（不是重启）：不自动开工，提醒里带按钮
+  const store3 = new Store();
+  const hub3 = new Hub(store3, hang());
+  const room3 = newRoom(store3, { members: ['claude', 'gpt'] });
+  hub3.postUserMessage(room3.id, '@Claude 写个登录页');
+  await tick();
+  hub3.shutdown();
+  await tick();
+  const store4 = new Store();
+  const r4 = fakeRunner(() => '写好了');
+  const hub4 = new Hub(store4, { run: r4.run });
+  hub4.noticeInterrupted();
+  await tick();
+  assert.equal(r4.calls.length, 0);
+  const notice = store4.getMessages(room3.id).find((m) => m.from === 'system');
+  assert.deepEqual(notice.action, { type: 'resume', agents: ['claude'] });
+  // 点了按钮（服务端就是叫醒它）：接着做
+  hub4.wake(room3.id, 'claude');
+  await settle(hub4);
+  assert.match(r4.calls[0].prompt, /写个登录页/);
+});

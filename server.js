@@ -192,7 +192,7 @@ function normalizeRoom(body, creating, room = null) {
     if (!members.length) throw httpError(400, '至少要选一位成员');
     out.members = members;
     const target = body.defaultTarget ?? room?.defaultTarget;
-    if (target && !['all', 'sequential'].includes(target) && !members.includes(target)) out.defaultTarget = 'all';
+    if (target && !['all', 'sequential', 'last'].includes(target) && !members.includes(target)) out.defaultTarget = 'last';
   }
   if (body.name !== undefined || creating) {
     let name = String(body.name || '').trim().slice(0, 40);
@@ -222,7 +222,7 @@ function normalizeRoom(body, creating, room = null) {
     out.maxAutoTurns = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : ROOM_DEFAULTS.maxAutoTurns;
   }
   if (body.defaultTarget !== undefined) {
-    if (!['all', 'sequential', ...Object.keys(AGENTS)].includes(body.defaultTarget)) throw httpError(400, '默认接话人设置不对');
+    if (!['all', 'sequential', 'last', ...Object.keys(AGENTS)].includes(body.defaultTarget)) throw httpError(400, '默认接话人设置不对');
     out.defaultTarget = body.defaultTarget;
   }
   if (body.models !== undefined) {
@@ -504,23 +504,31 @@ async function api(req, res, url) {
       projectsDir: PROJECTS_DIR,
       platform: process.platform,
       inApp: process.env.CLAWCHAT_APP === '1',
+      restartPending: pendingRestart,
     });
   }
   if (method === 'POST' && parts[0] === 'pick-folder') return send(res, 200, { path: await pickFolder() });
   if (parts[0] === 'app') {
     if (method === 'GET' && !parts[1]) return send(res, 200, { ...(await appInfo()), dataDir: DATA_DIR, projectsDir: PROJECTS_DIR });
     if (method === 'POST' && parts[1] === 'check-update') return send(res, 200, await checkUpdate());
+    // when：'idle' 等大家这一轮都干完再重启；不传就马上重启（正在干的活重启后自动接着做）
+    // 等大家干完再更新的：先不拉新代码（免得页面先换成新的、服务还是旧的），干完了再拉、再重启
     if (method === 'POST' && parts[1] === 'update') {
+      const { when } = await readBody(req);
+      if (when === 'idle' && !allIdle()) return send(res, 200, { ok: true, waiting: waitForIdle('update') });
       const result = await pullUpdate();
-      if (result.ok && result.updated) {
-        hub.emit('event', { type: 'restarting' });
-        scheduleRestart(shutdown); // 正在干的活会在退出时记成「被打断」，重新打开后可以接着做
-      }
+      if (result.ok && result.updated) restartNow();
       return send(res, 200, result);
     }
     if (method === 'POST' && parts[1] === 'restart') {
-      hub.emit('event', { type: 'restarting' });
-      scheduleRestart(shutdown);
+      const { when } = await readBody(req);
+      if (when === 'idle' && !allIdle()) return send(res, 200, { ok: true, waiting: waitForIdle('restart') });
+      restartNow();
+      return send(res, 200, { ok: true });
+    }
+    if (method === 'POST' && parts[1] === 'restart-cancel') {
+      pendingRestart = false;
+      hub.emit('event', { type: 'restart-pending', waiting: false });
       return send(res, 200, { ok: true });
     }
     // 彻底退出（Windows 和浏览器里用；Mac 应用按 ⌘Q）
@@ -698,6 +706,13 @@ async function api(req, res, url) {
       openPath(room.cwd);
       return send(res, 200, { ok: true });
     }
+    // 上次退出时被打断的活：老板点了「让它接着做」
+    if (sub === 'resume' && method === 'POST') {
+      const { agents } = await readBody(req);
+      const list = (Array.isArray(agents) ? agents : []).filter((a) => AGENTS[a] && room.members.includes(a));
+      for (const a of list) hub.wake(room.id, a);
+      return send(res, 200, { ok: true });
+    }
     // 把某位在私聊里的回复转到群里（老板点了「发到群里」）
     if (sub === 'forward' && method === 'POST') {
       const { seq } = await readBody(req);
@@ -808,6 +823,46 @@ async function refreshEngines(force = false) {
     .finally(() => (refreshing = null));
   return refreshing;
 }
+
+// 重启：马上重启时，正在干的活记成「被打断」，重启后自动接着做。
+// 等大家干完再重启（pendingRestart 是 'update' 或 'restart'）：每次有人干完都看一眼是不是全空了
+// （空下来后再等两秒：一位干完、下一位被叫醒之间有一小段空当）
+let pendingRestart = false;
+let pendingTimer = null;
+const allIdle = () => !hub.runs.size && !hub.sideRuns.size;
+
+function restartNow() {
+  pendingRestart = false;
+  hub.restarting = true;
+  hub.emit('event', { type: 'restarting' });
+  scheduleRestart(shutdown);
+}
+
+function waitForIdle(kind) {
+  pendingRestart = kind;
+  hub.emit('event', { type: 'restart-pending', waiting: kind });
+  return true;
+}
+
+async function restartWhenIdle() {
+  const kind = pendingRestart;
+  if (!kind || !allIdle()) return;
+  if (kind === 'update') {
+    pendingRestart = false;
+    const result = await pullUpdate().catch((err) => ({ ok: false, error: err.message }));
+    if (!result.ok || !result.updated) {
+      hub.emit('event', { type: 'restart-pending', waiting: false, error: result.ok ? '已经是最新版了' : result.error || '更新失败' });
+      return;
+    }
+  }
+  restartNow();
+}
+
+hub.on('event', (ev) => {
+  if (ev.type !== 'status' || !pendingRestart || !allIdle()) return;
+  clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(restartWhenIdle, 2000);
+});
 
 function shutdown() {
   hub.shutdown();
