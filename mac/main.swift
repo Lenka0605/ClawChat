@@ -1,5 +1,6 @@
 import Cocoa
 import UniformTypeIdentifiers
+import UserNotifications
 import WebKit
 
 // ClawChat 的原生外壳：启动本地服务（server.js），用 WKWebView 打开界面。
@@ -26,7 +27,7 @@ final class DragView: NSView {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     var window: NSWindow!
     var webView: WKWebView!
     let dragView = DragView()
@@ -37,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenu()
+        UNUserNotificationCenter.current().delegate = self
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "clawchat")
         webView = WKWebView(frame: .zero, configuration: config)
@@ -88,6 +90,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window.makeKeyAndOrderFront(nil)
         return true
+    }
+
+    // MARK: 系统通知（ClawChat 不在前台时，AI 回了话由网页叫这里发；第一次会请求通知权限）
+
+    func notify(title: String, text: String, key: String) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = text
+            content.sound = .default
+            content.threadIdentifier = key
+            content.userInfo = ["key": key]
+            // 同一个会话只留最新一条，免得接力时一连串弹出来
+            center.add(UNNotificationRequest(identifier: "clawchat-\(key)", content: content, trigger: nil))
+        }
+    }
+
+    // 点通知：回到 ClawChat，打开那个会话
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let key = response.notification.request.content.userInfo["key"] as? String ?? ""
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            self.window.makeKeyAndOrderFront(nil)
+            if let data = try? JSONSerialization.data(withJSONObject: [key]), let json = String(data: data, encoding: .utf8) {
+                self.webView.evaluateJavaScript("window.__clawchatOpenConv && window.__clawchatOpenConv(...\(json))")
+            }
+        }
+        completionHandler()
+    }
+
+    // ClawChat 在前台时也照样显示（网页只在不在前台时才会发）
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -183,6 +220,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             NSApp.dockTile.badgeLabel = n > 0 ? String(n) : nil
         case "attention":
             NSApp.requestUserAttention(.informationalRequest)
+        case "notify":
+            notify(title: body["title"] as? String ?? "ClawChat", text: body["body"] as? String ?? "", key: body["key"] as? String ?? "")
         case "theme":
             let value = body["value"] as? String ?? "system"
             UserDefaults.standard.set(value, forKey: "theme")

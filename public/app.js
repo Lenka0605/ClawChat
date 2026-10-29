@@ -12,6 +12,10 @@ const S = {
   rooms: [],
   current: null, // 当前会话 key
   drafts: {}, // 会话 key -> 还没发出去的字（启动时从本机读）
+  openSteps: new Set(), // 展开着的「过程」：roomId:seq（重画后保持展开）
+  rendered: null, // 当前会话画到了哪：{ key, from }（长对话只画最近一段）
+  sessionImages: new Map(), // roomId -> { gpt: 会话里存的图片字节数 }（会话太重时顶部按钮上提醒）
+  pinned: true, // 是不是贴着最底下（消息列表变高时继续贴着；自己往上翻、跳到某条消息时就不贴了）
   messages: new Map(), // roomId -> message[]
   early: new Map(), // 消息列表还没加载完时收到的新消息
   runs: [],
@@ -715,8 +719,50 @@ function renderConvs() {
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
     if (open) for (const d of dmHits) html.push(convItemHtml(d));
   }
+  if (q) html.push(searchHitsHtml(q, html.length > 0));
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
+}
+
+// ---------------- 搜聊天内容 ----------------
+// 侧栏搜索时，除了按名字找会话，也在所有聊天记录里找；点一条结果就打开那个会话、跳到那条消息
+
+function searchHitsHtml(q, hasConvs) {
+  const res = S.searchHits;
+  if (!res || res.q !== q) return '<li class="search-head">正在搜聊天记录…</li>';
+  if (!res.hits.length) return `<li class="search-head">${hasConvs ? '聊天记录里没有找到' : '没有找到相关的聊天和消息'}</li>`;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const items = res.hits.map((h) => {
+    const room = roomById(h.roomId);
+    if (!room) return '';
+    const where = h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
+    const who = h.from === 'user' ? '我' : agentName(h.from);
+    const text = `${h.cut ? '…' : ''}${String(h.text).replace(/\*\*|`/g, '').replace(/\s+/g, ' ')}`;
+    const parts = text.split(re);
+    const marks = text.match(re) || [];
+    const shown = parts.map((p, i) => esc(p) + (marks[i] ? `<mark>${esc(marks[i])}</mark>` : '')).join('');
+    return `<li class="search-hit" data-hit-key="${esc(convOf(h.roomId, h))}" data-hit-seq="${h.seq}">
+      ${avatarHtml(h.from === 'user' ? 'user' : h.from)}
+      <div class="conv-meta"><div class="conv-line"><span class="name">${esc(who)}<small> · ${esc(where)}</small></span><span class="time">${fmtShort(h.ts)}</span></div>
+      <div class="hit-text">${shown}</div></div></li>`;
+  });
+  return `<li class="search-head">聊天记录 · ${res.hits.length}${res.more ? '+' : ''} 条</li>${items.join('')}`;
+}
+
+async function searchMessages(q) {
+  try {
+    const res = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
+    if (S.filter.trim().toLowerCase() !== q) return; // 已经改了关键词
+    S.searchHits = { q, hits: res.hits || [], more: !!res.more };
+  } catch {
+    S.searchHits = { q, hits: [], more: false };
+  }
+  renderConvs();
+}
+
+async function openSearchHit(li) {
+  await openConv(li.dataset.hitKey);
+  jumpTo(Number(li.dataset.hitSeq));
 }
 
 // 内容没变就不动它，免得正在打开的下拉框被刷新关掉
@@ -805,6 +851,20 @@ function syncToolsRow() {
   fitTools();
 }
 
+const stepsListHtml = (steps) => `<ol>${steps.map(stepHtml).join('')}</ol>`;
+
+// 排好版的 Markdown 记住不重算（同样的文字排出来总是一样的）
+const mdCache = new Map();
+function mdCached(text) {
+  let html = mdCache.get(text);
+  if (html === undefined) {
+    html = md(text);
+    if (mdCache.size > 3000) mdCache.clear();
+    mdCache.set(text, html);
+  }
+  return html;
+}
+
 function stepHtml(s) {
   // 看过、改过的文件：和回复里的路径一样，点一下在访达里显示，图片悬停看缩略图
   const file = ['read', 'edit'].includes(s.kind) && !String(s.text).includes(', ') && looksLikeFile(s.text);
@@ -890,8 +950,10 @@ function messageHtml(roomId, m, prev, conv) {
     return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${edited}${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
   }
   const dur = m.durationMs ? `用时 ${fmtDur(m.durationMs)}` : '';
+  // 过程步骤展开时才画出来（长对话里攒了上千步，一直放在页面上会拖慢整个聊天记录）
+  const stepsOpen = S.openSteps.has(`${roomId}:${m.seq}`);
   const foot = m.steps?.length
-    ? `<details class="steps"><summary>过程 · ${m.steps.length} 步${dur ? ` · ${dur}` : ''}</summary><ol>${m.steps.map(stepHtml).join('')}</ol></details>`
+    ? `<details class="steps" data-steps="${m.seq}"${stepsOpen ? ' open' : ''}><summary>过程 · ${m.steps.length} 步${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? stepsListHtml(m.steps) : ''}</details>`
     : dur;
   const canDm = !conv.dm && conv.room.members.length > 1;
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="私聊 ${esc(agentLabel(m.from))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
@@ -906,7 +968,7 @@ function messageHtml(roomId, m, prev, conv) {
   // 私聊里的回复：可以转到群里（转过的就不再显示）
   const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, '发到群里', FORWARD_ICON) : '';
   const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${forwardBtn}${replyBtn}${time}</div>`;
-  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
+  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
 }
@@ -915,20 +977,66 @@ function convMessages(conv) {
   return (S.messages.get(conv.roomId) || []).filter((m) => inConv(conv, m));
 }
 
+// 长对话只画最近的一段（PAGE 条），往上翻快到顶时再接上更早的：
+// 一次把几百条消息全放进页面，光排版就要一百多毫秒，每次打开、重画都会卡一下
+const PAGE = 80;
+
 function renderMessages() {
   const conv = currentConv();
   if (!conv) return;
   const list = convMessages(conv);
+  // 换了会话就从最近的一段开始；同一个会话里重画，保持已经接上的那些
+  if (S.rendered?.key !== conv.key) S.rendered = { key: conv.key, from: Math.max(0, list.length - PAGE) };
+  const from = Math.min(S.rendered.from, Math.max(0, list.length - PAGE));
+  S.rendered.from = from;
   const typing = document.activeElement?.classList.contains('edit-input');
-  $('#messages').innerHTML = list.map((m, i) => messageHtml(conv.roomId, m, list[i - 1], conv)).join('');
+  $('#messages').innerHTML = earlierHtml(from) + list.slice(from).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
+  restoreEditor(typing);
+}
+
+const earlierHtml = (from) => (from > 0 ? `<button class="load-earlier" data-earlier>更早的 ${from} 条消息</button>` : '');
+
+// 接上更早的一段，滚动位置保持不动（不会跳）
+function loadEarlier(upTo = null) {
+  const conv = currentConv();
+  if (!conv || !S.rendered?.from) return;
+  const list = convMessages(conv);
+  const old = S.rendered.from;
+  const from = upTo === null ? Math.max(0, old - PAGE) : Math.max(0, Math.min(old - PAGE, upTo));
+  const box = $('#messages');
+  const s = $('#scroller');
+  S.pinned = false; // 在往上看，别被拽回最底下
+  const before = s.scrollHeight;
+  box.querySelector('[data-earlier]')?.remove();
+  // 每条的时间分隔都是按真正的上一条算的，接上更早的不用改原来那些
+  const tpl = document.createElement('template');
+  tpl.innerHTML = earlierHtml(from) + list.slice(from, old).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
+  box.prepend(tpl.content);
+  S.rendered.from = from;
+  s.scrollTop += s.scrollHeight - before;
+}
+
+// 只重画一条消息（编辑、朗读这些只影响一条的，不用整页重画）
+function rerenderMessage(seq) {
+  const conv = currentConv();
+  const m = findMessage(seq);
+  const el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
+  if (!conv || !m || !el) return; // 不在当前页面上（比如是另一个会话的），不用管
+  const typing = document.activeElement?.classList.contains('edit-input');
+  const tpl = document.createElement('template');
+  tpl.innerHTML = messageHtml(conv.roomId, m, m, conv); // 把自己当成上一条：不会多画一个时间分隔
+  el.replaceWith(tpl.content);
+  restoreEditor(typing);
+}
+
+function restoreEditor(typing) {
   const ta = document.querySelector('.edit-input');
-  if (ta) {
-    fitEditor(ta);
-    if (typing || S.editMsg.focus) {
-      S.editMsg.focus = false;
-      ta.focus({ preventScroll: true });
-      ta.setSelectionRange(S.editMsg.sel, S.editMsg.sel);
-    }
+  if (!ta || !S.editMsg) return;
+  fitEditor(ta);
+  if (typing || S.editMsg.focus) {
+    S.editMsg.focus = false;
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(S.editMsg.sel, S.editMsg.sel);
   }
 }
 
@@ -946,6 +1054,12 @@ async function forwardMessage(seq, btn) {
   try {
     await api('POST', `/api/rooms/${conv.roomId}/forward`, { seq });
     toast('已发到群里');
+    document.querySelectorAll(`[data-forward="${seq}"]`).forEach((b) => {
+      if (b.classList.contains('notice-action')) {
+        b.disabled = true;
+        b.textContent = '已发到群里';
+      } else b.remove();
+    });
   } catch (err) {
     btn.disabled = false;
     toast(err.message);
@@ -988,13 +1102,16 @@ function startEdit(seq) {
   const m = findMessage(seq);
   if (!m) return;
   const text = m.text || '';
+  const prev = S.editMsg?.seq;
   S.editMsg = { roomId: currentConv().roomId, seq, text, sel: text.length, focus: true };
-  renderMessages();
+  if (prev !== undefined && prev !== seq) rerenderMessage(prev); // 同时只改一条
+  rerenderMessage(seq);
 }
 
 function cancelEdit() {
+  const seq = S.editMsg?.seq;
   S.editMsg = null;
-  renderMessages();
+  if (seq !== undefined) rerenderMessage(seq);
 }
 
 // 改好的消息作为新消息发出去，注明改的是哪条（原来的图片、回复的哪条都带上）
@@ -1007,7 +1124,7 @@ async function sendEdit() {
   if (!text && !m.images?.length) return toast('消息是空的');
   if (text === String(m.text || '').trim()) return cancelEdit(); // 没改
   S.editMsg = null;
-  renderMessages();
+  rerenderMessage(m.seq);
   try {
     await api('POST', `/api/rooms/${conv.roomId}/messages`, {
       text,
@@ -1018,7 +1135,7 @@ async function sendEdit() {
     });
   } catch (err) {
     S.editMsg = { ...ed, focus: true };
-    renderMessages();
+    rerenderMessage(m.seq);
     toast(err.message);
   }
 }
@@ -1054,9 +1171,10 @@ function toggleSpeak(seq) {
   const conv = currentConv();
   const m = findMessage(seq);
   if (!conv || !m) return;
-  const same = S.speaking?.roomId === conv.roomId && S.speaking.seq === seq;
+  const prev = S.speaking?.roomId === conv.roomId ? S.speaking.seq : undefined;
   stopSpeaking();
-  if (same) return renderMessages();
+  if (prev !== undefined) rerenderMessage(prev); // 上一条的按钮变回「朗读」
+  if (prev === seq) return;
   const text = speechText(m.text);
   const zh = /[\u4e00-\u9fff]/.test(text);
   const voice = pickVoice(zh ? 'zh' : 'en');
@@ -1073,12 +1191,12 @@ function toggleSpeak(seq) {
       u.onend = u.onerror = () => {
         if (S.speaking !== token) return;
         S.speaking = null;
-        renderMessages();
+        if (currentConv()?.roomId === token.roomId) rerenderMessage(seq);
       };
     }
     speechSynthesis.speak(u);
   });
-  renderMessages();
+  rerenderMessage(seq);
 }
 
 function liveKey(r) {
@@ -1266,7 +1384,10 @@ async function openConv(key) {
     S.editMsg = null; // 正在改的消息是别的会话的，别带过去
   }
   S.current = key;
-  if (switching) loadDraft(key);
+  if (switching) {
+    loadDraft(key);
+    refreshSessionImages(c.roomId);
+  }
   storeSet('clawchat.current', key);
   S.unread.delete(key);
   renderConvs();
@@ -1280,7 +1401,38 @@ async function openConv(key) {
   $('#input').focus();
 }
 
+// ---------------- 系统通知 ----------------
+// ClawChat 不在前台时，AI 回了话（或者出错了）就发一条系统通知；同一个会话只留最新一条，点一下直接打开那个会话
+const notifyOn = () => storeGet('clawchat.notify') !== 'off';
+
+function notifyReply(roomId, m, key) {
+  if (!notifyOn() || document.hasFocus()) return;
+  const room = roomById(roomId);
+  if (!room) return;
+  const solo = room.members.length === 1;
+  const title = m.from === 'system'
+    ? `ClawChat · ${room.name}`
+    : `${agentName(m.from)}${m.dm && !solo ? '（私聊）' : solo ? '' : ` · ${room.name}`}`;
+  const body = plainSnippet(m.text, 140) || (m.images?.length ? '[图片]' : '');
+  if (hasNative()) return native({ type: 'notify', title, body, key });
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const n = new Notification(title, { body, tag: key, icon: '/favicon.png' });
+  n.onclick = () => {
+    window.focus();
+    openConv(key);
+    n.close();
+  };
+}
+
+// 浏览器（比如 Windows 上的 Edge 窗口）要先问一次通知权限，而且得在点击之类的操作里问
+function askNotifyPermission() {
+  if (hasNative() || !notifyOn() || !('Notification' in window) || Notification.permission !== 'default') return;
+  Notification.requestPermission().catch(() => {});
+}
+window.__clawchatOpenConv = (key) => openConv(key);
+
 function onMessage(roomId, m) {
+  if (m.from === 'gpt' || (m.from === 'system' && m.action?.type === 'fresh')) refreshSessionImages(roomId);
   const list = S.messages.get(roomId);
   if (list) {
     if (list.some((x) => x.seq === m.seq)) return;
@@ -1308,6 +1460,9 @@ function onMessage(roomId, m) {
     }
     if (!focused || (m.dm && S.current !== key)) native({ type: 'attention' });
     if (m.dm && S.current !== key) toast(`${agentName(m.from)} 私聊你：${firstLine(m.text).slice(0, 40)}`, 4000);
+    notifyReply(roomId, m, key);
+  } else if (m.from === 'system' && /出错/.test(m.text || '')) {
+    notifyReply(roomId, m, key);
   }
 }
 
@@ -1538,6 +1693,7 @@ async function sendMessage() {
   const conv = currentConv();
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
+  askNotifyPermission();
   const raw = el.value;
   const text = cleanMentions(raw).trim(); // 发出去的还是普通的 @Claude
   const draftKey = S.current;
@@ -1683,9 +1839,20 @@ function cancelReply() {
 }
 
 function jumpTo(seq) {
-  const el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
+  S.pinned = false; // 要跳过去看那条，别被拽回最底下
+  let el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
+  // 还没画出来（在更早的那段里）：先把它前面一点接上
+  if (!el && S.rendered?.from) {
+    const i = convMessages(currentConv()).findIndex((m) => m.seq === seq);
+    if (i >= 0 && i < S.rendered.from) {
+      loadEarlier(Math.max(0, i - 10));
+      el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
+    }
+  }
   if (!el) return toast('原消息不在这个会话里了');
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // 直接跳过去（平滑滚动会被消息高度的变化打断）；屏幕外消息的高度是估的，排好版后再对准一次
+  el.scrollIntoView({ block: 'center' });
+  requestAnimationFrame(() => requestAnimationFrame(() => el.scrollIntoView({ block: 'center' })));
   el.classList.remove('flash');
   void el.offsetWidth; // 重新触发闪一下的动画
   el.classList.add('flash');
@@ -1802,8 +1969,12 @@ function modelChipHtml(a, room) {
   const model = room.models?.[a] || '';
   const effort = effortShortName(a, model, room.efforts?.[a]);
   const fast = !!room.fast?.[a] && fastSpeed(a, model) !== null;
+  const level = heavyLevel(sessionImages(room.id, a));
+  const warn = level
+    ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(`会话里存了约 ${(sessionImages(room.id, a) / 1048576).toFixed(1)}MB 图片，越来越慢，点开换新会话`)}"></span>`
+    : '';
   return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(agentName(a))} 的模型和思考强度${a === 'gpt' ? '、速度' : ''}，下一轮生效">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
-    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}快速</span>` : ''}${CHEVRON_SVG}</button>`;
+    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}快速</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
 function menuItemHtml(attrs, label, sub, checked) {
@@ -1821,6 +1992,11 @@ function openModelMenu(agent, chip) {
   const opts = modelOptions(agent);
   if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: `${cur}（自定义）` });
   let html = '';
+  const imgs = sessionImages(conv.roomId, agent);
+  if (heavyLevel(imgs)) {
+    html += `<div class="menu-note warn${heavyLevel(imgs) > 1 ? ' bad' : ''}">会话里存了约 ${(imgs / 1048576).toFixed(1)}MB 图片：它看过的每张图都存在里面，每轮都要重发，到 15MB 左右就会慢到像卡住。这批活做完就换个新会话。</div>`;
+    html += menuItemHtml('data-pick-fresh', '换新会话', '上一个给它派活的 AI 会把情况重新交代给它', false) + '<div class="menu-sep"></div>';
+  }
   if (conv.dm) {
     html += `<div class="menu-note">${SCOPE_ICON}在这里切换只改私聊，群里的设置不变</div>`;
     if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', '恢复成和群聊一样', '', false) + '<div class="menu-sep"></div>';
@@ -1871,6 +2047,7 @@ function pickFromMenu(item) {
   if (item.dataset.pickModel !== undefined) switchModel(agent, item.dataset.pickModel);
   else if (item.dataset.pickEffort !== undefined) switchEffort(agent, item.dataset.pickEffort);
   else if (item.dataset.pickReset !== undefined) resetDmSettings(agent);
+  else if (item.dataset.pickFresh !== undefined) freshAgent(agent, null);
   else if (item.dataset.pickFast !== undefined) {
     const on = item.dataset.pickFast === '1';
     const conv = currentConv();
@@ -2173,6 +2350,27 @@ async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
     if (btn) btn.disabled = false;
   }
   if (S.editing === roomId && $('#dlg-room').open) setTimeout(() => loadSessions(roomById(roomId)), 600);
+  setTimeout(() => refreshSessionImages(roomId), 600);
+}
+
+// ---------------- ChatGPT 会话太重的常驻提醒 ----------------
+// 它看过的图都会整张存进会话，每轮都要重发：到 8MB 顶部按钮上亮橙点，13MB 变红点；点开菜单最上面就能换新会话
+const HEAVY = [8 * 1048576, 13 * 1048576];
+const heavyLevel = (bytes) => HEAVY.filter((n) => bytes >= n).length;
+const sessionImages = (roomId, agent) => S.sessionImages.get(roomId)?.[agent] || 0;
+
+async function refreshSessionImages(roomId) {
+  const room = roomById(roomId);
+  if (!room?.members.includes('gpt')) return;
+  try {
+    const { sessions } = await api('GET', `/api/rooms/${roomId}/sessions`);
+    const before = sessionImages(roomId, 'gpt');
+    S.sessionImages.set(roomId, Object.fromEntries(Object.entries(sessions).map(([a, s]) => [a, s.images || 0])));
+    if (heavyLevel(before) !== heavyLevel(sessionImages(roomId, 'gpt')) && currentConv()?.roomId === roomId) {
+      $('#model-switch')._html = null;
+      renderShell();
+    }
+  } catch {}
 }
 
 // 群设置里的「会话（记忆）」：每位有没有会话、GPT 的会话里存了多少图片，随时可以手动换
@@ -2474,6 +2672,8 @@ function bind() {
     }
   };
   $('#conv-list').addEventListener('click', (e) => {
+    const hit = e.target.closest('.search-hit');
+    if (hit) return void openSearchHit(hit);
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
       toggleCollapsed(toggle.dataset.toggle); // 小三角：只展开收起，不切换会话
@@ -2493,6 +2693,9 @@ function bind() {
   $('#search').addEventListener('input', (e) => {
     S.filter = e.target.value;
     renderConvs();
+    clearTimeout(searchMessages.timer);
+    const q = S.filter.trim().toLowerCase();
+    if (q) searchMessages.timer = setTimeout(() => searchMessages(q), 200);
   });
   // 点群里的头像（或右上角的头像）就去私聊
   document.addEventListener('click', (e) => {
@@ -2525,6 +2728,11 @@ function bind() {
     if (e.key === 'Escape' && !$('#lightbox').hidden) closeLightbox();
   });
   document.querySelectorAll('#theme-switch [data-theme-value]').forEach((b) => (b.onclick = () => applyTheme(b.dataset.themeValue)));
+  $('#notify-switch').checked = notifyOn();
+  $('#notify-switch').onchange = (e) => {
+    storeSet('clawchat.notify', e.target.checked ? 'on' : 'off');
+    if (e.target.checked) askNotifyPermission();
+  };
   $('#dlg-room').addEventListener('close', reportDragRegions);
   // 窗口宽度变了、模型列表加载完下拉框变宽了，都要重新看看顶栏放不放得下
   const headObserver = new ResizeObserver(() => requestAnimationFrame(fitHead));
@@ -2577,6 +2785,22 @@ function bind() {
     closeModelMenu();
     if (!again) openModelMenu(chip.dataset.menu, chip);
   });
+  // 「过程」展开时才把步骤画出来，并记住展开着（重画后保持展开）
+  $('#messages').addEventListener(
+    'toggle',
+    (e) => {
+      const d = e.target;
+      if (!d.matches?.('details[data-steps]')) return;
+      const conv = currentConv();
+      if (!conv) return;
+      const seq = Number(d.dataset.steps);
+      const k = `${conv.roomId}:${seq}`;
+      if (!d.open) return void S.openSteps.delete(k);
+      S.openSteps.add(k);
+      if (!d.querySelector('ol')) d.insertAdjacentHTML('beforeend', stepsListHtml(findMessage(seq)?.steps || []));
+    },
+    true,
+  );
   // 编辑框：打字时记下内容和光标（消息列表重画后能接着改），Enter 发送、Shift+Enter 换行、Esc 取消
   $('#messages').addEventListener('input', (e) => {
     if (!e.target.classList.contains('edit-input') || !S.editMsg) return;
@@ -2614,10 +2838,13 @@ function bind() {
     revealFile(ref.dataset.path);
   });
   $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
-  // 图片是慢慢加载的，加载完会把消息撑高：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
-  let pinned = true;
-  $('#scroller').addEventListener('scroll', () => (pinned = nearBottom()), { passive: true });
-  $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && pinned && scrollToBottom(), true);
+  // 往上翻快到顶了：接上更早的一段；也可以点最上面的「更早的 N 条消息」
+  $('#scroller').addEventListener('scroll', () => S.rendered?.from && $('#scroller').scrollTop < 400 && loadEarlier(), { passive: true });
+  $('#messages').addEventListener('click', (e) => e.target.closest('[data-earlier]') && loadEarlier());
+  // 消息列表变高了（图片慢慢加载出来、屏幕外的消息排版后量出了真实高度）：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
+  $('#scroller').addEventListener('scroll', () => (S.pinned = nearBottom()), { passive: true });
+  $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && S.pinned && scrollToBottom(), true);
+  new ResizeObserver(() => S.pinned && scrollToBottom()).observe($('#messages'));
   $('#model-menu').addEventListener('click', (e) => {
     const item = e.target.closest('.menu-item');
     if (item) pickFromMenu(item);

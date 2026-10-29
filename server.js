@@ -391,6 +391,27 @@ async function api(req, res, url) {
   const method = req.method;
 
   if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
+  // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段
+  if (method === 'GET' && parts[0] === 'search') {
+    const q = String(url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 100);
+    if (!q) return send(res, 200, { hits: [] });
+    const hits = [];
+    for (const room of store.listRooms()) {
+      const msgs = store.getMessages(room.id);
+      let found = 0;
+      for (let i = msgs.length - 1; i >= 0 && found < 50; i--) {
+        const m = msgs[i];
+        if (m.from === 'system' || !m.text) continue;
+        const at = m.text.toLowerCase().indexOf(q);
+        if (at < 0) continue;
+        found++;
+        const start = Math.max(0, at - 30);
+        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, ts: m.ts, text: m.text.slice(start, at + q.length + 90), cut: start > 0 });
+      }
+    }
+    hits.sort((a, b) => b.ts - a.ts);
+    return send(res, 200, { hits: hits.slice(0, 60), more: hits.length > 60 });
+  }
   if (method === 'GET' && parts[0] === 'events') return events(req, res);
   if (method === 'GET' && parts[0] === 'state') {
     return send(res, 200, {
@@ -657,12 +678,24 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
+// 日志里只记一行摘要（整份模型清单有好几千字，每次启动都记一遍太啰嗦）
+function engineSummary() {
+  const one = (label, e) => {
+    if (!e?.path) return `${label} 没装`;
+    const n = e.models?.length ? `（${e.models.length} 个模型）` : '';
+    return `${label} ${String(e.version || '').match(/\d+\.\d+[\w.-]*/)?.[0] || '?'}${n}${e.ok ? '' : `，${e.error || '用不了'}`}`;
+  };
+  const ds = engines.deepseek;
+  const deepseek = !ds?.hasKey ? 'DeepSeek 没填 Key' : `DeepSeek（借 Claude Code，${ds.models?.length || 0} 个模型）${ds.ok ? '' : `，${ds.error || '用不了'}`}`;
+  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek].join(' · ');
+}
+
 setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   hub.noticeInterrupted();
   ensureDeepseekIcon();
-  refreshEngines().then(() => console.log('[clawchat] 引擎：', JSON.stringify(engines)));
+  refreshEngines().then(() => console.log(`[clawchat] 程序：${engineSummary()}`));
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
 });
 
