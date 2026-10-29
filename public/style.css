@@ -214,7 +214,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .side-foot { padding: 8px 10px 10px; font-size: 11px; color: var(--muted); flex: none; }
 .side-settings {
   width: 100%; border: 0; background: transparent; border-radius: 8px; padding: 6px 8px; display: flex; align-items: center; gap: 8px;
-  color: var(--text); font-size: 13px;
+  color: var(--text); font-size: 13px; white-space: nowrap;
 }
 .side-settings:hover { background: var(--fill); }
 .side-settings svg { color: var(--muted); }
@@ -266,8 +266,12 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
 }
 .head-main { flex: 1; min-width: 0; }
-.room-title { font-size: 13px; font-weight: 600; display: flex; gap: 4px; align-items: baseline; white-space: nowrap; }
-#room-count { color: var(--muted); font-weight: 400; }
+.room-title { font-size: 13px; font-weight: 600; display: flex; gap: 4px; align-items: baseline; white-space: nowrap; min-width: 0; }
+#room-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#room-count { color: var(--muted); font-weight: 400; flex: none; }
+/* 一行放不下时（app.js 的 fitHead 判断）：模型切换挪到第二行 */
+#room-head.stacked { flex-wrap: wrap; height: auto; min-height: 52px; padding-top: 8px; padding-bottom: 8px; row-gap: 7px; }
+#room-head.stacked .model-switch { order: 1; flex: 1 0 100%; flex-wrap: wrap; row-gap: 6px; }
 .room-sub { display: flex; gap: 6px; align-items: center; font-size: 11px; min-width: 0; color: var(--muted); }
 #room-from { flex: none; }
 .link {
@@ -279,15 +283,12 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .badge.full { background: rgba(255, 59, 48, 0.14); color: var(--danger); }
 
 .model-switch { display: flex; gap: 6px; align-items: center; flex: none; }
-/* 三位成员时顶部放不下：收起「思考」两个字、下拉框窄一点，给群名留出位置 */
-.model-switch.many { flex: 0 1 auto; min-width: 0; }
-.model-switch.many .model-chip { min-width: 0; }
+/* 三位成员时：收起「思考」两个字、下拉框窄一点，尽量还能放在一行 */
 .model-switch.many .chip-label { display: none; }
 .model-switch.many .model-chip select { max-width: 116px; }
 .model-switch.many .model-chip select.effort-select { max-width: 72px; }
-#room-head:has(.model-switch.many) .head-main { min-width: 120px; }
 .model-chip {
-  display: flex; align-items: center; gap: 5px; background: var(--fill); border-radius: 6px; padding: 0 4px 0 4px; height: 24px;
+  display: flex; align-items: center; gap: 5px; background: var(--fill); border-radius: 6px; padding: 0 4px 0 4px; height: 24px; flex: none;
 }
 .model-chip:hover { background: var(--fill-hover); }
 .model-chip .avatar { width: 16px; height: 16px; }
@@ -571,7 +572,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
   #sidebar { width: 210px; }
   .msg-body { max-width: 86%; }
   #scroller, #composer { padding-left: 16px; padding-right: 16px; }
-  .model-chip select { max-width: 90px; }
+  .model-chip select { max-width: 120px; }
 }
 
 /* ---------- 应用设置（仿 macOS 的设置窗口：图标工具栏 + 分组列表） ---------- */

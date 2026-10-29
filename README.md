@@ -158,7 +158,7 @@ npm run app     # 重新生成 ClawChat.app
 - `lib/hub.js`：群聊调度（谁接话、接力、轮数上限、停止）
 - `lib/agents.js`：驱动 `claude -p --output-format stream-json` 和 `codex exec --json`，用 `--resume` / `exec resume` 续上会话；DeepSeek 也走 `claude -p`，只是换了接口、Key 和配置目录
 - `public/`：界面
-- `mac/`：原生外壳（WKWebView）和图标
+- `mac/`：原生外壳（WKWebView）和图标。图标原图是 `mac/icon-art.jpg`（用 ChatGPT 生图画的），换图后运行一次 `swift mac/make-icon.swift --windows`，更新仓库里的网页图标和 Windows 图标
 - `windows/`：Windows 的安装脚本（`install.ps1`，由根目录的 `Install-Windows.cmd` 启动）、启动器（`launch.js`：起后台服务、用 Edge 应用模式开窗口）和图标。`install.ps1` 要存成带 BOM 的 UTF-8，`ClawChat.vbs` 要存成 UTF-16，不然中文会乱码
 
 移动这个项目文件夹之后，要重新运行一次 `npm run app`，因为应用里记录的是项目的绝对路径。

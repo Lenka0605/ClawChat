@@ -623,7 +623,20 @@ function renderShell() {
     : '';
   $('#input').placeholder = dm ? `私聊 ${agentName(dm)}` : `发送给 ${room.name}`;
   syncToolsRow();
+  fitHead();
   requestAnimationFrame(reportDragRegions);
+}
+
+// 窗口窄、成员多，顶栏一行放不下时，把模型切换挪到第二行，别把群名挤没了。
+// 量的是每个下拉框本来的宽度，两种排法下都一样，所以不会来回跳
+function fitHead() {
+  const head = $('#room-head');
+  if ($('#chat').hidden) return;
+  const width = (el) => (el.hidden ? 0 : el.offsetWidth + 10); // 10 是顶栏各块之间的间距
+  const chips = [...$('#model-switch').children].reduce((w, el) => w + el.offsetWidth + 6, 0);
+  const need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
+  const was = head.classList.contains('stacked');
+  if (head.classList.toggle('stacked', need > head.clientWidth) !== was) requestAnimationFrame(reportDragRegions);
 }
 
 // 输入框上面那一行：私聊、单聊又没在干活时整行收起来
@@ -1812,6 +1825,10 @@ function bind() {
   });
   document.querySelectorAll('#theme-switch [data-theme-value]').forEach((b) => (b.onclick = () => applyTheme(b.dataset.themeValue)));
   $('#dlg-room').addEventListener('close', reportDragRegions);
+  // 窗口宽度变了、模型列表加载完下拉框变宽了，都要重新看看顶栏放不放得下
+  const headObserver = new ResizeObserver(() => requestAnimationFrame(fitHead));
+  headObserver.observe($('#room-head'));
+  headObserver.observe($('#model-switch'));
   window.addEventListener('resize', () => {
     clearTimeout(reportDragRegions.timer);
     reportDragRegions.timer = setTimeout(reportDragRegions, 100);
