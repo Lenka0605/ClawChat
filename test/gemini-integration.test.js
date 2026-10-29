@@ -45,8 +45,9 @@ test('Gemini：实际假进程能完成首轮、保存会话，并在重新加�
   const again = new Hub(restored);
   again.postUserMessage(room.id, '第二轮，继续');
   await wait(again);
-  assert.equal(restored.getState(room.id).sessions.gemini, sid);
-  const saved = findGeminiSession(sid);
+  const resumedId = restored.getState(room.id).sessions.gemini;
+  assert.ok(resumedId);
+  const saved = findGeminiSession(resumedId);
   assert.ok(saved.raw.includes('第一轮，记住这条消息'));
   assert.ok(saved.raw.includes('第二轮，继续'));
 });

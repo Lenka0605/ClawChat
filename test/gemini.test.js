@@ -8,7 +8,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-gemini-test-'));
 process.env.CLAWCHAT_HOME = path.join(root, 'clawchat');
 process.env.GEMINI_CLI_HOME = path.join(root, 'gemini-home');
 delete process.env.GEMINI_API_KEY;
-const { runGemini, geminiArgs, forkGeminiSession, findGeminiSession, geminiSessionUsage, detectGemini } = await import('../lib/gemini.js');
+const { runGemini, geminiArgs, findGeminiSession, geminiSessionUsage, detectGemini } = await import('../lib/gemini.js');
 const { saveConfig } = await import('../lib/store.js');
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 const room = { cwd: root, permission: 'full', models: {} };
@@ -20,12 +20,21 @@ function fakeRuntime(events, result = { code: 0, stderr: '' }) {
     which: () => '/假的/gemini',
     spawnJsonl(bin, args, opts) {
       Object.assign(capture, { bin, args, opts });
-      capture.settings = JSON.parse(fs.readFileSync(opts.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, 'utf8'));
+      capture.settingsPath = path.join(opts.env.GEMINI_CLI_HOME, '.gemini', 'settings.json');
+      capture.settings = JSON.parse(fs.readFileSync(capture.settingsPath, 'utf8'));
+      if (args.includes('--session-file')) capture.history = fs.readFileSync(args[args.indexOf('--session-file') + 1], 'utf8');
       if (args.includes('--admin-policy')) capture.policy = fs.readFileSync(args[args.indexOf('--admin-policy') + 1], 'utf8');
       return {
         kill() { capture.killed = true; },
         done: Promise.resolve().then(() => {
-          events.forEach(opts.onEvent);
+          events.forEach((ev) => {
+            if (ev.type === 'init') {
+              const chats = path.join(opts.env.GEMINI_CLI_HOME, '.gemini', 'tmp', 'project', 'chats');
+              fs.mkdirSync(chats, { recursive: true });
+              fs.writeFileSync(path.join(chats, `session-test-${ev.session_id.slice(0, 8)}.json`), JSON.stringify({ sessionId: ev.session_id, messages: [] }));
+            }
+            opts.onEvent(ev);
+          });
           return result;
         }),
       };
@@ -48,12 +57,12 @@ test('Gemini：合并增量回复，记录会话和实际模型，清理临时�
   assert.equal(result.text, '你好，老板');
   assert.equal(result.session, 'session-test-1234');
   assert.equal(result.model, 'gemini-2.5-pro');
-  assert.equal(fs.existsSync(runtime.capture.opts.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH), false);
+  assert.equal(fs.existsSync(runtime.capture.settingsPath), false);
 });
 
 test('Gemini：续接精确会话，切回默认也明确传模型，权限分开处理', () => {
-  const args = geminiArgs({ room, session: 'exact-session' });
-  assert.equal(args[args.indexOf('--resume') + 1], 'exact-session');
+  const args = geminiArgs({ room, sessionFile: '/历史记录.jsonl' });
+  assert.equal(args[args.indexOf('--session-file') + 1], '/历史记录.jsonl');
   assert.equal(args[args.indexOf('--model') + 1], 'auto');
   assert.ok(args.includes('yolo'));
   assert.equal(args.includes('--sandbox'), false);
@@ -111,7 +120,10 @@ test('Gemini：只读限制由工具白名单和管理员策略落实，不沿�
   await runGemini({ room: { ...room, permission: 'readonly' }, prompt: '测试' }, runtime).done;
   assert.equal(runtime.capture.settings.tools.core.includes('run_shell_command'), false);
   assert.equal(runtime.capture.settings.tools.core.includes('write_file'), false);
-  assert.equal(runtime.capture.settings.admin.mcp.enabled, false);
+  assert.equal(runtime.capture.args[runtime.capture.args.indexOf('--allowed-mcp-server-names') + 1], '__clawchat_no_mcp__');
+  assert.equal(runtime.capture.opts.cwd, runtime.capture.opts.env.GEMINI_CLI_HOME);
+  assert.ok(runtime.capture.args.includes(room.cwd));
+  assert.equal(runtime.capture.opts.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, undefined);
   assert.equal(runtime.capture.settings.hooksConfig.enabled, false);
   assert.match(runtime.capture.policy, /toolName = "\*"\ndecision = "deny"/);
 });
@@ -137,20 +149,16 @@ function writeSession(id, jsonl) {
   return file;
 }
 
-test('Gemini：JSON 和 JSONL 会话都能复制，分身不会改写本体', async () => {
+test('Gemini：JSON 和 JSONL 会话都能导入，分身不会改写本体', async () => {
   for (const [id, jsonl] of [['11111111-main-session', false], ['22222222-main-session', true]]) {
     const file = writeSession(id, jsonl);
     const original = fs.readFileSync(file, 'utf8');
-    const fork = forkGeminiSession(id);
-    assert.notEqual(fork.session, id);
-    assert.ok(findGeminiSession(fork.session));
-    assert.equal(fs.readFileSync(file, 'utf8'), original);
-    fork.cleanup();
-    assert.equal(findGeminiSession(fork.session), null);
     assert.deepEqual(geminiSessionUsage(id), { images: 0, used: 123, window: 0 });
     const runtime = fakeRuntime(success);
     await runGemini({ room, session: id, side: true, prompt: '私聊' }, runtime).done;
-    assert.notEqual(runtime.capture.args[runtime.capture.args.indexOf('--resume') + 1], id);
+    assert.ok(runtime.capture.args.includes('--session-file'));
+    assert.equal(runtime.capture.args.includes('--resume'), false);
+    assert.equal(runtime.capture.history, original);
     assert.equal(fs.readFileSync(file, 'utf8'), original);
   }
 });
@@ -181,4 +189,60 @@ test('Gemini：设置里的 Key 只传给子进程，临时认证覆盖 Google �
     assert.equal(engine.keyHint, '…1234');
     assert.equal(JSON.stringify(engine).includes(key), false);
   } finally { saveConfig({ geminiKey: null }); }
+});
+
+test('Gemini：Google 登录凭据复制到隔离目录，刷新后的缓存留在 ClawChat，不改原文件', async () => {
+  const source = path.join(process.env.GEMINI_CLI_HOME, '.gemini');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'settings.json'), JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }));
+  const original = JSON.stringify({ access_token: '仅测试的旧令牌', refresh_token: '仅测试的刷新令牌' });
+  fs.writeFileSync(path.join(source, 'oauth_creds.json'), original);
+  const runtime = fakeRuntime(success);
+  const spawn = runtime.spawnJsonl;
+  runtime.spawnJsonl = (bin, args, opts) => {
+    const file = path.join(opts.env.GEMINI_CLI_HOME, '.gemini', 'oauth_creds.json');
+    assert.equal(fs.readFileSync(file, 'utf8'), original);
+    fs.writeFileSync(file, JSON.stringify({ access_token: '仅测试的新令牌' }));
+    return spawn(bin, args, opts);
+  };
+  await runGemini({ room, prompt: '测试' }, runtime).done;
+  assert.equal(runtime.capture.settings.security.auth.selectedType, 'oauth-personal');
+  assert.equal(fs.readFileSync(path.join(source, 'oauth_creds.json'), 'utf8'), original);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.CLAWCHAT_HOME, 'gemini', 'auth', 'oauth_creds.json'), 'utf8')).access_token, '仅测试的新令牌');
+});
+
+test('Gemini：JSONL 中的 $set.sessionId 会覆盖旧 ID，文件名仍是旧 ID 也能找到', () => {
+  const id = '33333333-new-session';
+  const chats = path.join(process.env.GEMINI_CLI_HOME, '.gemini', 'tmp', 'project', 'chats');
+  fs.mkdirSync(chats, { recursive: true });
+  const file = path.join(chats, 'session-test-old-id.jsonl');
+  fs.writeFileSync(file, JSON.stringify({ sessionId: 'old-id', projectHash: 'project' }) + '\n' + JSON.stringify({ $set: { sessionId: id } }) + '\n');
+  assert.equal(findGeminiSession(id)?.file, file);
+  assert.equal(findGeminiSession('old-id'), null);
+});
+
+test('Gemini：归档失败仍算已完成，不回退消息；要求调度层清空会话并提示恢复', async () => {
+  const runtime = fakeRuntime(success);
+  const spawn = runtime.spawnJsonl;
+  const archive = path.join(process.env.CLAWCHAT_HOME, 'gemini', 'sessions');
+  const backup = `${archive}-backup`;
+  runtime.spawnJsonl = (bin, args, opts) => {
+    const proc = spawn(bin, args, opts);
+    return { ...proc, done: proc.done.then((result) => {
+      fs.renameSync(archive, backup);
+      fs.writeFileSync(archive, '用文件模拟无法创建归档目录');
+      return result;
+    }) };
+  };
+  try {
+    const res = await runGemini({ room, prompt: '测试' }, runtime).done;
+    assert.equal(res.ok, true);
+    assert.equal(res.text, '你好，老板');
+    assert.equal(res.session, null);
+    assert.equal(res.resetSession, true);
+    assert.match(res.warning, /已完成.*请勿重复发送/);
+  } finally {
+    fs.rmSync(archive, { force: true });
+    fs.renameSync(backup, archive);
+  }
 });

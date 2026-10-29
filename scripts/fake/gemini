@@ -22,6 +22,16 @@ fs.mkdirSync(chats, { recursive: true });
 let sessionId = value('--resume');
 let file;
 let record;
+if (value('--session-file')) {
+  const source = value('--session-file');
+  const raw = fs.readFileSync(source, 'utf8');
+  if (source.endsWith('.jsonl')) {
+    const rows = raw.trim().split('\n').map((line) => JSON.parse(line));
+    record = { ...rows[0], messages: rows.slice(1).filter((r) => r.type === 'user' || r.type === 'gemini') };
+  } else record = JSON.parse(raw);
+  record.sessionId = crypto.randomUUID();
+  record.projectHash = projectHash;
+}
 if (sessionId) {
   for (const name of fs.readdirSync(chats).filter((n) => n.endsWith('.json'))) {
     const p = path.join(chats, name);
@@ -33,9 +43,9 @@ if (sessionId) {
     process.exit(1);
   }
 } else {
-  sessionId = crypto.randomUUID();
+  sessionId = record?.sessionId || crypto.randomUUID();
   file = path.join(chats, `session-${new Date().toISOString().slice(0, 16).replaceAll(':', '-')}-${sessionId.slice(0, 8)}.json`);
-  record = { sessionId, projectHash, startTime: new Date().toISOString(), messages: [] };
+  record ||= { sessionId, projectHash, startTime: new Date().toISOString(), messages: [] };
 }
 const input = fs.readFileSync(0, 'utf8');
 const model = value('--model') || 'auto';

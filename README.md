@@ -121,15 +121,19 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 
 ## Gemini（Google）
 
-1. 在终端安装官方 CLI：`npm install -g @google/gemini-cli`。Windows 安装程序也能按提示选装。
-2. 运行一次 `gemini`，按提示登录 Google 账号；完成后输入 `/quit` 退出。也可以从 [Google AI Studio](https://aistudio.google.com/apikey) 创建 API Key，在「设置 → 程序与模型 → Gemini」里填写并保存。
+**个人订阅用户请注意**：Google 已在 2026 年 6 月 18 日停止为个人免费账号、Google AI Pro 和 Ultra 提供 Gemini CLI 的 Google 登录服务。个人订阅应通过 Antigravity CLI（`agy`）使用，ClawChat 的订阅入口正在接入；当前这个 `gemini` 引擎适用于 Gemini API，或仍受支持的 Code Assist 企业账号，不能把个人订阅当成它的 API 额度。[官方停用公告](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
+
+1. 在终端安装官方 CLI：`npm install -g @google/gemini-cli`（需要 0.66.0 或更新）。Windows 安装程序也能按提示选装。
+2. API 用户从 [Google AI Studio](https://aistudio.google.com/apikey) 创建 API Key，在「设置 → 程序与模型 → Gemini」里填写并保存；API 有独立的免费档和付费档，按 API 的额度与计费规则使用。受支持的企业账号也可以运行一次 `gemini` 完成登录，再输入 `/quit` 退出。
 3. 回到 ClawChat 刷新程序列表，新建聊天时勾上 Gemini；已有聊天也可以在群设置中添加。用 `@Gemini` 或 `@谷歌` 点名。
 
 - Google 登录和 API Key 二选一即可。ClawChat 中填写的 Key 优先，其次是 `GEMINI_API_KEY` 环境变量；两者都没有就沿用 Gemini CLI 的登录。设置里的 Key 仅保存在本机；清空输入框再保存会删除这份 Key，不会退出 Google 登录。
+- 这里的登录仅指 Gemini CLI 仍支持的账号。ClawChat 会把登录凭据的副本缓存在 `~/.clawchat/gemini/auth/`；要清除此副本，先退出 ClawChat，再删除该文件夹。CLI 自己仍处于登录状态时，下次调用会重新取得副本；彻底退出账号还需在 Gemini CLI 中退出。
 - 默认使用 CLI 的 `auto` 自动选择模型，也可选择 Pro、Flash 或具体模型；实际能用哪些模型取决于账号权限和 CLI 版本。Gemini 的模型列表是预置选项，不是账号权限检测结果；有新模型可以先更新 CLI，再在模型菜单中添加自定义模型。
-- Gemini 能读写文件、执行命令、看图片，并按会话 ID 续接记忆。关闭 ClawChat 再打开仍会续接；不要删除 Gemini CLI 自己的会话目录。分身使用复制的会话，回复不会写回本体的会话文件。
+- Gemini 能读写文件、执行命令、看图片。成功后的记忆保存在 `~/.clawchat/gemini/sessions`，关闭 ClawChat 再打开仍会续接；备份 ClawChat 数据目录时一起保留这个文件夹。分身使用复制的会话，回复不会写回本体的会话文件。
 - 「只读讨论」及分身只开放读文件、搜索和网页读取工具，不开放命令、写文件或 MCP。普通任务的权限仍由群设置控制。
 - 「项目内放手干」会要求 Gemini CLI 开启沙盒，不会在沙盒不可用时自动改成完全放开。macOS 使用官方 `permissive-open` 配置：允许写项目、附加的图片/聊天记录目录，以及 CLI 必需的临时目录和缓存，并允许联网；它与 Claude 的开发网站白名单不同。其他系统需要 CLI 支持的沙盒环境，缺少时会报错，可按 Gemini CLI 的提示配置。
+- 普通任务会信任所选项目，并沿用项目中的 `.gemini/settings.json` 等配置，包括可能启用的 hooks；请只对信任的项目开启自动工作。只读任务和分身从独立空目录启动，不加载该项目的执行配置。
 - 更新 CLI：`npm install -g @google/gemini-cli@latest`，然后在 ClawChat 中刷新程序列表。安装和认证见 [Google 官方文档](https://geminicli.com/docs/get-started/authentication/)。
 
 ## 模型
