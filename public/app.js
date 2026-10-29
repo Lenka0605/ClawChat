@@ -11,6 +11,7 @@ const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/pn
 const S = {
   rooms: [],
   current: null, // 当前会话 key
+  drafts: {}, // 会话 key -> 还没发出去的字（启动时从本机读）
   messages: new Map(), // roomId -> message[]
   early: new Map(), // 消息列表还没加载完时收到的新消息
   runs: [],
@@ -1189,15 +1190,43 @@ async function loadMessages(roomId) {
   }
 }
 
+// ---------------- 草稿：每个会话各管各的 ----------------
+// 切走时记下输入框里还没发的字，切回来再放回去；存在本机，关掉重开也还在
+function loadDrafts() {
+  try {
+    return JSON.parse(storeGet('clawchat.drafts') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDraft(key) {
+  if (!key) return;
+  const text = $('#input').value;
+  if (text.trim()) S.drafts[key] = text;
+  else delete S.drafts[key];
+  storeSet('clawchat.drafts', JSON.stringify(S.drafts));
+}
+
+function loadDraft(key) {
+  $('#input').value = S.drafts[key] || '';
+  hideMentionMenu();
+  autoGrow();
+}
+
 async function openConv(key) {
   const c = parseKey(key);
   if (!c || !roomById(c.roomId)) return;
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
-  if (S.current !== key) {
+  const switching = S.current !== key;
+  if (switching) {
+    saveDraft(S.current);
     clearAttachments();
     cancelReply();
+    S.editMsg = null; // 正在改的消息是别的会话的，别带过去
   }
   S.current = key;
+  if (switching) loadDraft(key);
   storeSet('clawchat.current', key);
   S.unread.delete(key);
   renderConvs();
@@ -1467,6 +1496,7 @@ async function sendMessage() {
   if (!conv || $('#btn-send').disabled) return;
   const raw = el.value;
   const text = raw.replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').trim(); // 发出去的还是普通的 @Claude
+  const draftKey = S.current;
   const sent = S.attachments.filter((a) => a.status === 'done' && a.roomId === conv.roomId);
   if (!text && !sent.length) return;
   el.value = '';
@@ -1476,10 +1506,17 @@ async function sendMessage() {
   renderAttachments();
   cancelReply();
   autoGrow();
+  saveDraft(draftKey); // 发出去了，这个会话的草稿清掉
   try {
     await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined, replyTo: reply?.seq });
     for (const a of kept) URL.revokeObjectURL(a.url);
   } catch (err) {
+    // 没发出去：字放回原来那个会话（这期间可能已经切到别的会话了）
+    if (S.current !== draftKey) {
+      S.drafts[draftKey] = raw;
+      storeSet('clawchat.drafts', JSON.stringify(S.drafts));
+      return toast(err.message);
+    }
     el.value = raw;
     S.attachments = kept;
     renderAttachments();
@@ -2654,6 +2691,10 @@ function bind() {
   window.addEventListener('drop', (e) => e.preventDefault());
 
   input.addEventListener('input', autoGrow);
+  input.addEventListener('input', () => {
+    clearTimeout(saveDraft.timer);
+    saveDraft.timer = setTimeout(() => saveDraft(S.current), 400);
+  });
   input.addEventListener('scroll', () => ($('#input-mirror').scrollTop = input.scrollTop));
   input.addEventListener('input', updateMentionMenu);
   input.addEventListener('click', updateMentionMenu);
@@ -2709,6 +2750,7 @@ function applyPlatformText() {
 }
 
 async function init() {
+  S.drafts = loadDrafts();
   bind();
   applyPlatformText();
   applyTheme(currentTheme());
