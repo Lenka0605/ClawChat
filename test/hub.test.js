@@ -8,7 +8,7 @@ process.env.CLAWCHAT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-test
 process.env.CODEX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-codex-')); // 别去翻本机真的 Codex 会话
 const { Store } = await import('../lib/store.js');
 const { Hub, parseMentions, isPass, buildTurn, buildIntro, splitReply } = await import('../lib/hub.js');
-const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox } = await import('../lib/agents.js');
+const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox, codexArgs } = await import('../lib/agents.js');
 
 test('parseMentions 识别点名', () => {
   assert.deepEqual(parseMentions('@Claude 你来'), ['claude']);
@@ -654,4 +654,15 @@ test('GPT 会话里的图片太多时提醒换新会话，带按钮；同一级�
   await tick();
   assert.equal(warnings().length, 2);
   assert.match(warnings()[1].text, /马上|现在就/);
+});
+
+test('GPT 的速度每次都明确指定，不跟着老板 Codex 配置里的 service_tier 走', () => {
+  const room = { cwd: os.tmpdir(), permission: 'project', models: {}, efforts: {} };
+  const std = codexArgs({ ...room, fast: { gpt: false } }, null, []);
+  assert.ok(std.includes('features.fast_mode=false'));
+  assert.ok(!std.some((a) => a.startsWith('service_tier')));
+  assert.ok(codexArgs(room, null, []).includes('features.fast_mode=false')); // 老的群没有这个字段，也按标准
+  const fast = codexArgs({ ...room, fast: { gpt: true } }, null, []);
+  assert.ok(fast.includes('service_tier="fast"') && fast.includes('features.fast_mode=true'));
+  assert.ok(!fast.includes('features.fast_mode=false'));
 });

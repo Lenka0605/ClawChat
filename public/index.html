@@ -84,10 +84,10 @@
         <footer id="composer">
           <div class="composer-tools">
             <span id="group-tools">
-              <button class="chip" data-mention="Claude">@Claude</button>
-              <button class="chip" data-mention="GPT">@GPT</button>
-              <button class="chip" data-mention="DeepSeek">@DeepSeek</button>
-              <button class="chip" data-mention="所有人">@所有人</button>
+              <button class="chip mention-chip" data-mention="Claude"><span class="avatar av-claude"></span>@Claude</button>
+              <button class="chip mention-chip" data-mention="GPT"><span class="avatar av-gpt"></span>@GPT</button>
+              <button class="chip mention-chip" data-mention="DeepSeek"><span class="avatar av-deepseek"></span>@DeepSeek</button>
+              <button class="chip mention-chip" data-mention="所有人"><span class="chip-stack" id="mention-all-icons"></span>@所有人</button>
               <label class="target" title="不 @ 人或者 @所有人 时，大家怎么接">不 @ 时
                 <select id="default-target"></select>
               </label>
@@ -176,6 +176,8 @@
               <span class="model-pair"><select name="modelClaude" data-pair="claude"></select><span class="pair-sep">思考</span><select name="effortClaude"></select></span></div>
             <div class="form-row" id="field-model-gpt"><span class="with-icon"><span class="avatar av-gpt"></span>GPT</span>
               <span class="model-pair"><select name="modelGpt" data-pair="gpt"></select><span class="pair-sep">思考</span><select name="effortGpt"></select></span></div>
+            <div class="form-row" id="field-speed-gpt" hidden><span class="with-icon"><span class="speed-icon"></span>GPT 速度</span>
+              <select name="fastGpt"><option value="">标准</option><option value="1">快速</option></select></div>
             <div class="form-row" id="field-model-deepseek"><span class="with-icon"><span class="avatar av-deepseek"></span>DeepSeek</span>
               <span class="model-pair"><select name="modelDeepseek" data-pair="deepseek"></select><span class="pair-sep">思考</span><select name="effortDeepseek"></select></span></div>
           </div>
@@ -350,6 +352,22 @@
           <span class="spacer"></span>
           <button type="button" id="btn-custom-cancel" class="secondary">取消</button>
           <button type="submit" id="btn-custom-ok" class="primary">试用并切换</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="model-menu" class="menu" role="menu" hidden></div>
+
+  <dialog id="dlg-confirm" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2 id="confirm-title"></h2></header>
+      <div class="sheet-body"><p id="confirm-text" class="confirm-text"></p></div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions">
+          <span class="spacer"></span>
+          <button type="button" id="btn-confirm-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-confirm-ok" class="primary"></button>
         </div>
       </footer>
     </form>

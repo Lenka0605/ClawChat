@@ -95,7 +95,7 @@ function reportDragRegions() {
   const shown = (el) => el.getClientRects().length > 0;
   const blocked = document.querySelector('dialog[open]') || !$('#lightbox').hidden;
   const drag = blocked ? [] : [...document.querySelectorAll('[data-drag]')].filter(shown).map(rect);
-  const nodrag = [...document.querySelectorAll('[data-drag] :is(button, select, input, a, label, textarea)')].filter(shown).map(rect);
+  const nodrag = [...document.querySelectorAll('[data-drag] :is(button, select, input, a, label, textarea), #model-menu')].filter(shown).map(rect);
   native({ type: 'dragRegions', drag, nodrag });
 }
 
@@ -240,6 +240,48 @@ function effortSelectHtml(agent, modelId, current, attrs = '') {
 }
 
 const CUSTOM_MODEL = '__custom__';
+
+// ---------------- GPT 快速模式 ----------------
+// Codex 的 Fast：官方文档（developers.openai.com/codex/speed）写的是按标准速度的 2.5 倍消耗订阅额度，另买的点数按 2 倍。
+// 返回这个模型快多少倍（模型目录里写着「2x speed」这样的说明，没写倍数就是空字符串）；不支持快速模式返回 null
+const BOLT_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M13.2 2.5 5.4 13.1c-.3.4 0 .9.5.9h5l-1.1 7.2c-.1.6.6.9 1 .4l7.8-10.6c.3-.4 0-.9-.5-.9h-5l1.1-7.2c.1-.6-.6-.9-1-.4z"/></svg>';
+function fastSpeed(agent, modelId) {
+  if (agent !== 'gpt') return null;
+  const e = S.engines.codex || {};
+  const desc = e.models?.find((m) => m.id === (modelId || e.defaultModel))?.fast;
+  return desc ? desc.match(/([\d.]+)x speed/i)?.[1] || '' : null;
+}
+
+function confirmFast(speed) {
+  return askConfirm({
+    title: '打开 GPT 快速模式？',
+    text: `快速模式下 GPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 GPT 生效。`,
+    ok: '打开快速模式',
+  });
+}
+
+// 通用的确认弹窗：点确认返回 true，取消、按 Esc 都返回 false
+function askConfirm({ title, text, ok }) {
+  const dlg = $('#dlg-confirm');
+  $('#confirm-title').textContent = title;
+  $('#confirm-text').textContent = text;
+  $('#btn-confirm-ok').textContent = ok;
+  let answer = false;
+  $('#btn-confirm-ok').onclick = (e) => {
+    e.preventDefault();
+    answer = true;
+    closeDialog(dlg);
+  };
+  $('#btn-confirm-cancel').onclick = () => closeDialog(dlg);
+  dlg.showModal();
+  reportDragRegions();
+  return new Promise((resolve) =>
+    dlg.addEventListener('close', () => {
+      reportDragRegions();
+      resolve(answer);
+    }, { once: true }),
+  );
+}
 
 function modelSelectHtml(agent, current, attrs = '', allowCustom = false) {
   const opts = modelOptions(agent);
@@ -582,32 +624,21 @@ function renderShell() {
   $('#room-count').textContent = dm ? '· 私聊' : group ? `(${room.members.length + 1})` : '';
   $('#room-from').textContent = dm ? `来自「${room.name}」` : '';
   $('#room-from').hidden = !dm;
-  $('#room-folder').textContent = ltr(room.cwd);
+  // 顶部只显示文件夹名，完整路径放在提示里
+  $('#room-folder').innerHTML = `${FOLDER_SVG}<span>${esc(room.cwd.split(/[\\/]/).filter(Boolean).pop() || room.cwd)}</span>`;
   $('#room-folder').title = `${IS_WIN ? '在资源管理器中打开' : '在访达中打开'}：${room.cwd}`;
   const perm = $('#room-perm');
   perm.textContent = PERM_LABEL[room.permission] || room.permission;
   perm.className = `badge ${room.permission}`;
-  // 顶部的模型切换：群里显示所有成员，私聊只显示对方
+  // 顶部的模型按钮：群里显示所有成员，私聊只显示对方
+  if (!$('#model-menu').hidden && !conv.room.members.includes($('#model-menu').dataset.agent)) closeModelMenu();
   $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
-  setHtml($('#model-switch'), (dm ? [dm] : room.members)
-    .map((a) => {
-      const model = modelSelectHtml(a, room.models?.[a], `data-agent="${esc(a)}" aria-label="${esc(agentName(a))} 的模型"`, true);
-      // 模型不支持调思考强度（比如连不上 DeepSeek 时）就不显示这一格
-      const effort = effortsFor(a, room.models?.[a]).length || room.efforts?.[a]
-        ? `<span class="chip-sep"></span><span class="chip-label">思考</span>${effortSelectHtml(
-            a,
-            room.models?.[a],
-            room.efforts?.[a],
-            `data-effort="${esc(a)}" class="effort-select" aria-label="${esc(agentName(a))} 的思考强度"`,
-          )}`
-        : '';
-      return `<span class="model-chip" title="切换 ${esc(agentName(a))} 的模型和思考强度，下一轮生效">${avatarHtml(a)}${model}${effort}</span>`;
-    })
-    .join(''));
+  setHtml($('#model-switch'), (dm ? [dm] : room.members).map((a) => modelChipHtml(a, room)).join(''));
   const entry = $('#dm-entry');
   entry.hidden = dm || !group;
   entry.innerHTML = group && !dm ? `<span class="muted">私聊</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="私聊 ${esc(agentLabel(a))}">${avatarHtml(a)}</button>`).join('')}` : '';
   $('#group-tools').hidden = !!dm || !group;
+  setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
     const id = { Claude: 'claude', GPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
@@ -1087,7 +1118,10 @@ function autoGrow() {
   updateSendButton();
 }
 
-// 输入框里 @ 了群里的成员时，底下的垫层把 @ 换成它的头像（写法和 lib/hub.js 的 MENTION_RE 一样）
+// 输入框里 @ 了群里的成员时，底下的垫层把 @ 换成它的头像（写法和 lib/hub.js 的 MENTION_RE 一样）。
+// 从菜单或快捷按钮插入的是「@ + 半角空格 + 名字」：头像盖住「@ 」这一段，和名字之间正好留出空隙；
+// 自己手打的 @Claude 没有这个空格，放不下头像，就只显示成蓝色标签
+const MENTION_GAP = '\u2002';
 const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)/gi;
 const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek' };
 function renderInputMirror() {
@@ -1102,8 +1136,9 @@ function renderInputMirror() {
     if (m.index > 0 && /[A-Za-z0-9_.]/.test(text[m.index - 1])) continue; // me@all 这种不算
     const who = MENTION_WHO[m[2].toLowerCase()] || 'all';
     if (who !== 'all' && !members.includes(who)) continue;
-    const at = who === 'all' ? '@' : `<span class="mention-at">@${avatarHtml(who)}</span>`;
-    html += `${esc(text.slice(last, m.index))}<span class="mention-tok">${at}${esc(m[1] + m[2])}</span>`;
+    const icon = who !== 'all' && m[1] === MENTION_GAP;
+    const head = icon ? `<span class="mention-at">@${MENTION_GAP}${avatarHtml(who)}</span>` : esc(`@${m[1]}`);
+    html += `${esc(text.slice(last, m.index))}<span class="mention-tok">${head}${esc(m[2])}</span>`;
     last = m.index + m[0].length;
   }
   const found = last > 0;
@@ -1120,7 +1155,8 @@ async function sendMessage() {
   const conv = currentConv();
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
-  const text = el.value.trim();
+  const raw = el.value;
+  const text = raw.replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').trim(); // 发出去的还是普通的 @Claude
   const sent = S.attachments.filter((a) => a.status === 'done' && a.roomId === conv.roomId);
   if (!text && !sent.length) return;
   el.value = '';
@@ -1134,7 +1170,7 @@ async function sendMessage() {
     await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined, replyTo: reply?.seq });
     for (const a of kept) URL.revokeObjectURL(a.url);
   } catch (err) {
-    el.value = text;
+    el.value = raw;
     S.attachments = kept;
     renderAttachments();
     if (reply) startReply(reply.seq);
@@ -1193,7 +1229,7 @@ function pickMention(i) {
   if (!it) return;
   const start = S.mention.start;
   const tail = el.value.slice(el.selectionStart);
-  const token = `@${it.insert} `;
+  const token = `@${it.id === 'all' ? '' : MENTION_GAP}${it.insert} `; // @所有人没有头像，不用留空隙
   el.value = el.value.slice(0, start) + token + tail.replace(/^\S*/, '').replace(/^ /, '');
   el.selectionStart = el.selectionEnd = start + token.length;
   hideMentionMenu();
@@ -1221,7 +1257,7 @@ function mentionKeydown(e) {
 
 // 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
 // 认的写法和 lib/hub.js 的 MENTION_RE 一样；返回 true 表示这个按键被用掉了
-const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@ ?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone) ?)$/i;
+const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone) ?)$/i;
 function selectMentionOnBackspace(e) {
   const el = e.target;
   if (e.key !== 'Backspace' || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
@@ -1269,7 +1305,7 @@ function insertMention(name) {
   const start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
-  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name} `;
+  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' ? '' : MENTION_GAP}${name} `;
   el.value = before + token + el.value.slice(end);
   el.selectionStart = el.selectionEnd = start + token.length;
   el.focus();
@@ -1304,6 +1340,116 @@ async function switchEffort(agent, id) {
     const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { efforts: { ...conv.room.efforts, [agent]: id } });
     S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
     toast(`${agentName(agent)} 的思考强度换成了「${id ? EFFORT_LABEL[id] || id : '默认'}」，下一轮生效`);
+  } catch (err) {
+    toast(err.message);
+  }
+  $('#model-switch')._html = null;
+  renderShell();
+}
+
+// ---------------- 顶部的模型按钮和弹出菜单 ----------------
+// 每位一个小按钮：头像 + 模型 + 思考强度（GPT 开了快速模式再多一个闪电）；点开是菜单，分「模型」「思考强度」「速度」三组
+
+const FOLDER_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.8 4.2c0-.8.6-1.4 1.4-1.4h3l1.4 1.5h5.2c.8 0 1.4.6 1.4 1.4v6.1c0 .8-.6 1.4-1.4 1.4H3.2c-.8 0-1.4-.6-1.4-1.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+const CHEVRON_SVG = '<svg class="chip-chevron" viewBox="0 0 10 10" width="8" height="8" aria-hidden="true"><path d="M2 3.6 5 6.6l3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2.2 6.4 4.8 9 9.8 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// 现在实际用的模型、思考强度的名字（「默认」就显示默认对应的那个）
+function modelShortName(agent, id) {
+  if (id) return modelOptions(agent).find((o) => o.id === id)?.name || modelLabel(id);
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  return e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : '默认');
+}
+
+function effortShortName(agent, modelId, id) {
+  if (id) return EFFORT_LABEL[id] || id;
+  if (!effortsFor(agent, modelId).length) return '';
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  const def = e.defaultEffort || e.models?.find((m) => m.id === (modelId || e.defaultModel))?.defaultEffort || '';
+  return def ? EFFORT_LABEL[def] || def : '';
+}
+
+function modelChipHtml(a, room) {
+  const model = room.models?.[a] || '';
+  const effort = effortShortName(a, model, room.efforts?.[a]);
+  const fast = !!room.fast?.[a] && fastSpeed(a, model) !== null;
+  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(agentName(a))} 的模型和思考强度${a === 'gpt' ? '、速度' : ''}，下一轮生效">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
+    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}快速</span>` : ''}${CHEVRON_SVG}</button>`;
+}
+
+function menuItemHtml(attrs, label, sub, checked) {
+  return `<button class="menu-item" role="menuitemradio" aria-checked="${checked}" ${attrs}><span class="menu-check">${checked ? CHECK_SVG : ''}</span><span class="menu-text"><span class="menu-label">${label}</span>${
+    sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
+}
+
+const hasCjk = (s) => /[\u4e00-\u9fff]/.test(s || ''); // Codex 自带的模型说明是英文，不显示
+
+function openModelMenu(agent, chip) {
+  const conv = currentConv();
+  if (!conv) return;
+  const { room } = conv;
+  const cur = room.models?.[agent] || '';
+  const opts = modelOptions(agent);
+  if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: `${cur}（自定义）` });
+  let html = '<div class="menu-section">模型</div>';
+  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, esc(o.name), hasCjk(o.description) ? o.description : '', o.id === cur)).join('');
+  html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, '自定义模型…', '', false);
+  const efforts = effortsFor(agent, cur);
+  if (efforts.length || room.efforts?.[agent]) {
+    const curEffort = room.efforts?.[agent] || '';
+    const def = effortShortName(agent, cur, '');
+    html += '<div class="menu-sep"></div><div class="menu-section">思考强度</div>';
+    html += menuItemHtml('data-pick-effort=""', `默认${def ? ` · ${esc(def)}` : ''}`, '跟随自己的设置', !curEffort);
+    html += efforts.map((id) => menuItemHtml(`data-pick-effort="${esc(id)}"`, esc(EFFORT_LABEL[id] || id), EFFORT_HINT[id] || '', id === curEffort)).join('');
+  }
+  const speed = fastSpeed(agent, cur);
+  if (speed !== null) {
+    const on = !!room.fast?.[agent];
+    html += '<div class="menu-sep"></div><div class="menu-section">速度</div>';
+    html += menuItemHtml('data-pick-fast="0"', '标准', '正常消耗额度', !on);
+    html += menuItemHtml('data-pick-fast="1"', `<span class="menu-fast">${BOLT_SVG}快速</span>`, `${speed ? `约 ${speed} 倍速 · ` : ''}额度按 2.5 倍消耗`, on);
+  }
+  const menu = $('#model-menu');
+  menu.innerHTML = html;
+  menu.dataset.agent = agent;
+  menu.hidden = false;
+  const r = chip.getBoundingClientRect();
+  const top = r.bottom + 6;
+  menu.style.top = `${top}px`;
+  menu.style.maxHeight = `${window.innerHeight - top - 12}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+  chip.classList.add('open');
+  (menu.querySelector('[aria-checked="true"]') || menu.querySelector('.menu-item'))?.focus();
+  reportDragRegions();
+}
+
+function closeModelMenu() {
+  const menu = $('#model-menu');
+  if (menu.hidden) return;
+  menu.hidden = true;
+  document.querySelectorAll('.model-chip.open').forEach((c) => c.classList.remove('open'));
+  reportDragRegions();
+}
+
+function pickFromMenu(item) {
+  const agent = $('#model-menu').dataset.agent;
+  closeModelMenu();
+  if (item.dataset.pickModel !== undefined) switchModel(agent, item.dataset.pickModel);
+  else if (item.dataset.pickEffort !== undefined) switchEffort(agent, item.dataset.pickEffort);
+  else if (item.dataset.pickFast !== undefined) {
+    const on = item.dataset.pickFast === '1';
+    if (on !== !!currentConv()?.room.fast?.[agent]) switchFast(agent, on);
+  }
+}
+
+async function switchFast(agent, on) {
+  const conv = currentConv();
+  if (!conv) return;
+  if (on && !(await confirmFast(fastSpeed(agent, conv.room.models?.[agent])))) return;
+  try {
+    const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { fast: { ...conv.room.fast, [agent]: on } });
+    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+    toast(on ? `${agentName(agent)} 换成了快速模式，下一轮生效` : `${agentName(agent)} 换回了标准速度，下一轮生效`);
   } catch (err) {
     toast(err.message);
   }
@@ -1647,6 +1793,17 @@ function fillModelOptions(room) {
     formField(fieldName('model', a)).outerHTML = modelSelectHtml(a, models[a], `name="${fieldName('model', a)}" data-pair="${a}"`);
     formField(fieldName('effort', a)).outerHTML = effortSelectHtml(a, models[a], efforts[a], `name="${fieldName('effort', a)}"`);
   }
+  formField('fastGpt').value = room?.fast?.gpt ? '1' : '';
+  refreshSpeedField();
+}
+
+// 群设置里的「GPT 速度」：GPT 在群里、当前模型支持快速模式才显示
+function refreshSpeedField() {
+  const speed = fastSpeed('gpt', formField('modelGpt').value);
+  const row = $('#field-speed-gpt');
+  row.hidden = speed === null || !formField('memberGpt').checked;
+  if (speed === null) formField('fastGpt').value = '';
+  formField('fastGpt').options[1].textContent = `快速 · ${speed ? `约 ${speed} 倍速，` : ''}额度按 2.5 倍消耗`;
 }
 
 // 设置弹窗里换了模型：思考强度的选项跟着换（新模型不支持原来的强度就退回默认）
@@ -1684,6 +1841,7 @@ function syncMemberFields() {
   const members = AGENT_IDS.filter((a) => formField(fieldName('member', a)).checked);
   $('#group-fields').hidden = members.length < 2;
   for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
+  refreshSpeedField();
   formField('name').placeholder = members.length === 1 ? `留空就叫「${agentLabel(members[0])}」` : '比如：今天争取不加班';
   // 勾了还不能用的成员，提前说一声（不拦着，先建好也行）
   const ds = S.engines.deepseek;
@@ -1746,6 +1904,7 @@ async function submitDialog(e) {
     maxAutoTurns: Number(formField('maxAutoTurns').value),
     models: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('model', a)).value])),
     efforts: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('effort', a)).value])),
+    fast: { gpt: !$('#field-speed-gpt').hidden && formField('fastGpt').value === '1' },
   };
   const btn = $('#btn-save');
   btn.disabled = true;
@@ -1820,6 +1979,10 @@ function bind() {
   $('#room-form').addEventListener('change', (e) => {
     if (/^member/.test(e.target.name)) syncMemberFields();
     if (e.target.dataset.pair) refreshEffortField(e.target.dataset.pair);
+    if (e.target.dataset.pair === 'gpt') refreshSpeedField();
+    if (e.target.name === 'fastGpt' && e.target.value === '1') {
+      confirmFast(fastSpeed('gpt', formField('modelGpt').value)).then((yes) => yes || (e.target.value = ''));
+    }
   });
   $('#btn-pick').onclick = async () => {
     try {
@@ -1915,12 +2078,34 @@ function bind() {
   $('#custom-model-form').addEventListener('submit', submitCustomModel);
   $('#btn-custom-cancel').onclick = () => closeDialog($('#dlg-model'));
   $('#dlg-model').addEventListener('close', reportDragRegions);
-  $('#model-switch').addEventListener('change', (e) => {
-    const sel = e.target.closest('select[data-agent]');
-    if (sel) switchModel(sel.dataset.agent, sel.value);
-    const eff = e.target.closest('select[data-effort]');
-    if (eff) switchEffort(eff.dataset.effort, eff.value);
+  $('#model-switch').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-menu]');
+    if (!chip) return;
+    const again = chip.classList.contains('open');
+    closeModelMenu();
+    if (!again) openModelMenu(chip.dataset.menu, chip);
   });
+  $('#model-menu').addEventListener('click', (e) => {
+    const item = e.target.closest('.menu-item');
+    if (item) pickFromMenu(item);
+  });
+  $('#model-menu').addEventListener('keydown', (e) => {
+    const items = [...$('#model-menu').querySelectorAll('.menu-item')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      const agent = $('#model-menu').dataset.agent;
+      closeModelMenu();
+      document.querySelector(`.model-chip[data-menu="${agent}"]`)?.focus();
+    }
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('#model-menu, .model-chip')) closeModelMenu();
+  });
+  window.addEventListener('blur', closeModelMenu);
   $('#room-folder').onclick = () => {
     const conv = currentConv();
     if (conv) api('POST', `/api/rooms/${conv.roomId}/open-folder`).catch((err) => toast(err.message));

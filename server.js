@@ -122,6 +122,18 @@ function effortsFor(agent, modelId) {
   return model?.efforts || [];
 }
 
+// 这个模型有没有快速模式（目前只有 GPT 有）：返回模型目录里的说明，比如「2x speed, increased usage」
+function fastFor(agent, modelId) {
+  if (agent !== 'gpt') return '';
+  const e = engines.codex || {};
+  return e.models?.find((m) => m.id === (modelId || e.defaultModel))?.fast || '';
+}
+
+function fastName(agent, on, modelId) {
+  const speed = fastFor(agent, modelId).match(/([\d.]+)x speed/i)?.[1];
+  return on ? `快速模式（${speed ? `约 ${speed} 倍速，` : ''}额度按 2.5 倍消耗）` : '标准速度';
+}
+
 function effortName(agent, id) {
   if (id) return EFFORT_LABEL[id] || id;
   const def = engines[AGENT_ENGINE[agent]]?.defaultEffort;
@@ -238,6 +250,18 @@ function normalizeRoom(body, creating, room = null) {
       }
     }
     out.efforts = efforts;
+  }
+  if (body.fast !== undefined || out.models) {
+    const fast = { ...ROOM_DEFAULTS.fast, ...room?.fast };
+    for (const a of Object.keys(ROOM_DEFAULTS.fast)) {
+      if (body.fast?.[a] !== undefined) fast[a] = !!body.fast[a];
+      if (fast[a] && !fastFor(a, (out.models || room?.models || {})[a])) {
+        // 换了个没有快速模式的模型：退回标准速度
+        if (body.fast?.[a]) throw httpError(400, `${AGENTS[a].name} 现在的模型没有快速模式`);
+        fast[a] = false;
+      }
+    }
+    out.fast = fast;
   }
   return out;
 }
@@ -411,10 +435,14 @@ async function api(req, res, url) {
       const effortSwitched = patch.efforts
         ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.efforts[a] || '') !== (room.efforts?.[a] || ''))
         : [];
+      const fastSwitched = patch.fast
+        ? Object.keys(ROOM_DEFAULTS.fast).filter((a) => (patch.members || room.members).includes(a) && !!patch.fast[a] !== !!room.fast?.[a])
+        : [];
       store.updateRoom(room.id, patch);
       const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? '，它手上这一轮做完后' : '，下一轮');
       for (const a of switched) hub.notice(room.id, `${AGENTS[a].name} 换成了 ${modelName(a, patch.models[a])}${when(a)}开始生效`);
       for (const a of effortSwitched) hub.notice(room.id, `${AGENTS[a].name} 的思考强度换成了「${effortName(a, patch.efforts[a])}」${when(a)}开始生效`);
+      for (const a of fastSwitched) hub.notice(room.id, `${AGENTS[a].name} 换成了${fastName(a, room.fast[a], room.models?.[a])}${when(a)}开始生效`);
       if (cwdChanged) {
         hub.resetSessions(room.id);
         hub.notice(room.id, `项目文件夹改成了：${patch.cwd}`);
