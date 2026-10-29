@@ -819,6 +819,16 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .status.bad { color: var(--danger); }
 .list-row .secondary { flex: none; }
 .row-text .model-list { justify-content: flex-start; margin-top: 7px; max-width: none; }
+/* 群设置「会话（记忆）」：记了多少的细条 + 什么时候该换 */
+.session-row { padding: 11px 0; }
+.session-row .secondary { margin-top: 2px; }
+.row-text small.usage-text.warn { color: var(--warn); }
+.row-text small.usage-text.bad { color: var(--danger); }
+.usage-bar { display: block; height: 4px; max-width: 280px; margin: 6px 0 5px; border-radius: 2px; background: var(--fill); overflow: hidden; }
+.usage-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.3s ease; }
+.usage-bar.warn > i { background: #ff9f0a; }
+.usage-bar.bad > i { background: var(--danger); }
+.row-text small.fresh-tip { margin-top: 2px; line-height: 1.45; opacity: 0.85; }
 
 /* 软件更新：像 macOS 的「软件更新」那样一张卡片 */
 .update-hero {

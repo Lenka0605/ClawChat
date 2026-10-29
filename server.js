@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, sessionImageBytes } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, sessionUsage } from './lib/agents.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -602,13 +602,14 @@ async function api(req, res, url) {
       if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
       return send(res, 200, { ok: true, result: hub.resetAgent(room.id, agent) });
     }
-    // 每位现在的会话：有没有、在不在干活、GPT 的会话里存了多少图片（群设置里显示，方便判断要不要换新会话）
+    // 每位现在的会话：有没有、在不在干活、记了多少（上下文用了多少、上限多少，ChatGPT 还有存着的图片），群设置里显示，方便判断要不要换新会话
     if (sub === 'sessions' && method === 'GET') {
       const state = store.getState(room.id);
       const sessions = {};
       for (const a of room.members) {
         const id = state.sessions[a] || null;
-        sessions[a] = { has: !!id, busy: hub.runs.has(hub.key(room.id, a)), images: id ? await sessionImageBytes(a, id) : 0 };
+        const u = id ? await sessionUsage(a, id) : null;
+        sessions[a] = { has: !!id, busy: hub.runs.has(hub.key(room.id, a)), images: u?.images || 0, used: u?.used || 0, window: u?.window || 0 };
       }
       return send(res, 200, { sessions });
     }

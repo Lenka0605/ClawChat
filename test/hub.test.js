@@ -900,3 +900,29 @@ test('ChatGPT 的新会话：群聊说明作为开发者指令传进去；续上
   assert.equal(JSON.parse(arg.slice('developer_instructions='.length)), intro); // 原样传过去，换行、引号都不丢
   assert.ok(!codexArgs(room, 'gpt-session', [], false, intro).some((a) => a.startsWith('developer_instructions=')));
 });
+
+test('群设置里显示每位记了多少：从会话记录里读出上下文用量和上限', async () => {
+  const { sessionUsage } = await import('../lib/agents.js');
+  const J = (o) => JSON.stringify(o);
+  // Claude：只算主线回复的用量，子任务和合成的消息不算；上限还没报过时是 0（界面上只显示用了多少）
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-claude-'));
+  process.env.CLAUDE_CONFIG_DIR = home;
+  fs.mkdirSync(path.join(home, 'projects', '-p'), { recursive: true });
+  const lines = [
+    { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 300000, output_tokens: 90 } } },
+    { type: 'assistant', isSidechain: true, message: { model: 'claude-haiku-5-5', usage: { input_tokens: 5, output_tokens: 5 } } },
+    { type: 'assistant', message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 } } },
+  ];
+  fs.writeFileSync(path.join(home, 'projects', '-p', 'c1.jsonl'), lines.map(J).join('\n') + '\n');
+  assert.deepEqual(await sessionUsage('claude', 'c1'), { images: 0, used: 300100, window: 0 });
+  // Codex：最后一条带数据的 token_count（只带额度信息的跳过）
+  const dir = path.join(process.env.CODEX_HOME, 'sessions', '2026', '10', '30');
+  fs.mkdirSync(dir, { recursive: true });
+  const events = [
+    { type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 50000 }, model_context_window: 400000 } } },
+    { type: 'event_msg', payload: { type: 'token_count', info: null } },
+  ];
+  fs.writeFileSync(path.join(dir, 'rollout-2026-10-30T01-00-00-g1.jsonl'), events.map(J).join('\n') + '\n');
+  assert.deepEqual(await sessionUsage('gpt', 'g1'), { images: 0, used: 50000, window: 400000 });
+  assert.equal(await sessionUsage('gpt', null), null);
+});

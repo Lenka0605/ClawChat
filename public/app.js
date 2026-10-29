@@ -2599,7 +2599,22 @@ async function refreshSessionImages(roomId) {
   } catch {}
 }
 
-// 群设置里的「会话（记忆）」：每位有没有会话、GPT 的会话里存了多少图片，随时可以手动换
+// 什么时候该换新会话：写在每一位的会话下面
+const FRESH_TIPS = {
+  claude: '什么时候换：用到七成左右，或一件大事做完时。越长每轮越慢、越费额度；快满时它会自动压缩记忆，要等一两分钟，细节也会丢。',
+  gpt: '什么时候换：用到七成左右，或图片到 8MB 时（一批图做完就换）。图片攒到 15MB 左右，它会慢得像卡住一样。',
+  deepseek: '什么时候换：上限很大，不容易满，一件事做完、或用到七成左右时换。越长每轮越慢、越费钱（大多走缓存，花费很低）。',
+};
+const USAGE_WARN = 0.7; // 用到七成：建议换
+const USAGE_BAD = 0.85; // 用到八成五：快满了，随时会自动压缩
+
+// 46.9 万、100 万、8,000
+function fmtTokens(n) {
+  if (n < 10000) return n.toLocaleString('zh-CN');
+  return `${(n / 10000).toFixed(n >= 1000000 ? 0 : 1).replace(/\.0$/, '')} 万`;
+}
+
+// 群设置里的「会话（记忆）」：每位记了多少（上下文用了多少、上限多少，ChatGPT 还有存着的图片）、什么时候该换，随时可以手动换
 async function loadSessions(room) {
   const box = $('#session-list');
   if (!room) return;
@@ -2608,12 +2623,27 @@ async function loadSessions(room) {
     box.innerHTML = room.members
       .map((a) => {
         const s = sessions[a] || {};
-        const mb = s.images ? `会话里存了约 ${(s.images / 1048576).toFixed(1)}MB 图片` : '';
-        const state = s.busy ? '正在干活' : s.has ? '有会话' : '还没有会话，下次叫它会新开一个';
-        const heavy = s.images >= 8 * 1048576;
-        return `<div class="list-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small${heavy ? ' class="warn-text"' : ''}>${esc(
-          [state, mb].filter(Boolean).join(' · '),
-        )}${heavy ? '，建议换新会话' : ''}</small></span><button type="button" class="secondary" data-fresh="${esc(a)}"${s.has || s.busy ? '' : ' disabled'}>换新会话</button></div>`;
+        const ratio = s.window ? s.used / s.window : 0;
+        const imgLevel = heavyLevel(s.images || 0);
+        const ctxLevel = ratio >= USAGE_BAD ? 2 : ratio >= USAGE_WARN ? 1 : 0;
+        const level = Math.max(ctxLevel, imgLevel);
+        const parts = [s.busy ? '正在干活' : s.has ? '有会话' : '还没有会话，下次叫它会新开一个'];
+        if (s.used) {
+          const pct = Math.round(ratio * 100);
+          parts.push(
+            s.window
+              ? `记忆已用 ${pct || '不到 1'}%（${fmtTokens(s.used)} / ${fmtTokens(s.window)} token）`
+              : `记忆已用 ${fmtTokens(s.used)} token（上限等它下次回复后显示）`,
+          );
+        }
+        if (s.images) parts.push(`图片 ${(s.images / 1048576).toFixed(1)}MB`);
+        const advice = level > 1 ? (imgLevel > 1 ? '图片太多，马上换新会话' : '快满了，建议现在就换') : level ? '建议换新会话' : '';
+        const bar = s.used && s.window
+          ? `<span class="usage-bar${ctxLevel > 1 ? ' bad' : ctxLevel ? ' warn' : ''}"><i style="width:${Math.min(100, Math.max(1, ratio * 100)).toFixed(1)}%"></i></span>`
+          : '';
+        return `<div class="list-row top session-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small class="usage-text${level > 1 ? ' bad' : level ? ' warn' : ''}">${esc(
+          parts.join(' · ') + (advice ? `，${advice}` : ''),
+        )}</small>${bar}<small class="fresh-tip">${esc(FRESH_TIPS[a] || '')}</small></span><button type="button" class="secondary" data-fresh="${esc(a)}"${s.has || s.busy ? '' : ' disabled'}>换新会话</button></div>`;
       })
       .join('');
   } catch (err) {
