@@ -114,6 +114,7 @@ function trackChrome() {
   const ro = new ResizeObserver(sync);
   ro.observe($('#room-head'));
   ro.observe($('#composer'));
+  new ResizeObserver(() => requestAnimationFrame(fitTools)).observe(document.querySelector('.composer-tools'));
 }
 
 // ---------------- 文件路径：悬停看缩略图，点击在访达中显示 ----------------
@@ -800,6 +801,7 @@ function fitHead() {
 function syncToolsRow() {
   const row = document.querySelector('.composer-tools');
   row.hidden = $('#group-tools').hidden && $('#stop-controls').hidden;
+  fitTools();
 }
 
 function stepHtml(s) {
@@ -1105,19 +1107,29 @@ function renderLive() {
   syncToolsRow();
 }
 
-// 停止按钮：谁在干活就显示「停止 谁」，两位以上同时在干时再加一个「全部停止」
+// 停止按钮只占一个位置，免得把输入框上面那一行挤成两行：一位在干活就是「停止 谁」；
+// 好几位在干就合成一个「全部停止」，要单独停某一位，点它干活气泡里的「停止」
 function renderStopControls(conv) {
   const box = $('#stop-controls');
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
-  const one = runs.map(
-    (r) =>
-      `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}停止 ${esc(agentName(r.agent))}${
-        r.side ? '分身' : r.dm ? '（私聊）' : ''
-      }</button>`,
-  );
-  if (runs.length > 1) one.push('<button class="chip danger strong" data-stop="">全部停止</button>');
-  setHtml(box, one.join(''));
+  const who = (r) => `${agentName(r.agent)}${r.side ? ' 分身' : r.dm ? '（私聊）' : ''}`;
+  if (runs.length === 1) {
+    const r = runs[0];
+    setHtml(box, `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}停止 ${esc(who(r))}</button>`);
+  } else if (runs.length > 1) {
+    const faces = [...new Set(runs.map((r) => r.agent))].map((a) => avatarHtml(a)).join('');
+    setHtml(box, `<button class="chip danger strong" data-stop="" title="${esc(`${runs.map(who).join('、')} 正在干活。要单独停某一位，点它气泡里的「停止」`)}"><span class="chip-stack">${faces}</span>全部停止</button>`);
+  } else setHtml(box, '');
+  fitTools();
+}
+
+// 输入框上面那一行始终只占一行：放不下时 @ 按钮只留头像，「不 @ 时」几个字也收起来
+function fitTools() {
+  const row = document.querySelector('.composer-tools');
+  if (!row || row.hidden) return;
+  row.classList.remove('compact');
+  row.classList.toggle('compact', row.scrollWidth > row.clientWidth + 1);
 }
 
 function nearBottom() {
