@@ -120,5 +120,7 @@
   "连不上 {name}": "can't connect to {name}",
   "能看图": "Can see images",
   "不能看图": "Can't see images",
-  "{size} 上下文": "{size} context"
+  "{size} 上下文": "{size} context",
+  "{name}：{warning}": "{name}: {warning}",
+  "{name} 的分身：{warning}": "{name}'s clone: {warning}"
 }

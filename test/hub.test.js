@@ -718,6 +718,36 @@ test('本体在群里忙时同事私下找它：分身马上私下回同事；�
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.pm === 'gpt').length, 1);
 });
 
+test('做完了但会话要重置（resetSession）、带提醒（warning）：不算失败、不重跑，只提示；下一轮开新会话带上聊天记录', async () => {
+  const store = new Store();
+  let n = 0;
+  const calls = [];
+  const run = (agent, opts) => {
+    calls.push({ agent, session: opts.session, prompt: opts.prompt });
+    n++;
+    const res = n === 1 ? { ok: true, text: '第一轮', steps: [], session: 'gem-1' }
+      : n === 2 ? { ok: true, text: '改好了', steps: [], session: 'gem-2', resetSession: true, warning: '这一轮做完了，但记忆没存上' }
+      : { ok: true, text: '接着做', steps: [], session: 'gem-3' };
+    return { done: Promise.resolve(res), kill() {} };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '你好');
+  await settle(hub);
+  hub.postUserMessage(room.id, '改一下文件');
+  await settle(hub);
+  assert.equal(calls.length, 2); // 没有因为记忆没存上把这一轮重跑
+  assert.equal(store.getState(room.id).sessions.claude, null);
+  const msgs = store.getMessages(room.id);
+  assert.ok(msgs.some((m) => m.from === 'claude' && m.text === '改好了'));
+  assert.ok(msgs.some((m) => m.from === 'system' && /记忆没存上/.test(m.text)));
+  hub.postUserMessage(room.id, '继续');
+  await settle(hub);
+  assert.equal(calls[2].session, null); // 新会话
+  assert.match(calls[2].prompt, /改一下文件/); // 带上了最近的聊天记录
+  assert.equal(store.getState(room.id).sessions.claude, 'gem-3');
+});
+
 test('同事私下找时开的分身出错了：提示留在那段私聊里，不发到群里', async () => {
   const store = new Store();
   const { run, calls } = heldRunner();
