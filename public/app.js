@@ -406,6 +406,15 @@ function inline(s) {
         return looksLikeFile(code) ? `<code class="file-ref" data-path="${esc(code.trim())}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(code)}</code>` : `<code>${esc(code)}</code>`;
       }
       let h = esc(part);
+      // 指向本机文件的链接，比如 [中文版](/Users/…/海报.png)：显示成文件链接，点一下在访达中显示，图片悬停看缩略图
+      // （h 已经转义过：先还原成原文再解开 %20 这类编码，最后重新转义，免得 %22 解出来的引号跑进属性里）
+      h = h.replace(/\[([^\]\n]+)\]\((?:file:\/\/)?((?:~|\.{1,2})?\/[^\s)]+|[^\s:/)]+\/[^\s)]+)\)/g, (_, text, p) => {
+        let file = p.replace(/&(amp|lt|gt|quot|#39);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[e]);
+        try {
+          file = decodeURI(file);
+        } catch {}
+        return `<span class="file-ref" data-path="${esc(file)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示：${esc(file)}">${text}</span>`;
+      });
       h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
       h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）]*[^\s<>()（）.,;:!?。，；：！？'"])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
       h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');

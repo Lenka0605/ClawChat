@@ -380,7 +380,7 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 .msg.user > .avatar { display: none; }
 .msg-body { max-width: min(70%, 680px); min-width: 0; display: flex; flex-direction: column; }
 .msg.user .msg-body { align-items: flex-end; }
-.msg-name { font-size: 11px; color: var(--muted); font-weight: 500; margin: 0 12px 3px; display: flex; align-items: center; gap: 5px; }
+.msg-name { font-size: 11px; color: var(--muted); font-weight: 500; margin: 0 0 3px; display: flex; align-items: center; gap: 5px; }
 .msg-model { font-size: 11px; font-weight: 400; color: var(--faint); }
 .msg-model::before { content: "·"; margin-right: 5px; }
 .bubble {
@@ -388,7 +388,7 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
   word-wrap: break-word; overflow-wrap: anywhere; font-size: 14px; line-height: 1.45; position: relative;
 }
 .msg.user .bubble { background: var(--bubble-user); color: var(--bubble-user-text); white-space: pre-wrap; }
-.msg-foot { font-size: 11px; color: var(--muted); margin: 3px 12px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.msg-foot { font-size: 11px; color: var(--muted); margin: 3px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .time-sep { text-align: center; font-size: 11px; color: var(--muted); margin: 8px 0 12px; font-weight: 500; }
 .notice { text-align: center; margin: 0 0 12px; }
 .notice span { display: inline-block; font-size: 11px; color: var(--muted); max-width: 80%; overflow-wrap: anywhere; line-height: 1.5; }
