@@ -746,6 +746,7 @@ function renderConvs() {
     // 搜索时、或者正在看其中一个私聊时，自动展开
     const open = !!q || !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
     const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
+    if (html.length) html.push('<li class="conv-sep" aria-hidden="true"></li>'); // 不同的群（连同它下面的私聊）之间一条细线
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
     if (open) for (const d of dmHits) html.push(convItemHtml(d));
   }

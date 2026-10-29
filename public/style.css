@@ -8,6 +8,7 @@
   --muted: rgba(60, 60, 67, 0.62);
   --faint: rgba(60, 60, 67, 0.32);
   --line: rgba(0, 0, 0, 0.09);
+  --sep-line: rgba(0, 0, 0, 0.16); /* 侧栏分组之间的细线（只有半像素高，颜色要深一点） */
   --fill: rgba(120, 120, 128, 0.12);
   --fill-hover: rgba(120, 120, 128, 0.2);
   --control: #ffffff;
@@ -68,6 +69,7 @@
     --muted: rgba(235, 235, 245, 0.6);
     --faint: rgba(235, 235, 245, 0.3);
     --line: rgba(255, 255, 255, 0.1);
+    --sep-line: rgba(255, 255, 255, 0.17);
     --fill: rgba(118, 118, 128, 0.24);
     --fill-hover: rgba(118, 118, 128, 0.36);
     --control: #3a3a3c;
@@ -118,6 +120,7 @@
   --muted: rgba(235, 235, 245, 0.6);
   --faint: rgba(235, 235, 245, 0.3);
   --line: rgba(255, 255, 255, 0.1);
+  --sep-line: rgba(255, 255, 255, 0.17);
   --fill: rgba(118, 118, 128, 0.24);
   --fill-hover: rgba(118, 118, 128, 0.36);
   --control: #3a3a3c;
@@ -220,6 +223,9 @@ html.native .logo { visibility: hidden; }
   display: flex; gap: 10px; padding: 8px 10px; border-radius: 9px; align-items: center; margin-bottom: 1px;
 }
 .conv-item:hover { background: var(--fill); }
+/* 不同的群（连同它下面的私聊）之间：一条物理像素的细线，两头淡出 */
+.conv-sep { list-style: none; height: 1px; margin: 6px 10px; pointer-events: none; transform: scaleY(0.5);
+  background: linear-gradient(90deg, transparent, var(--sep-line) 14%, var(--sep-line) 86%, transparent); }
 .conv-item.active, .conv-item.active:hover { background: var(--select); }
 .conv-avatar { position: relative; width: 40px; height: 40px; flex: none; }
 .conv-avatar > .avatar { width: 40px; height: 40px; }
