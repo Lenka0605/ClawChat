@@ -1,11 +1,36 @@
 # ClawChat
 
-本地 AI 群聊：你、Claude（Claude Code）和 GPT（Codex）在一个群里，一起在你的项目文件夹里干活。
+本地 AI 群聊：你、Claude（Claude Code）、GPT（Codex）和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。
 
-- 全部跑在你自己的电脑上，用你已经登录的 Claude Code 和 Codex 账号，不经过任何第三方服务器。
-- 没有第三方依赖，只需要 Node.js 22+、Claude Code、Codex。
+- 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT 账号和 DeepSeek API Key，不经过任何第三方服务器。
+- Mac 和 Windows（10 / 11）都能用。
+- 没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、DeepSeek（借 Claude Code 干活）。
 
-## 打开
+## 在 Windows 上安装（给同事看的）
+
+1. 在 GitHub 页面点绿色的 **Code → Download ZIP**，下载后解压。
+2. 把解压出来的 `ClawChat` 文件夹放到一个**以后不会挪动**的地方，比如 `D:\ClawChat`。
+3. 双击文件夹里的 **`Install-Windows.cmd`**。如果弹出「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。
+4. 安装程序会一步步问你，按回车就是默认选项。它会：
+   - 装好 Node.js 和 Git（用 Windows 自带的 winget，中途可能弹出管理员授权，点「是」）；
+   - 装好 Claude Code（Claude 和 DeepSeek 都靠它干活；只用 DeepSeek 的话不用登录 Claude 账号）；
+   - 问你要不要装 Codex（群里的 GPT，要有 ChatGPT 账号，不用的话直接回车跳过）；
+   - 接上 GitHub，以后可以一键在线升级；
+   - 在桌面和开始菜单放一个 **ClawChat** 图标，然后打开它。
+5. 用 DeepSeek：去 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 充值一点余额、创建一个 API Key，然后在 ClawChat 左下角点「设置 → 程序与模型」，填进「DeepSeek」那一栏，点保存。
+6. 新建聊天，勾上 DeepSeek，就可以开始了。
+
+以后双击桌面上的 **ClawChat** 就能打开。关掉窗口它会在后台接着干活；要彻底退出，在「设置 → 通用」里点「退出 ClawChat」。有新版本时「设置」上会亮一个小红点，到「软件更新」里点「立即升级」就行。
+
+> 仓库是私有的话，同事的 GitHub 账号要先被加进仓库（Settings → Collaborators），才能下载和在线升级。
+
+Windows 上和 Mac 的几处不同：
+
+- 窗口是用 Edge 的「应用模式」打开的（没有地址栏，看起来就是一个独立软件），Edge 是 Windows 10 自带的。
+- Claude Code 在原生 Windows 上没有沙盒（官方文档写明不支持）。「项目内放手干」时 Claude 和 DeepSeek 能改项目文件夹里的文件、跑命令，但命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。GPT（Codex）有自己的 Windows 沙盒，ClawChat 会选不需要管理员权限的那种。
+- HEIC 这类图片格式 Windows 转换不了，要先另存成 JPG / PNG；太大的图会先在本地缩小再发。
+
+## 打开（Mac）
 
 双击「应用程序」里的 **ClawChat**。关掉窗口不会退出，两位可以在后台继续干活；按 ⌘Q 才是真正退出，正在干的活也会一起停掉。
 
@@ -13,7 +38,7 @@
 
 ## 怎么用
 
-- **点名**：`@Claude`、`@GPT`、`@所有人`。输入 `@` 会弹出成员菜单，比如打 `@c` 就会出现 Claude，按 Enter 或 Tab 填进去。不点名或者 @所有人 时，默认**两位同时开工**，各自都知道对方也在干，需要对结果时会互相 @。输入框上方的「不 @ 时」可以改成「两位依次回答」（后答的能看到前一位说了什么），或者只发给其中一位。
+- **点名**：`@Claude`、`@GPT`、`@DeepSeek`、`@所有人`。输入 `@` 会弹出成员菜单，比如打 `@c` 就会出现 Claude，按 Enter 或 Tab 填进去。不点名或者 @所有人 时，默认**两位同时开工**，各自都知道对方也在干，需要对结果时会互相 @。输入框上方的「不 @ 时」可以改成「两位依次回答」（后答的能看到前一位说了什么），或者只发给其中一位。
 - **接力**：两位可以互相 @，对方会被叫醒接着干活。你不说话时，连续接力到设定的轮数就自动停下来，等你发话。
 - **图片**：点「图片」按钮，或者直接粘贴（⌘V）、拖进窗口。两位都能看到图片。HEIC 格式、太大或尺寸太大的图会自动转成 JPG。
 - **私聊**：
@@ -35,9 +60,17 @@
 - 出错的那一轮不算处理过，下次叫到它时，会把没处理的消息重新交给它。
 - **上下文满了**：Claude Code 和 Codex 快满时会自己压缩，一般不用管。万一还是报「上下文满了」，ClawChat 会自动给它换一个新会话，带上最近 40 条聊天记录接着干，并在群里说一声；更早的完整记录会写成一个文件给它看，里面只有它本来就能看到的内容（群聊 + 它自己和你的私聊），另一位和你的私聊不在里面。换了新会话还超的话，多半是这次一下子发了太多内容，会提示你分几次发。
 
+## DeepSeek
+
+- DeepSeek 没有自己的命令行工具，ClawChat 让它**借 Claude Code 干活**：把 Claude Code 的接口换成 DeepSeek 的 Anthropic 兼容接口（这是 DeepSeek 官方文档推荐的接法），所以它和 Claude 一样能读写文件、跑命令、联网搜索。
+- 需要：装好 Claude Code（不用登录 Claude 账号）+ 在「设置 → 程序与模型」里填 DeepSeek 的 API Key。Key 只存在本机 `~/.clawchat/config.json`（只有你自己能读），也可以用环境变量 `DEEPSEEK_API_KEY`。
+- 它用单独的 Claude Code 配置目录（`~/.clawchat/deepseek/claude-home`）：不会用到你 Claude 账号的登录，也不沿用你给 Claude 设的模型和思考强度，会话记录也分开放。
+- 模型列表直接读 DeepSeek 的模型目录，出了新模型会自动出现。现在有 **DeepSeek Flash**（默认，快、便宜，能看图）和 **DeepSeek V4 Pro**（更强，不能看图）。选了看不了图的模型时，图片只告诉它文件在哪。
+- API Key 填错或者余额不足，会马上提示，不会一直重试。
+
 ## 模型
 
-- 聊天窗口顶部有两个模型切换框（Claude 的和 GPT 的），随时可以换，从下一轮开始生效。换模型不影响记忆，会话照样接着。
+- 聊天窗口顶部有每位成员的模型切换框，随时可以换，从下一轮开始生效。换模型不影响记忆，会话照样接着。
 - 模型旁边是**思考强度**：Claude 有 低 / 中 / 高 / 超高 / 最高 五档；GPT 的档位取决于模型，多数是 低 / 中 / 高 / 超高 / 最高 / 极限（极限会自动把任务拆给帮手），Luna 系列没有极限。「默认」跟随 Claude Code / Codex 自己的设置。换了模型、新模型又不支持原来的强度时，会自动退回默认。
 - 切换后群里会提示一条，每条回复的名字旁边会标出这次实际用的模型，比如 `Fable 5.1`、`GPT-6-Astra`。
 - Claude 可选 Fable、Opus、Sonnet、Haiku，用的是别名，Claude Code 会自动对应到最新版本。
@@ -65,6 +98,8 @@
 菜单栏里的「ClawChat → 检查更新…」也可以直接检查。
 
 ## 装到另一台 Mac
+
+（Windows 见上面的「在 Windows 上安装」。）
 
 需要 Node.js 22+、Xcode 命令行工具（`xcode-select --install`），以及登录好的 Claude Code 和 Codex。
 
@@ -100,8 +135,9 @@ npm run app     # 重新生成 ClawChat.app
 
 - `server.js`：本地 HTTP 服务，界面通过 SSE 接收实时消息
 - `lib/hub.js`：群聊调度（谁接话、接力、轮数上限、停止）
-- `lib/agents.js`：驱动 `claude -p --output-format stream-json` 和 `codex exec --json`，用 `--resume` / `exec resume` 续上会话
+- `lib/agents.js`：驱动 `claude -p --output-format stream-json` 和 `codex exec --json`，用 `--resume` / `exec resume` 续上会话；DeepSeek 也走 `claude -p`，只是换了接口、Key 和配置目录
 - `public/`：界面
 - `mac/`：原生外壳（WKWebView）和图标
+- `windows/`：Windows 的安装脚本（`install.ps1`，由根目录的 `Install-Windows.cmd` 启动）、启动器（`launch.js`：起后台服务、用 Edge 应用模式开窗口）和图标。`install.ps1` 要存成带 BOM 的 UTF-8，`ClawChat.vbs` 要存成 UTF-16，不然中文会乱码
 
 移动这个项目文件夹之后，要重新运行一次 `npm run app`，因为应用里记录的是项目的绝对路径。

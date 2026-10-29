@@ -5,9 +5,9 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Store, ROOM_DEFAULTS, DATA_DIR } from './lib/store.js';
+import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
 import { Hub } from './lib/hub.js';
-import { AGENTS, setupPath, detectEngines, probeModel, updateEngine } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels } from './lib/agents.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -38,6 +38,7 @@ const MIME = {
 };
 
 // 上传的图片：两位都能直接看的格式原样保存；HEIC 之类的格式、太大或尺寸太大的图用 sips 转成 JPG
+// （Windows 上没有 sips：界面会先在本地把大图缩小成 JPG 再上传，HEIC 这类认不出的格式就只能请老板先转一下）
 const UPLOAD_TYPES = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
   'image/heic': 'heic', 'image/heif': 'heif', 'image/tiff': 'tiff', 'image/bmp': 'bmp',
@@ -45,6 +46,7 @@ const UPLOAD_TYPES = {
 const DIRECT_EXT = new Set(['png', 'jpg', 'gif', 'webp']);
 const UPLOAD_NAME_RE = /^[a-f0-9]{16}s?\.(png|jpg|gif|webp)$/;
 const MAX_UPLOAD = 25 * 1024 * 1024;
+const MAX_DIRECT_WIN = 5 * 1024 * 1024; // Windows 上不能转换，太大的图模型收不了
 
 function run(cmd, args) {
   return new Promise((resolve, reject) =>
@@ -81,14 +83,16 @@ async function saveUpload(room, req) {
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const ext = UPLOAD_TYPES[type];
   if (!ext) throw httpError(415, '只支持图片（PNG、JPG、GIF、WebP、HEIC）');
+  if (IS_WIN && !DIRECT_EXT.has(ext)) throw httpError(415, '这种图片格式（比如 HEIC）在 Windows 上转换不了，请先另存成 JPG 或 PNG 再发');
   const buf = await readRaw(req, MAX_UPLOAD);
   if (!buf.length) throw httpError(400, '图片是空的');
+  if (IS_WIN && buf.length > MAX_DIRECT_WIN) throw httpError(413, '图片太大了，请压缩到 5MB 以内再发');
   const dir = store.uploadsDir(room.id);
   fs.mkdirSync(dir, { recursive: true });
   const base = crypto.randomBytes(8).toString('hex');
   let file = `${base}.${ext}`;
   fs.writeFileSync(path.join(dir, file), buf);
-  if (!DIRECT_EXT.has(ext) || buf.length > 3 * 1024 * 1024 || (await imageSize(path.join(dir, file))) > 4000) {
+  if (!IS_WIN && (!DIRECT_EXT.has(ext) || buf.length > 3 * 1024 * 1024 || (await imageSize(path.join(dir, file))) > 4000)) {
     const out = `${base}s.jpg`;
     try {
       await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', '2400', path.join(dir, file), '--out', path.join(dir, out)]);
@@ -107,13 +111,13 @@ function validModel(engine, id) {
   return !id || !models?.length || models.some((m) => m.id === id);
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex' };
+const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek' };
 const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
 
-// 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex 看模型目录（「默认」就看 Codex 的默认模型）
+// 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex、DeepSeek 看模型目录（「默认」就看默认模型）
 function effortsFor(agent, modelId) {
   if (agent === 'claude') return engines.claude?.efforts || [];
-  const e = engines.codex || {};
+  const e = engines[AGENT_ENGINE[agent]] || {};
   const model = e.models?.find((m) => m.id === (modelId || e.defaultModel));
   return model?.efforts || [];
 }
@@ -206,27 +210,25 @@ function normalizeRoom(body, creating, room = null) {
     out.maxAutoTurns = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : ROOM_DEFAULTS.maxAutoTurns;
   }
   if (body.defaultTarget !== undefined) {
-    if (!['all', 'sequential', 'claude', 'gpt'].includes(body.defaultTarget)) throw httpError(400, '默认接话人设置不对');
+    if (!['all', 'sequential', ...Object.keys(AGENTS)].includes(body.defaultTarget)) throw httpError(400, '默认接话人设置不对');
     out.defaultTarget = body.defaultTarget;
   }
   if (body.models !== undefined) {
-    out.models = {
-      claude: String(body.models?.claude || '').trim().slice(0, 80),
-      gpt: String(body.models?.gpt || '').trim().slice(0, 80),
-    };
+    out.models = {};
+    for (const a of Object.keys(AGENTS)) out.models[a] = String(body.models?.[a] || '').trim().slice(0, 80);
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    if (!custom.includes('gpt') && !keep('gpt') && !validModel('codex', out.models.gpt)) {
-      throw httpError(400, `当前的 Codex 用不了 ${out.models.gpt}，请从列表里选一个`);
-    }
-    if (!custom.includes('claude') && !keep('claude') && !validModel('claude', out.models.claude)) {
-      throw httpError(400, `Claude 没有 ${out.models.claude} 这个模型，请从列表里选一个`);
+    const owner = { claude: 'Claude', gpt: '当前的 Codex', deepseek: 'DeepSeek' };
+    for (const a of Object.keys(AGENTS)) {
+      if (!custom.includes(a) && !keep(a) && !validModel(AGENT_ENGINE[a], out.models[a])) {
+        throw httpError(400, `${owner[a]}用不了 ${out.models[a]} 这个模型，请从列表里选一个`);
+      }
     }
   }
   if (body.efforts !== undefined || out.models) {
     const efforts = { ...ROOM_DEFAULTS.efforts, ...room?.efforts };
-    for (const a of ['claude', 'gpt']) {
+    for (const a of Object.keys(AGENTS)) {
       if (body.efforts?.[a] !== undefined) efforts[a] = String(body.efforts[a] || '').trim();
       const allowed = effortsFor(a, (out.models || room?.models || {})[a]);
       if (efforts[a] && allowed.length && !allowed.includes(efforts[a])) {
@@ -240,7 +242,28 @@ function normalizeRoom(body, creating, room = null) {
   return out;
 }
 
+// Windows 选文件夹：用 PowerShell 弹系统的文件夹对话框。挂在一个看不见的置顶小窗口下面，免得对话框被 ClawChat 窗口挡住；
+// 路径用 Base64 传回来，免得中文被命令行编码弄乱
+const PICK_FOLDER_PS = `
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0; StartPosition = 'CenterScreen'; Size = New-Object System.Drawing.Size(1, 1) }
+$owner.Show(); $owner.Activate()
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = '选择项目文件夹'; ShowNewFolderButton = $true }
+if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)) }
+$owner.Close()
+`;
+
 function pickFolder() {
+  if (IS_WIN) {
+    const encoded = Buffer.from(PICK_FOLDER_PS, 'utf16le').toString('base64');
+    return new Promise((resolve) =>
+      // 不用 windowsHide：它会连对话框一起藏起来。PowerShell 自己的黑窗口用 -WindowStyle Hidden 收起
+      execFile('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], { timeout: 10 * 60 * 1000 }, (err, stdout) => {
+        const b64 = String(stdout || '').trim();
+        resolve(err || !b64 ? null : Buffer.from(b64, 'base64').toString('utf8').replace(/(?<!:)[\\/]$/, '') || null);
+      }),
+    );
+  }
   return new Promise((resolve) => {
     execFile(
       'osascript',
@@ -249,6 +272,11 @@ function pickFolder() {
       (err, stdout) => resolve(err ? null : stdout.trim().replace(/\/$/, '') || null),
     );
   });
+}
+
+// 在访达 / 资源管理器里打开
+function openPath(p) {
+  execFile(IS_WIN ? 'explorer.exe' : 'open', [p], () => {});
 }
 
 function events(req, res) {
@@ -274,7 +302,16 @@ async function api(req, res, url) {
   if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
   if (method === 'GET' && parts[0] === 'events') return events(req, res);
   if (method === 'GET' && parts[0] === 'state') {
-    return send(res, 200, { rooms: store.listRooms(), runs: hub.status(true), engines, agents: AGENTS, defaults: ROOM_DEFAULTS, projectsDir: PROJECTS_DIR });
+    return send(res, 200, {
+      rooms: store.listRooms(),
+      runs: hub.status(true),
+      engines,
+      agents: AGENTS,
+      defaults: ROOM_DEFAULTS,
+      projectsDir: PROJECTS_DIR,
+      platform: process.platform,
+      inApp: process.env.CLAWCHAT_APP === '1',
+    });
   }
   if (method === 'POST' && parts[0] === 'pick-folder') return send(res, 200, { path: await pickFolder() });
   if (parts[0] === 'app') {
@@ -284,17 +321,23 @@ async function api(req, res, url) {
       const result = await pullUpdate();
       if (result.ok && result.updated) {
         hub.emit('event', { type: 'restarting' });
-        scheduleRestart(); // 正在干的活会在退出时记成「被打断」，重新打开后可以接着做
+        scheduleRestart(shutdown); // 正在干的活会在退出时记成「被打断」，重新打开后可以接着做
       }
       return send(res, 200, result);
     }
     if (method === 'POST' && parts[1] === 'restart') {
       hub.emit('event', { type: 'restarting' });
-      scheduleRestart();
+      scheduleRestart(shutdown);
+      return send(res, 200, { ok: true });
+    }
+    // 彻底退出（Windows 和浏览器里用；Mac 应用按 ⌘Q）
+    if (method === 'POST' && parts[1] === 'quit') {
+      hub.emit('event', { type: 'quitting' });
+      setTimeout(shutdown, 200);
       return send(res, 200, { ok: true });
     }
     if (method === 'POST' && parts[1] === 'open-data') {
-      execFile('open', [DATA_DIR]);
+      openPath(DATA_DIR);
       return send(res, 200, { ok: true });
     }
   }
@@ -303,11 +346,26 @@ async function api(req, res, url) {
     return send(res, 200, { engines });
   }
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
+    // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code
     const { engine } = await readBody(req);
     if (!['claude', 'codex'].includes(engine)) return send(res, 400, { error: '不认识这个程序' });
     const result = await updateEngine(engine);
     await refreshEngines();
     return send(res, 200, { ...result, engines });
+  }
+  // DeepSeek 的 API Key：先用它读一次模型目录，Key 不对就不存；空的就是删掉。Key 只存在本机，不会再发回界面
+  if (method === 'POST' && parts[0] === 'deepseek' && parts[1] === 'key') {
+    const key = String((await readBody(req)).key || '').trim();
+    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: '这不像 DeepSeek 的 API Key（一般是 sk- 开头的一串字母数字）' });
+    let warning = '';
+    if (key) {
+      const check = await deepseekModels(key);
+      if (check.badKey) return send(res, 400, { error: 'DeepSeek 说这个 API Key 不对，请检查一下有没有复制完整' });
+      if (check.error) warning = `已保存，但现在${check.error}，等网络好了会自动用上`;
+    }
+    saveConfig({ deepseekKey: key });
+    await refreshEngines(true);
+    return send(res, 200, { ok: true, warning, engines });
   }
   if (method === 'POST' && parts[0] === 'models' && parts[1] === 'check') {
     const { agent, id } = await readBody(req);
@@ -394,7 +452,7 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     if (sub === 'open-folder' && method === 'POST') {
-      execFile('open', [room.cwd]);
+      openPath(room.cwd);
       return send(res, 200, { ok: true });
     }
   }
@@ -402,8 +460,10 @@ async function api(req, res, url) {
 }
 
 function serveStatic(res, pathname) {
-  const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
+  let file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC + path.sep)) return send(res, 403, { error: 'forbidden' });
+  // 应用图标是 Mac 打包时生成的；没打过包（比如 Windows）就用仓库里自带的那张
+  if (pathname === '/app-icon.png' && !fs.existsSync(file)) file = path.join(PUBLIC, 'favicon.png');
   fs.readFile(file, (err, data) => {
     if (err) return send(res, 404, { error: 'not found' });
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
@@ -440,10 +500,11 @@ server.listen(PORT, HOST, () => {
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
 });
 
-// 重新检测两边的版本和模型列表，有变化就推给界面
+// 重新检测各位的版本和模型列表，有变化就推给界面。force：等正在进行的那次查完再查一次（比如刚换了 Key）
 let refreshing = null;
 let refreshedAt = 0;
-function refreshEngines() {
+async function refreshEngines(force = false) {
+  if (refreshing && force) await refreshing;
   if (refreshing) return refreshing;
   refreshing = detectEngines()
     .then((next) => {

@@ -6,3 +6,5 @@ public/app-icon.png
 node_modules/
 .DS_Store
 *.log
+# Windows 安装脚本记下的 node.exe 位置（每台电脑不一样）
+windows/node-path.txt

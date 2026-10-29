@@ -3,6 +3,8 @@
 const $ = (s) => document.querySelector(s);
 const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧' };
 const PERM_LABEL = { project: '项目内放手干', full: '完全放开', readonly: '只读讨论' };
+const IS_WIN = document.documentElement.classList.contains('win');
+const AGENT_IDS = ['claude', 'gpt', 'deepseek'];
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
 // 会话：每个群/单聊是 g:<roomId>；群里和某位的私聊是 d:<roomId>:<agent>
@@ -186,21 +188,23 @@ function agentName(id) {
   return S.agents[id]?.name || id;
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex' };
+const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek' };
+const DEFAULT_HINT = { claude: '跟随 Claude Code 的设置', gpt: '跟随 Codex 的设置', deepseek: '又快又便宜，能看图' };
 
-// 某位可选的模型：第一项是「默认」（跟随 Claude Code / Codex 自己的设置）
+// 某位可选的模型：第一项是「默认」（跟随 Claude Code / Codex 自己的设置；DeepSeek 默认用 Flash）
 function modelOptions(agent) {
   const e = S.engines[AGENT_ENGINE[agent]] || {};
   const label = e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : '');
-  const def = { id: '', name: `默认${label ? ` · ${label}` : ''}`, description: agent === 'claude' ? '跟随 Claude Code 的设置' : '跟随 Codex 的设置' };
+  const def = { id: '', name: `默认${label ? ` · ${label}` : ''}`, description: DEFAULT_HINT[agent] || '' };
   return [def, ...(e.models || [])];
 }
 
 // 模型的规范写法：claude-opus-5-5 → Opus 5.5，opus → Opus 5.5（当前对应的版本），gpt-6.1-sol → GPT-6.1-Sol
 function modelLabel(id) {
-  const m = String(id || '').match(/^claude-([a-z]+)-(\d+)-(\d+)/);
+  id = String(id || '').replace(/\[1m\]$/i, ''); // DeepSeek 的 1M 上下文标记
+  const m = id.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
   if (m) return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}`;
-  const known = [...(S.engines.claude?.models || []), ...(S.engines.codex?.models || [])].find((x) => x.id === id);
+  const known = Object.values(AGENT_ENGINE).flatMap((k) => S.engines[k]?.models || []).find((x) => x.id === id);
   if (known) return known.name;
   return String(id || '').replace(/^gpt-/i, 'GPT-').replace(/-([a-z])/g, (_, c) => `-${c.toUpperCase()}`);
 }
@@ -225,7 +229,9 @@ function effortsFor(agent, modelId) {
 function effortSelectHtml(agent, modelId, current, attrs = '') {
   const e = S.engines[AGENT_ENGINE[agent]] || {};
   const list = effortsFor(agent, modelId);
-  const def = e.defaultEffort ? `默认 · ${EFFORT_LABEL[e.defaultEffort] || e.defaultEffort}` : '默认';
+  // 没在设置里指定时，用的是模型自己的默认强度（Codex、DeepSeek 的模型目录里带着）
+  const fallback = e.defaultEffort || e.models?.find((m) => m.id === (modelId || e.defaultModel))?.defaultEffort || '';
+  const def = fallback ? `默认 · ${EFFORT_LABEL[fallback] || fallback}` : '默认';
   const opts = [{ id: '', name: def, hint: '跟随自己的设置' }, ...list.map((id) => ({ id, name: EFFORT_LABEL[id] || id, hint: EFFORT_HINT[id] || '' }))];
   return `<select ${attrs}>${opts
     .map((o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.hint)}">${esc(o.name)}</option>`)
@@ -265,7 +271,7 @@ function inline(s) {
       // 只在标签外面高亮 @，免得改坏链接地址
       return h
         .split(/(<[^>]+>)/g)
-        .map((seg, j) => (j % 2 === 1 ? seg : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|GPT|Codex|ChatGPT|所有人|全体成员|全体|大家)/gi, '$1<span class="mention">@$2</span>')))
+        .map((seg, j) => (j % 2 === 1 ? seg : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, '$1<span class="mention">@$2</span>')))
         .join('');
     })
     .join('');
@@ -437,32 +443,46 @@ function updateBadge() {
 const ENGINE_INFO = [
   { key: 'claude', name: 'Claude Code', agent: 'claude' },
   { key: 'codex', name: 'Codex', agent: 'gpt' },
+  { key: 'deepseek', name: 'DeepSeek', agent: 'deepseek' },
 ];
 
-function engineState(e) {
-  return e ? (e.ok ? esc(e.version || '已就绪') : '没找到，请先安装并登录') : '检测中…';
+function engineState(e, key) {
+  if (!e) return '检测中…';
+  if (key === 'deepseek') return !e.path ? '要先装 Claude Code' : !e.hasKey ? '还没填 API Key' : e.ok ? `API Key 已填（${esc(e.keyHint)}）` : 'API Key 不对';
+  return e.ok ? esc(e.version || '已就绪') : '没找到，请先安装并登录';
 }
 
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
 function renderEngines() {
-  // 侧栏底部：一切正常时什么都不显示，哪个程序找不到才亮一个黄色提醒
-  const missing = ENGINE_INFO.filter(({ key }) => S.engines[key] && !S.engines[key].ok).map(({ name }) => name);
+  // 侧栏底部：一切正常时什么都不显示；有聊天用到的程序找不到（或者 DeepSeek 没填 Key）才亮一个黄色提醒
+  const used = new Set(S.rooms.flatMap((r) => r.members));
+  const missing = ENGINE_INFO.filter(({ key, agent }) => S.engines[key] && !S.engines[key].ok && used.has(agent)).map(({ name }) => name);
   const warn = $('#engine-warn');
   warn.hidden = !missing.length;
-  warn.textContent = missing.length ? `${missing.join('、')} 没找到` : '';
-  warn.title = missing.length ? '请先安装并登录，打开设置看详情' : '';
+  warn.textContent = missing.length ? `${missing.join('、')} 还不能用` : '';
+  warn.title = missing.length ? '打开设置看详情' : '';
   $('#welcome-engines').innerHTML = ENGINE_INFO.map(({ key, name }) => {
     const e = S.engines[key];
-    return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e)}</div>`;
+    return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e, key)}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: '深度求索 · 借 Claude Code 干活' };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    const status = e ? (e.ok ? '<span class="status ok">已就绪</span>' : '<span class="status bad">没找到</span>') : '<span class="status">检测中…</span>';
-    return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e)}</small></span>${status}${
-      e?.ok ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
+    const bad = key === 'deepseek' ? (!e?.path ? '缺 Claude Code' : !e?.hasKey ? '没填 Key' : 'Key 不对') : '没找到';
+    const status = e ? (e.ok ? '<span class="status ok">已就绪</span>' : `<span class="status bad">${bad}</span>`) : '<span class="status">检测中…</span>';
+    // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
+    return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
+      e?.ok && key !== 'deepseek' ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
     }</div>`;
   }).join('');
+  const ds = S.engines.deepseek;
+  const dsStatus = $('#ds-status');
+  dsStatus.className = `hint${ds?.keyError && ds.hasKey ? ' error' : ''}`;
+  dsStatus.textContent = !ds
+    ? ''
+    : ds.hasKey
+      ? `已填：${ds.keyHint}${ds.keyError ? `（${ds.keyError}）` : ''}。要换就填新的再点保存；清空后保存就是删掉。`
+      : '还没填。填好后，新建聊天时勾上 DeepSeek 就能用了。';
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {
     const opts = modelOptions(agent).filter((o) => o.id); // 「默认」单独说明，这里只列模型
     const def = modelOptions(agent)[0].name.replace(/^默认 · /, '');
@@ -474,7 +494,7 @@ function renderEngines() {
 function convAvatar(c) {
   if (c.dm) return `<div class="conv-avatar">${avatarHtml(c.dm)}</div>`;
   if (c.room.members.length === 1) return `<div class="conv-avatar">${avatarHtml(c.room.members[0])}</div>`;
-  return `<div class="conv-avatar stack">${c.room.members.map((a) => avatarHtml(a)).join('')}</div>`;
+  return `<div class="conv-avatar stack${c.room.members.length > 2 ? ' three' : ''}">${c.room.members.map((a) => avatarHtml(a)).join('')}</div>`;
 }
 
 function convItemHtml(c, extra = {}) {
@@ -538,34 +558,38 @@ function renderShell() {
   $('#room-from').textContent = dm ? `来自「${room.name}」` : '';
   $('#room-from').hidden = !dm;
   $('#room-folder').textContent = ltr(room.cwd);
-  $('#room-folder').title = `在访达中打开：${room.cwd}`;
+  $('#room-folder').title = `${IS_WIN ? '在资源管理器中打开' : '在访达中打开'}：${room.cwd}`;
   const perm = $('#room-perm');
   perm.textContent = PERM_LABEL[room.permission] || room.permission;
   perm.className = `badge ${room.permission}`;
   // 顶部的模型切换：群里显示所有成员，私聊只显示对方
+  $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
   setHtml($('#model-switch'), (dm ? [dm] : room.members)
-    .map(
-      (a) => `<span class="model-chip" title="切换 ${esc(agentName(a))} 的模型和思考强度，下一轮生效">${avatarHtml(a)}${modelSelectHtml(
-        a,
-        room.models?.[a],
-        `data-agent="${esc(a)}" aria-label="${esc(agentName(a))} 的模型"`,
-        true,
-      )}<span class="chip-sep"></span><span class="chip-label">思考</span>${effortSelectHtml(
-        a,
-        room.models?.[a],
-        room.efforts?.[a],
-        `data-effort="${esc(a)}" class="effort-select" aria-label="${esc(agentName(a))} 的思考强度"`,
-      )}</span>`,
-    )
+    .map((a) => {
+      const model = modelSelectHtml(a, room.models?.[a], `data-agent="${esc(a)}" aria-label="${esc(agentName(a))} 的模型"`, true);
+      // 模型不支持调思考强度（比如连不上 DeepSeek 时）就不显示这一格
+      const effort = effortsFor(a, room.models?.[a]).length || room.efforts?.[a]
+        ? `<span class="chip-sep"></span><span class="chip-label">思考</span>${effortSelectHtml(
+            a,
+            room.models?.[a],
+            room.efforts?.[a],
+            `data-effort="${esc(a)}" class="effort-select" aria-label="${esc(agentName(a))} 的思考强度"`,
+          )}`
+        : '';
+      return `<span class="model-chip" title="切换 ${esc(agentName(a))} 的模型和思考强度，下一轮生效">${avatarHtml(a)}${model}${effort}</span>`;
+    })
     .join(''));
   const entry = $('#dm-entry');
   entry.hidden = dm || !group;
   entry.innerHTML = group && !dm ? `<span class="muted">私聊</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="私聊 ${esc(agentLabel(a))}">${avatarHtml(a)}</button>`).join('')}` : '';
   $('#group-tools').hidden = !!dm || !group;
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = { Claude: 'claude', GPT: 'gpt' }[b.dataset.mention];
+    const id = { Claude: 'claude', GPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
+  const who = room.members.length > 2 ? '大家' : '两位';
+  const targets = [['all', `${who}同时开工`], ['sequential', `${who}依次回答`], ...room.members.map((a) => [a, `只发给 ${agentName(a)}`])];
+  setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
   const hint = $('#dm-hint');
   hint.hidden = !dm;
@@ -829,6 +853,7 @@ function handleEvent(ev) {
       if (S.current && !currentConv()) S.current = null;
       renderConvs();
       renderShell();
+      renderEngines(); // 侧栏的黄色提醒只管有聊天用到的程序
       break;
     case 'engines':
       S.engines = ev.engines || {};
@@ -837,6 +862,9 @@ function handleEvent(ev) {
       break;
     case 'restarting':
       showRestarting();
+      break;
+    case 'quitting':
+      showQuit();
       break;
   }
 }
@@ -898,6 +926,36 @@ function clearAttachments() {
   renderAttachments();
 }
 
+// Windows 上服务没法转换图片：大图在这里先缩小成 JPG 再上传；认不出的格式（比如 HEIC）直接提示
+async function prepareImage(file) {
+  const type = imageType(file);
+  if (!IS_WIN) return { body: file, type };
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error('这种图片格式（比如 HEIC）在这台电脑上打不开，请先另存成 JPG 或 PNG 再发');
+  }
+  const big = Math.max(bmp.width, bmp.height);
+  const direct = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type);
+  if (direct && file.size <= 3 * 1024 * 1024 && big <= 4000) {
+    bmp.close();
+    return { body: file, type };
+  }
+  const scale = Math.min(1, 2400 / big);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; // 透明的地方填白，转成 JPG 后不会变黑
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
+  if (!blob) throw new Error('这张图片处理不了，换一张试试');
+  return { body: blob, type: 'image/jpeg' };
+}
+
 function addFiles(files) {
   const conv = currentConv();
   if (!conv) return;
@@ -909,7 +967,8 @@ function addFiles(files) {
   for (const file of images.slice(0, 20 - S.attachments.length)) {
     const att = { url: URL.createObjectURL(file), status: 'uploading', id: null, error: '', roomId: conv.roomId, fresh: true };
     S.attachments.push(att);
-    fetch(`/api/rooms/${conv.roomId}/uploads`, { method: 'POST', headers: { 'content-type': imageType(file), 'x-clawchat': '1' }, body: file })
+    prepareImage(file)
+      .then(({ body, type }) => fetch(`/api/rooms/${conv.roomId}/uploads`, { method: 'POST', headers: { 'content-type': type, 'x-clawchat': '1' }, body }))
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || '上传失败');
@@ -977,7 +1036,8 @@ async function sendMessage() {
 const MENTION_ITEMS = [
   { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
   { id: 'gpt', label: 'GPT', sub: 'OpenAI Codex', insert: 'GPT', keys: ['gpt', 'codex', 'chatgpt', 'openai'] },
-  { id: 'all', label: '所有人', sub: '两位一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
+  { id: 'deepseek', label: 'DeepSeek', sub: '深度求索', insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
+  { id: 'all', label: '所有人', sub: '大家一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 
 // 光标前面是不是正在打「@xxx」：返回 @ 的位置和已经打的字
@@ -1004,7 +1064,8 @@ function updateMentionMenu() {
   if (!items.length) return hideMentionMenu();
   const keepIndex = S.mention && S.mention.q === mq.q ? S.mention.index : 0;
   S.mention = { ...mq, items, index: Math.min(keepIndex, items.length - 1) };
-  const icon = (it) => (it.id === 'all' ? `<span class="mention-all">${avatarHtml('claude')}${avatarHtml('gpt')}</span>` : avatarHtml(it.id));
+  const all = conv.room.members;
+  const icon = (it) => (it.id === 'all' ? `<span class="mention-all${all.length > 2 ? ' three' : ''}">${all.map((a) => avatarHtml(a)).join('')}</span>` : avatarHtml(it.id));
   $('#mention-menu').innerHTML = items
     .map(
       (it, i) => `<div class="mention-item${i === S.mention.index ? ' active' : ''}" role="option" data-mention-pick="${i}">
@@ -1128,8 +1189,10 @@ function openCustomModel(agent) {
   const dlg = $('#dlg-model');
   dlg.dataset.agent = agent;
   $('#custom-model-title').textContent = `给 ${agentName(agent)} 换一个列表里没有的模型`;
-  $('#custom-model-hint').textContent =
-    agent === 'gpt' ? '填 Codex 里的模型名，比如 gpt-7.0。' : '填 Claude Code 能用的模型名，比如 claude-opus-6-0，或者 opus、fable 这样的别名。';
+  $('#custom-model-hint').textContent = {
+    gpt: '填 Codex 里的模型名，比如 gpt-7.0。',
+    deepseek: '填 DeepSeek 的模型名，比如 deepseek-v5-pro。',
+  }[agent] || '填 Claude Code 能用的模型名，比如 claude-opus-6-0，或者 opus、fable 这样的别名。';
   $('#custom-model-input').value = '';
   $('#custom-model-status').textContent = '';
   $('#btn-custom-ok').disabled = false;
@@ -1215,6 +1278,7 @@ function showSettingsTab(tab) {
 
 async function openSettings(tab = 'general') {
   const dlg = $('#dlg-settings');
+  $('#quit-section').hidden = hasNative(); // Mac 应用按 ⌘Q 退出；Windows 和浏览器里在这里退出
   if (!dlg.open) dlg.showModal();
   reportDragRegions();
   showSettingsTab(tab);
@@ -1222,7 +1286,7 @@ async function openSettings(tab = 'general') {
   try {
     const info = await api('GET', '/api/app');
     S.app = info;
-    const tilde = (p) => String(p || '').replace(/^\/Users\/[^/]+/, '~'); // 像访达一样把个人目录写成 ~
+    const tilde = (p) => (IS_WIN ? String(p || '') : String(p || '').replace(/^\/Users\/[^/]+/, '~')); // 像访达一样把个人目录写成 ~
     $('#set-data-dir').textContent = tilde(info.dataDir);
     $('#set-data-dir').title = info.dataDir;
     $('#set-projects-dir').textContent = tilde(info.projectsDir);
@@ -1334,7 +1398,7 @@ async function doUpdate() {
 
 // 升级后服务会重启：在应用里会自动重开窗口；在浏览器里等服务回来就刷新
 function showRestarting() {
-  $('#update-status').textContent = '升级好了，正在重新打包并重启，稍等十几秒…';
+  $('#update-status').textContent = '升级好了，正在重启，稍等十几秒…';
   toast('ClawChat 正在重启升级…', 20000);
   if (hasNative()) return;
   const wait = setInterval(async () => {
@@ -1348,6 +1412,48 @@ function showRestarting() {
   }, 1500);
 }
 
+// DeepSeek 的 API Key：服务那边先试一下能不能用，能用才存
+async function saveDeepseekKey() {
+  const input = $('#ds-key');
+  const btn = $('#btn-ds-save');
+  btn.disabled = true;
+  btn.textContent = '检查中…';
+  try {
+    const res = await api('POST', '/api/deepseek/key', { key: input.value.trim() });
+    S.engines = res.engines || S.engines;
+    input.value = '';
+    toast(res.warning || (S.engines.deepseek?.hasKey ? 'DeepSeek 的 API Key 已保存，可以用了' : '已删掉 DeepSeek 的 API Key'), 4000);
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存';
+  }
+  renderEngines();
+  $('#model-switch')._html = null; // 模型列表可能变了
+  renderShell();
+}
+
+// 彻底退出（Windows 和浏览器里用）：后台服务也停掉
+async function quitApp() {
+  const btn = $('#btn-quit');
+  const busy = S.runs.length;
+  if (busy && btn.dataset.armed !== '1') {
+    btn.dataset.armed = '1';
+    btn.textContent = `有 ${busy} 位正在干活，再点一次确认退出`;
+    return;
+  }
+  try {
+    await api('POST', '/api/app/quit');
+  } catch {}
+  showQuit();
+}
+
+function showQuit() {
+  const again = IS_WIN ? '下次双击桌面上的 ClawChat 就能打开。' : '下次运行 npm start 就能打开。';
+  document.body.innerHTML = `<div class="quit-screen"><h2>ClawChat 已退出</h2><p>可以关掉这个窗口了。${again}</p></div>`;
+}
+
 let lastEngineRefresh = 0;
 function refreshEngines(force = false) {
   if (!force && Date.now() - lastEngineRefresh < 60 * 1000) return;
@@ -1359,19 +1465,22 @@ function formField(name) {
   return $('#room-form').elements.namedItem(name);
 }
 
+// 表单里每位的字段名：memberClaude、modelGpt、effortDeepseek…
+const fieldName = (prefix, agent) => `${prefix}${agent[0].toUpperCase()}${agent.slice(1)}`;
+
 function fillModelOptions(room) {
   const models = room?.models || S.defaults.models || {};
   const efforts = room?.efforts || S.defaults.efforts || {};
-  formField('modelClaude').outerHTML = modelSelectHtml('claude', models.claude, 'name="modelClaude" data-pair="claude"');
-  formField('modelGpt').outerHTML = modelSelectHtml('gpt', models.gpt, 'name="modelGpt" data-pair="gpt"');
-  formField('effortClaude').outerHTML = effortSelectHtml('claude', models.claude, efforts.claude, 'name="effortClaude"');
-  formField('effortGpt').outerHTML = effortSelectHtml('gpt', models.gpt, efforts.gpt, 'name="effortGpt"');
+  for (const a of AGENT_IDS) {
+    formField(fieldName('model', a)).outerHTML = modelSelectHtml(a, models[a], `name="${fieldName('model', a)}" data-pair="${a}"`);
+    formField(fieldName('effort', a)).outerHTML = effortSelectHtml(a, models[a], efforts[a], `name="${fieldName('effort', a)}"`);
+  }
 }
 
 // 设置弹窗里换了模型：思考强度的选项跟着换（新模型不支持原来的强度就退回默认）
 function refreshEffortField(agent) {
-  const name = agent === 'claude' ? 'effortClaude' : 'effortGpt';
-  const model = formField(agent === 'claude' ? 'modelClaude' : 'modelGpt').value;
+  const name = fieldName('effort', agent);
+  const model = formField(fieldName('model', agent)).value;
   const current = formField(name).value;
   const keep = effortsFor(agent, model).includes(current) ? current : '';
   formField(name).outerHTML = effortSelectHtml(agent, model, keep, `name="${name}"`);
@@ -1400,17 +1509,31 @@ async function switchModel(agent, id, custom = false) {
 }
 
 function syncMemberFields() {
-  const members = ['claude', 'gpt'].filter((a) => formField(a === 'claude' ? 'memberClaude' : 'memberGpt').checked);
+  const members = AGENT_IDS.filter((a) => formField(fieldName('member', a)).checked);
   $('#group-fields').hidden = members.length < 2;
-  $('#field-model-claude').hidden = !members.includes('claude');
-  $('#field-model-gpt').hidden = !members.includes('gpt');
+  for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
   formField('name').placeholder = members.length === 1 ? `留空就叫「${agentLabel(members[0])}」` : '比如：今天争取不加班';
+  // 勾了还不能用的成员，提前说一声（不拦着，先建好也行）
+  const ds = S.engines.deepseek;
+  const hint = $('#member-hint');
+  hint.textContent = !members.includes('deepseek') || !ds || ds.ok
+    ? ''
+    : !ds.path
+      ? 'DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。'
+      : 'DeepSeek 还没填 API Key：建好后点左下角「设置 → 程序与模型」填一下就能用。';
+  hint.hidden = !hint.textContent;
   return members;
+}
+
+// 新建聊天时默认勾上能用的成员；一个都不能用（比如还在检测）就勾 Claude 和 GPT
+function defaultMembers() {
+  const ready = AGENT_IDS.filter((a) => S.engines[AGENT_ENGINE[a]]?.ok);
+  return ready.length ? ready : ['claude', 'gpt'];
 }
 
 function openDialog(room, preset = null) {
   S.editing = room ? room.id : null;
-  const d = room || { ...S.defaults, name: '', cwd: '', members: preset || ['claude', 'gpt'] };
+  const d = room || { ...S.defaults, name: '', cwd: '', members: preset || defaultMembers() };
   const solo = d.members.length === 1;
   $('#dlg-title').textContent = room ? (solo ? '聊天设置' : '群设置') : '新建聊天';
   $('#btn-save').textContent = room ? '保存' : '创建';
@@ -1418,8 +1541,8 @@ function openDialog(room, preset = null) {
   del.hidden = !room;
   del.dataset.armed = '';
   del.textContent = solo ? '删除聊天' : '删除群聊';
-  formField('memberClaude').checked = d.members.includes('claude');
-  formField('memberGpt').checked = d.members.includes('gpt');
+  for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
+  $('#perm-win-hint').hidden = !IS_WIN;
   formField('name').value = d.name || '';
   formField('cwd').value = d.cwd || '';
   formField('cwd').placeholder = room ? '' : `留空就自动新建：${S.projectsDir}/名字`;
@@ -1444,8 +1567,8 @@ async function submitDialog(e) {
     permission: formField('permission').value,
     collab: formField('collab').checked,
     maxAutoTurns: Number(formField('maxAutoTurns').value),
-    models: { claude: formField('modelClaude').value, gpt: formField('modelGpt').value },
-    efforts: { claude: formField('effortClaude').value, gpt: formField('effortGpt').value },
+    models: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('model', a)).value])),
+    efforts: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('effort', a)).value])),
   };
   const btn = $('#btn-save');
   btn.disabled = true;
@@ -1518,7 +1641,7 @@ function bind() {
   $('#btn-delete').onclick = deleteRoom;
   $('#room-form').addEventListener('submit', submitDialog);
   $('#room-form').addEventListener('change', (e) => {
-    if (e.target.name === 'memberClaude' || e.target.name === 'memberGpt') syncMemberFields();
+    if (/^member/.test(e.target.name)) syncMemberFields();
     if (e.target.dataset.pair) refreshEffortField(e.target.dataset.pair);
   });
   $('#btn-pick').onclick = async () => {
@@ -1583,6 +1706,11 @@ function bind() {
   $('#btn-check-update').onclick = () => checkForUpdate(true);
   $('#btn-do-update').onclick = doUpdate;
   $('#btn-open-data').onclick = () => api('POST', '/api/app/open-data').catch((err) => toast(err.message));
+  $('#btn-ds-save').onclick = saveDeepseekKey;
+  $('#ds-key').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) saveDeepseekKey();
+  });
+  $('#btn-quit').onclick = quitApp;
   document.addEventListener('keydown', (e) => {
     if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1719,8 +1847,16 @@ function bind() {
   }, 1000);
 }
 
+// Windows：快捷键和「访达」这些说法换成 Windows 的
+function applyPlatformText() {
+  if (!IS_WIN) return;
+  $('#btn-app-settings').title = '设置（Ctrl+,）';
+  $('#btn-open-data').textContent = '在资源管理器中显示';
+}
+
 async function init() {
   bind();
+  applyPlatformText();
   applyTheme(currentTheme());
   try {
     applyState(await api('GET', '/api/state'));

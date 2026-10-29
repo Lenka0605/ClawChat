@@ -1,0 +1,7 @@
+# Windows 用的脚本保持 Windows 的换行（GitHub 打包下载的压缩包里也一样）
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+# 存成 UTF-16 的脚本当二进制原样保存
+*.vbs binary
+*.ico binary
+*.png binary

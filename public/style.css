@@ -32,8 +32,11 @@
   --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   --claude: #d97757;
   --gpt: #1f1f1f;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --deepseek: #4d6bfe;
+  --warn: #b25f00;
+  /* Mac 用苹方；Windows 上英文用 Segoe UI、中文用微软雅黑 */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
   color-scheme: light;
 }
 
@@ -67,6 +70,7 @@
     --shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
     --control-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
     --gpt: #48484a;
+    --warn: #ffb340;
     color-scheme: dark;
   }
 }
@@ -100,6 +104,7 @@
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --control-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   --gpt: #48484a;
+  --warn: #ffb340;
   color-scheme: dark;
 }
 
@@ -190,6 +195,10 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .conv-item.active .dm-tag { background: rgba(255, 255, 255, 0.22); color: #fff; }
 .conv-avatar.stack .avatar:first-child { left: 0; top: 0; }
 .conv-avatar.stack .avatar:last-child { right: 0; bottom: 0; }
+/* 三个人的群：左上、右上、下面居中 */
+.conv-avatar.stack.three .avatar { width: 22px; height: 22px; }
+.conv-avatar.stack.three .avatar:nth-child(2) { right: 0; top: 0; }
+.conv-avatar.stack.three .avatar:last-child { right: auto; left: 9px; bottom: 0; }
 .conv-meta { min-width: 0; flex: 1; }
 .conv-line { display: flex; gap: 6px; align-items: center; }
 .conv-line .name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -231,7 +240,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
   color: #fff; font-size: 13px; font-weight: 600; background-size: 58% 58%; background-position: center; background-repeat: no-repeat;
 }
 /* Claude / ChatGPT 用官方应用图标（打包时从本机的官方应用里取，放在 /icons/），取不到时退回简笔头像 */
-.av-claude, .av-gpt { border-radius: 23%; background-size: cover, 58% 58%; }
+.av-claude, .av-gpt, .av-deepseek { border-radius: 23%; background-size: cover, 58% 58%; }
 .av-claude {
   background-color: var(--claude);
   background-image: url("/icons/claude.png"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4'/%3E%3C/g%3E%3C/svg%3E");
@@ -239,6 +248,12 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .av-gpt {
   background-color: var(--gpt);
   background-image: url("/icons/gpt.png"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z' fill='none' stroke='white' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='12' r='2.6' fill='white'/%3E%3C/svg%3E");
+}
+/* DeepSeek：内置的简笔小鲸鱼 */
+.av-deepseek {
+  background-color: var(--deepseek);
+  background-size: 66% 66%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 12.6c0-4.3 3.9-7.4 8.9-7.4 3.4 0 6 1.4 7.5 3.6l2.3-2c.5-.4 1.2 0 1.1.6l-.7 4.1.7 4.1c.1.6-.6 1-1.1.6l-2.3-2c-1.5 2.4-4.1 3.8-7.5 3.8-5 0-8.9-2.3-8.9-5.4z' fill='white'/%3E%3Ccircle cx='7.6' cy='11' r='1.3' fill='%234d6bfe'/%3E%3C/svg%3E");
 }
 .av-user { background-color: var(--accent); }
 
@@ -264,6 +279,13 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .badge.full { background: rgba(255, 59, 48, 0.14); color: var(--danger); }
 
 .model-switch { display: flex; gap: 6px; align-items: center; flex: none; }
+/* 三位成员时顶部放不下：收起「思考」两个字、下拉框窄一点，给群名留出位置 */
+.model-switch.many { flex: 0 1 auto; min-width: 0; }
+.model-switch.many .model-chip { min-width: 0; }
+.model-switch.many .chip-label { display: none; }
+.model-switch.many .model-chip select { max-width: 116px; }
+.model-switch.many .model-chip select.effort-select { max-width: 72px; }
+#room-head:has(.model-switch.many) .head-main { min-width: 120px; }
 .model-chip {
   display: flex; align-items: center; gap: 5px; background: var(--fill); border-radius: 6px; padding: 0 4px 0 4px; height: 24px;
 }
@@ -727,6 +749,9 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .mention-all .avatar { position: absolute; width: 17px; height: 17px; }
 .mention-all .avatar:first-child { left: 0; top: 0; }
 .mention-all .avatar:last-child { right: 0; bottom: 0; }
+.mention-all.three .avatar { width: 14px; height: 14px; }
+.mention-all.three .avatar:nth-child(2) { right: 0; top: 0; }
+.mention-all.three .avatar:last-child { right: auto; left: 5px; bottom: 0; }
 
 /* ---------- 侧栏底部：只有出问题时才显示的提醒 ---------- */
 .engine-warn {
@@ -825,3 +850,8 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, *::backdrop { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------- 提醒、退出 ---------- */
+.hint.warn-text { color: var(--warn); }
+.quit-screen { height: 100%; display: grid; place-content: center; text-align: center; color: var(--muted); }
+.quit-screen h2 { color: var(--text); font-size: 20px; margin: 0 0 6px; }

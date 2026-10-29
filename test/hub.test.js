@@ -6,13 +6,15 @@ import path from 'node:path';
 
 process.env.CLAWCHAT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-test-'));
 const { Store } = await import('../lib/store.js');
-const { Hub, parseMentions, isPass, buildTurn, splitReply } = await import('../lib/hub.js');
-const { unwrapShell } = await import('../lib/agents.js');
+const { Hub, parseMentions, isPass, buildTurn, buildIntro, splitReply } = await import('../lib/hub.js');
+const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox } = await import('../lib/agents.js');
 
 test('parseMentions 识别点名', () => {
   assert.deepEqual(parseMentions('@Claude 你来'), ['claude']);
   assert.deepEqual(parseMentions('@gpt 和 @claude'), ['gpt', 'claude']);
-  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt']);
+  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt', 'deepseek']);
+  assert.deepEqual(parseMentions('@DeepSeek 你来审一下'), ['deepseek']);
+  assert.deepEqual(parseMentions('@深度求索 和 @gpt'), ['deepseek', 'gpt']);
   assert.deepEqual(parseMentions('@Codex 写页面'), ['gpt']);
   assert.deepEqual(parseMentions('邮箱 me@gpt.com 不算'), []);
   assert.deepEqual(parseMentions('代码里的 `@claude` 不算'), []);
@@ -29,6 +31,34 @@ test('unwrapShell 去掉 zsh -lc 外壳', () => {
   assert.equal(unwrapShell(`/bin/zsh -lc "sed -n '1p' a.txt"`), "sed -n '1p' a.txt");
   assert.equal(unwrapShell('/bin/zsh -lc \'echo "hi"\''), 'echo "hi"');
   assert.equal(unwrapShell('ls -la'), 'ls -la');
+  // Windows 上 Codex 用 PowerShell 跑命令
+  assert.equal(unwrapShell(['C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '-NoProfile', '-Command', 'Get-ChildItem src']), 'Get-ChildItem src');
+  assert.equal(unwrapShell('powershell.exe -Command "npm test"'), 'npm test');
+});
+
+test('Windows：从 npm 的 .cmd 包装脚本里找出真正要跑的 JS', () => {
+  const shim = [
+    '@ECHO off',
+    'GOTO start',
+    ':find_dp0',
+    'SET dp0=%~dp0',
+    'EXIT /b',
+    ':start',
+    'SETLOCAL',
+    'CALL :find_dp0',
+    'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  ].join('\r\n');
+  assert.equal(cmdShimTarget(shim), 'node_modules\\@anthropic-ai\\claude-code\\cli.js');
+  assert.equal(cmdShimTarget('"%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*'), 'node_modules\\@openai\\codex\\bin\\codex.js');
+  assert.equal(cmdShimTarget('@echo off\r\nclaude.exe %*'), null);
+  assert.equal(cmdShimTarget('"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'), 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe');
+});
+
+test('Codex 配置里自己选过 Windows 沙盒就不替它选', () => {
+  assert.equal(codexPicksWindowsSandbox('model = "gpt-6"\n[windows]\nsandbox = "elevated"\n'), true);
+  assert.equal(codexPicksWindowsSandbox('windows.sandbox = "elevated"\n'), true);
+  assert.equal(codexPicksWindowsSandbox('model = "gpt-6"\n[sandbox_workspace_write]\nnetwork_access = true\n'), false);
+  assert.equal(codexPicksWindowsSandbox('[features]\nsandbox = 1\n'), false);
 });
 
 test('buildTurn 标注发言人，图片按顺序编号', () => {
@@ -45,6 +75,17 @@ test('buildTurn 标注发言人，图片按顺序编号', () => {
   assert.match(p, /老板\] 〔图 #2〕/);
   assert.match(p, /@Claude/);
   assert.deepEqual(images.map((i) => [i.n, i.path, i.type]), [[1, '/up/a.png', 'image/png'], [2, '/up/b.jpg', 'image/jpeg']]);
+});
+
+test('buildTurn：DeepSeek 用看不了图的模型时，图片只给文件路径', () => {
+  const msgs = [{ from: 'user', text: '看看这张图', ts: 0, images: [{ id: 'a.png', type: 'image/png' }] }];
+  const pro = buildTurn({ name: 'r', members: ['deepseek', 'claude'], models: { deepseek: 'deepseek-v4-pro' } }, 'deepseek', msgs, false, '/up');
+  assert.equal(pro.images.length, 0);
+  assert.match(pro.prompt, /〔图片：\/up\/a\.png〕/);
+  assert.match(pro.prompt, /看不了图片/);
+  const flash = buildTurn({ name: 'r', members: ['deepseek', 'claude'], models: { deepseek: '' } }, 'deepseek', msgs, false, '/up');
+  assert.equal(flash.images.length, 1); // 默认的 deepseek-flash 能看图
+  assert.doesNotMatch(flash.prompt, /看不了图片/);
 });
 
 test('splitReply 拆出私聊和群聊', () => {
@@ -104,6 +145,31 @@ test('不 @ 时两位同时开工，并且知道对方也在干', async () => {
   calls.forEach((c) => c.finish(`${c.agent} 看完了`));
   await settle(hub);
   assert.equal(store.getMessages(room.id).filter((m) => m.from !== 'user' && m.from !== 'system').length, 2);
+});
+
+test('三人群：不 @ 时三位同时开工，各自知道另外两位也在干；@DeepSeek 只叫它', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.postUserMessage(room.id, '大家看看这个文件夹');
+  await tick();
+  assert.deepEqual(calls.map((c) => c.agent).sort(), ['claude', 'deepseek', 'gpt']);
+  assert.match(calls.find((c) => c.agent === 'deepseek').prompt, /同时发给了你和 Claude、GPT/);
+  calls.forEach((c) => c.finish('[PASS]'));
+  await settle(hub);
+  hub.postUserMessage(room.id, '@DeepSeek 你来审一下');
+  await tick();
+  assert.deepEqual(calls.slice(3).map((c) => c.agent), ['deepseek']);
+  calls[3].finish('好的');
+  await settle(hub);
+});
+
+test('DeepSeek 知道自己不是 Claude', () => {
+  const intro = buildIntro({ name: 'r', members: ['claude', 'deepseek'], cwd: '/p' }, 'deepseek');
+  assert.match(intro, /你自己——DeepSeek（/);
+  assert.match(intro, /不是 Claude/);
+  assert.match(intro, /@Claude/);
 });
 
 test('停止可以只停一位：停 Claude，GPT 照常干完', async () => {
