@@ -673,6 +673,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 }
 .form-row.top { align-items: flex-start; }
 .form-row > span:first-child { flex: none; }
+.form-row > .row-text:first-child { flex: 1 1 auto; } /* 说明文字能换行：英文长句不会撑出框外 */
 .form-row > input:not([type="checkbox"]), .form-row .row { flex: 1; max-width: 340px; }
 .form-row input:not([type="checkbox"]):not([type="radio"]) {
   border: 0.5px solid var(--faint); border-radius: 6px; padding: 4px 8px; background: var(--field); height: 26px; font-size: 13px; width: 100%; text-align: left;

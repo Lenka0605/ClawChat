@@ -2,9 +2,14 @@
 
 const $ = (s) => document.querySelector(s);
 const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧', compact: '🗜' };
-const PERM_LABEL = { project: '项目内放手干', full: '完全放开', readonly: '只读讨论' };
+const PERM_LABEL = { project: tr('项目内放手干'), full: tr('完全放开'), readonly: tr('只读讨论') };
 const IS_WIN = document.documentElement.classList.contains('win');
+// 「在访达中显示」这类：Windows 上叫资源管理器
+const REVEAL_LABEL = IS_WIN ? tr('在资源管理器中显示') : tr('在访达中显示');
+// 列举几位时的分隔符：中文用顿号，英文用逗号
+const LIST_SEP = tr('、');
 const AGENT_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini'];
+const ALL_WORD = I18N.lang === 'zh' ? '所有人' : 'everyone'; // @所有人：英文界面插 @everyone（服务端两个都认）
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
 // 会话：每个群/单聊是 g:<roomId>；群里和某位的私聊是 d:<roomId>:<agent>
@@ -57,7 +62,7 @@ async function api(method, url, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
+  if (!res.ok) throw new Error(data.error || tr('请求失败（{status}）', { status: res.status }));
   return data;
 }
 
@@ -68,6 +73,12 @@ function native(msg) {
   } catch {}
 }
 const hasNative = () => !!window.webkit?.messageHandlers?.clawchat;
+
+// 界面语言告诉服务端（群里的提示、AI 回复用的语言跟着它）和原生外壳（菜单栏）
+function syncLang(lang) {
+  native({ type: 'lang', value: lang });
+  return api('POST', '/api/lang', { lang });
+}
 
 // ---------------- 外观（浅色 / 深色 / 跟随系统） ----------------
 
@@ -171,8 +182,8 @@ const fileRefLive = (el) => !el.classList.contains('missing') && (!el.classList.
 function markFileRef(el, ok) {
   el.dataset.checked = '1';
   el.classList.toggle('missing', !ok);
-  if (ok && el.classList.contains('maybe')) el.title = `在${IS_WIN ? '资源管理器' : '访达'}中显示`;
-  else if (!ok && !el.classList.contains('maybe')) el.title = '项目文件夹里找不到这个文件';
+  if (ok && el.classList.contains('maybe')) el.title = REVEAL_LABEL;
+  else if (!ok && !el.classList.contains('maybe')) el.title = tr('项目文件夹里找不到这个文件');
 }
 
 function showFilePreview(el) {
@@ -289,6 +300,12 @@ function sameDay(a, b) {
   return a.toDateString() === b.toDateString();
 }
 
+// 日期：中文写「10月30日」，英文写「Oct 30」；withYear 时带上年份
+function fmtDate(d, withYear) {
+  if (I18N.lang === 'zh') return `${withYear ? `${d.getFullYear()}年` : ''}${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.toLocaleDateString('en-US', withYear ? { year: 'numeric', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' });
+}
+
 function fmtTime(ts) {
   const d = new Date(ts);
   const now = new Date();
@@ -296,15 +313,15 @@ function fmtTime(ts) {
   if (sameDay(d, now)) return hm;
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
-  if (sameDay(d, y)) return `昨天 ${hm}`;
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+  if (sameDay(d, y)) return tr('昨天 {time}', { time: hm });
+  return `${fmtDate(d)} ${hm}`;
 }
 
 // AI 之间私聊的时间：一直显示在名字旁边（今天的只写时分，不是今天的带上日期）
 function fmtPmTime(ts) {
   const d = new Date(ts);
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (sameDay(d, new Date())) return `今天 ${hm}`;
+  if (sameDay(d, new Date())) return tr('今天 {time}', { time: hm });
   return fmtTime(ts);
 }
 
@@ -316,8 +333,8 @@ function fmtExact(ts) {
   if (sameDay(d, now)) return hms;
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
-  if (sameDay(d, y)) return `昨天 ${hms}`;
-  return `${d.getFullYear() === now.getFullYear() ? '' : `${d.getFullYear()}年`}${d.getMonth() + 1}月${d.getDate()}日 ${hms}`;
+  if (sameDay(d, y)) return tr('昨天 {time}', { time: hms });
+  return `${fmtDate(d, d.getFullYear() !== now.getFullYear())} ${hms}`;
 }
 
 function fmtShort(ts) {
@@ -326,16 +343,16 @@ function fmtShort(ts) {
   if (sameDay(d, now)) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
-  if (sameDay(d, y)) return '昨天';
+  if (sameDay(d, y)) return tr('昨天');
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 function fmtDur(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}秒`;
+  if (s < 60) return tr('{s}秒', { s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}分${pad(s % 60)}秒`;
-  return `${Math.floor(m / 60)}小时${m % 60}分`;
+  if (m < 60) return tr('{m}分{s}秒', { m, s: pad(s % 60) });
+  return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 function firstLine(s) {
@@ -351,17 +368,17 @@ function agentName(id) {
 }
 
 const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
-const DEFAULT_HINT = { claude: '跟随 Claude Code 的设置', gpt: '跟随 Codex 的设置', deepseek: '又快又便宜，能看图', glm: '智谱的 GLM', gemini: '跟随 Gemini CLI 的设置' };
+const DEFAULT_HINT = { claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随 Gemini CLI 的设置') };
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
-// 设置里要填 API Key 的几位（Gemini 也能用 Google 登录，Key 是可选的）
+// 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
 const KEY_TARGETS = ['deepseek', 'glm', 'gemini'];
 
 // 某位可选的模型：第一项是「默认」（跟随 Claude Code / Codex 自己的设置；DeepSeek 默认用 Flash）
 function modelOptions(agent) {
   const e = S.engines[AGENT_ENGINE[agent]] || {};
   const label = e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : '');
-  const def = { id: '', name: `默认${label ? ` · ${label}` : ''}`, description: DEFAULT_HINT[agent] || '' };
+  const def = { id: '', name: label ? tr('默认 · {label}', { label }) : tr('默认'), description: DEFAULT_HINT[agent] || '' };
   return [def, ...(e.models || [])];
 }
 
@@ -376,14 +393,14 @@ function modelLabel(id) {
 }
 
 // 思考强度：Claude 固定五档；Codex 每个模型支持的不一样（Luna 没有「极限」）
-const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
+const EFFORT_LABEL = { low: tr('低'), medium: tr('中'), high: tr('高'), xhigh: tr('超高'), max: tr('最高'), ultra: tr('极限') };
 const EFFORT_HINT = {
-  low: '最快，适合简单的事',
-  medium: '速度和深度兼顾',
-  high: '想得更深，适合复杂问题',
-  xhigh: '比「高」再深一档',
-  max: '最深，最难的问题用',
-  ultra: '最深，还会自动把任务拆给帮手',
+  low: tr('最快，适合简单的事'),
+  medium: tr('速度和深度兼顾'),
+  high: tr('想得更深，适合复杂问题'),
+  xhigh: tr('比「高」再深一档'),
+  max: tr('最深，最难的问题用'),
+  ultra: tr('最深，还会自动把任务拆给帮手'),
 };
 
 function effortsFor(agent, modelId) {
@@ -397,8 +414,8 @@ function effortSelectHtml(agent, modelId, current, attrs = '') {
   const list = effortsFor(agent, modelId);
   // 没在设置里指定时，用的是模型自己的默认强度（Codex、DeepSeek 的模型目录里带着）
   const fallback = e.defaultEffort || e.models?.find((m) => m.id === (modelId || e.defaultModel))?.defaultEffort || '';
-  const def = fallback ? `默认 · ${EFFORT_LABEL[fallback] || fallback}` : '默认';
-  const opts = [{ id: '', name: def, hint: '跟随自己的设置' }, ...list.map((id) => ({ id, name: EFFORT_LABEL[id] || id, hint: EFFORT_HINT[id] || '' }))];
+  const def = fallback ? tr('默认 · {label}', { label: EFFORT_LABEL[fallback] || fallback }) : tr('默认');
+  const opts = [{ id: '', name: def, hint: tr('跟随自己的设置') }, ...list.map((id) => ({ id, name: EFFORT_LABEL[id] || id, hint: EFFORT_HINT[id] || '' }))];
   return `<select ${attrs}>${opts
     .map((o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.hint)}">${esc(o.name)}</option>`)
     .join('')}</select>`;
@@ -419,9 +436,11 @@ function fastSpeed(agent, modelId) {
 
 function confirmFast(speed) {
   return askConfirm({
-    title: '打开 ChatGPT 快速模式？',
-    text: `快速模式下 ChatGPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 ChatGPT 生效。`,
-    ok: '打开快速模式',
+    title: tr('打开 ChatGPT 快速模式？'),
+    text: speed
+      ? tr('快速模式下 ChatGPT 大约快 {speed} 倍，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 ChatGPT 生效。', { speed })
+      : tr('快速模式下 ChatGPT 会快一些，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（另外买的点数按 2 倍算），额度会用得快很多。\n\n适合赶时间时临时打开，忙完记得切回「标准」。只对这个群的 ChatGPT 生效。'),
+    ok: tr('打开快速模式'),
   });
 }
 
@@ -459,15 +478,15 @@ function askConfirm({ title, text, ok, alt = '' }) {
 function modelSelectHtml(agent, current, attrs = '', allowCustom = false) {
   const opts = modelOptions(agent);
   // 列表外的（手动填过的新模型）也显示出来
-  const extra = current && !opts.some((o) => o.id === current) ? [{ id: current, name: `${current}（自定义）` }] : [];
-  const custom = allowCustom ? `<option value="${CUSTOM_MODEL}">自定义模型…</option>` : '';
+  const extra = current && !opts.some((o) => o.id === current) ? [{ id: current, name: tr('{name}（自定义）', { name: current }) }] : [];
+  const custom = allowCustom ? `<option value="${CUSTOM_MODEL}">${tr('自定义模型…')}</option>` : '';
   return `<select ${attrs}>${[...opts, ...extra]
     .map((o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.description || '')}">${esc(o.name)}</option>`)
     .join('')}${custom}</select>`;
 }
 
 function avatarHtml(who, extra = '') {
-  return who === 'user' ? '<span class="avatar av-user">我</span>' : `<span class="avatar av-${esc(who)}" ${extra}></span>`;
+  return who === 'user' ? `<span class="avatar av-user">${tr('我')}</span>` : `<span class="avatar av-${esc(who)}" ${extra}></span>`;
 }
 
 // 让路径在「从右往左截断」的样式里保持原顺序
@@ -494,7 +513,7 @@ function looksLikeFile(s) {
 const MAYBE_PATH_RE = /^[^\s`<>|*?"]{1,200}$/;
 function codeHtml(code) {
   const c = code.trim();
-  if (looksLikeFile(c)) return `<code class="file-ref" data-path="${esc(c)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(code)}</code>`;
+  if (looksLikeFile(c)) return `<code class="file-ref" data-path="${esc(c)}" title="${REVEAL_LABEL}">${esc(code)}</code>`;
   if (MAYBE_PATH_RE.test(c) && (c.includes('/') || /[^\x00-\x7f]/.test(c)) && !/^[a-z]+:/i.test(c)) return `<code class="file-ref maybe" data-path="${esc(c)}">${esc(code)}</code>`;
   return `<code>${esc(code)}</code>`;
 }
@@ -510,7 +529,7 @@ function inline(s) {
     try {
       file = decodeURI(file);
     } catch {}
-    return `<span class="file-ref" data-path="${esc(file)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示：${esc(file)}">${text}</span>`;
+    return `<span class="file-ref" data-path="${esc(file)}" title="${tr('{label}：{file}', { label: REVEAL_LABEL, file: esc(file) })}">${text}</span>`;
   });
   h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)\uE000]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）\uE000]*[^\s<>()（）.,;:!?。，；：！？'"\uE000])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
@@ -521,7 +540,7 @@ function inline(s) {
     .map((seg, j) =>
       j % 2 === 1
         ? seg
-        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, (_, pre, name) => {
+        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家|everyone)/gi, (_, pre, name) => {
             const who = MENTION_WHO[name.toLowerCase()];
             return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? avatarHtml(who) : '@'}${name}</span>`;
           }),
@@ -630,7 +649,7 @@ function convOf(roomId, m) {
 
 // 「Claude 私下找 DeepSeek」/ 被找的那位回话时是「DeepSeek 私下回 Claude」
 function pmVerb(m) {
-  return pmHome(m) === m.pm ? '私下找' : '私下回';
+  return pmHome(m) === m.pm ? tr('私下找') : tr('私下回');
 }
 
 function currentConv() {
@@ -739,10 +758,10 @@ const ENGINE_INFO = [
 ];
 
 function engineState(e, key) {
-  if (!e) return '检测中…';
-  if (key === 'gemini') return !e.path ? '要先装 Gemini CLI' : e.ok ? `${esc(e.version || '已就绪')}${e.hasKey ? ` · API Key 已填（${esc(e.keyHint)}）` : ' · 用 Google 账号登录'}` : '没找到，请先安装';
-  if (BYOK[key]) return !e.path ? '要先装 Claude Code' : !e.hasKey ? '还没填 API Key' : e.ok ? `API Key 已填（${esc(e.keyHint)}）` : 'API Key 不对';
-  return e.ok ? esc(e.version || '已就绪') : '没找到，请先安装并登录';
+  if (!e) return tr('检测中…');
+  if (key === 'gemini') return !e.path ? tr('要先装 Gemini CLI') : e.ok ? `${esc(e.version || tr('已就绪'))}${e.hasKey ? tr(' · API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr(' · 用 Gemini CLI 的登录')}` : tr('没找到，请先安装');
+  if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
+  return e.ok ? esc(e.version || tr('已就绪')) : tr('没找到，请先安装并登录');
 }
 
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
@@ -752,20 +771,20 @@ function renderEngines() {
   const missing = ENGINE_INFO.filter(({ key, agent }) => S.engines[key] && !S.engines[key].ok && used.has(agent)).map(({ name }) => name);
   const warn = $('#engine-warn');
   warn.hidden = !missing.length;
-  warn.textContent = missing.length ? `${missing.join('、')} 还不能用` : '';
-  warn.title = missing.length ? '打开设置看详情' : '';
+  warn.textContent = missing.length ? tr('{names} 还不能用', { names: missing.join(LIST_SEP) }) : '';
+  warn.title = missing.length ? tr('打开设置看详情') : '';
   $('#welcome-engines').innerHTML = ENGINE_INFO.map(({ key, name }) => {
     const e = S.engines[key];
-    return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e, key)}</div>`;
+    return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: '深度求索 · 借 Claude Code 干活', glm: '智谱 · 借 Claude Code 干活', gemini: 'Google · Gemini CLI' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: 'Google · Gemini CLI' };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    const bad = BYOK[key] ? (!e?.path ? '缺 Claude Code' : !e?.hasKey ? '没填 Key' : 'Key 不对') : '没找到';
-    const status = e ? (e.ok ? '<span class="status ok">已就绪</span>' : `<span class="status bad">${bad}</span>`) : '<span class="status">检测中…</span>';
+    const bad = BYOK[key] ? (!e?.path ? tr('缺 Claude Code') : !e?.hasKey ? tr('没填 Key') : tr('Key 不对')) : tr('没找到');
+    const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
+      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : ''
     }</div>`;
   }).join('');
   for (const id of KEY_TARGETS) {
@@ -776,15 +795,18 @@ function renderEngines() {
     el.textContent = !e
       ? ''
       : e.hasKey
-        ? `已填：${e.keyHint}${e.keyError ? `（${e.keyError}）` : ''}。要换就填新的再点保存；清空后保存就是删掉。`
+        ? e.keyError
+          ? tr('已填：{hint}（{error}）。要换就填新的再点保存；清空后保存就是删掉。', { hint: e.keyHint, error: e.keyError })
+          : tr('已填：{hint}。要换就填新的再点保存；清空后保存就是删掉。', { hint: e.keyHint })
         : id === 'gemini'
-          ? '没填 Key 也能用：用 Google 账号登录 Gemini CLI 就行；填了 Key 就按 Key 走。'
-          : `还没填。填好后，新建聊天时勾上 ${agentName(id)} 就能用了。`;
+          ? tr('还没填。填了 Gemini API Key 就按 Key 用（按用量计费）；不填就用 Gemini CLI 自己的登录。')
+          : tr('还没填。填好后，新建聊天时勾上 {name} 就能用了。', { name: agentName(id) });
   }
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {
     const opts = modelOptions(agent).filter((o) => o.id); // 「默认」单独说明，这里只列模型
-    const def = modelOptions(agent)[0].name.replace(/^默认 · /, '');
-    return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>默认用 ${esc(def)}</small>
+    const eng = S.engines[AGENT_ENGINE[agent]] || {};
+    const def = eng.defaultLabel || (eng.defaultModel ? modelLabel(eng.defaultModel) : tr('默认'));
+    return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>${tr('默认用 {model}', { model: esc(def) })}</small>
       <span class="model-list">${opts.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('')}</span></span></div>`;
   }).join('');
 }
@@ -798,18 +820,18 @@ function convAvatar(c) {
 function convItemHtml(c, extra = {}) {
   const busy = S.runs
     .filter((x) => runInConv(x, c))
-    .map((x) => `${agentName(x.agent)}${x.side ? ' 分身' : ''}`)
-    .join('、');
+    .map((x) => (x.side ? tr('{name} 分身', { name: agentName(x.agent) }) : agentName(x.agent)))
+    .join(LIST_SEP);
   const last = c.last;
-  const who = last?.pm ? `${agentName(last.from)} → ${agentName(last.pm)}：` : last && !(last.from === 'user' || c.dm || c.room.members.length === 1) ? `${agentName(last.from)}：` : '';
+  const who = last?.pm ? tr('{name}：', { name: `${agentName(last.from)} → ${agentName(last.pm)}` }) : last && !(last.from === 'user' || c.dm || c.room.members.length === 1) ? tr('{name}：', { name: agentName(last.from) }) : '';
   const lastText = last ? who + last.text.replace(/\s+/g, ' ') : '';
-  const preview = busy ? `<span class="busy">${esc(busy)} 正在干活…</span>` : last ? esc(lastText) : c.dm ? '私聊' : '还没有消息';
+  const preview = busy ? `<span class="busy">${esc(tr('{names} 正在干活…', { names: busy }))}</span>` : last ? esc(lastText) : c.dm ? tr('私聊') : tr('还没有消息');
   const unread = (S.unread.get(c.key) || 0) + (extra.hiddenUnread || 0);
   const toggle = extra.dmCount
-    ? `<button class="disclosure${extra.open ? ' open' : ''}" data-toggle="${esc(c.room.id)}" title="${extra.open ? '收起' : '展开'}私聊（${extra.dmCount}）" aria-label="${extra.open ? '收起' : '展开'}私聊">
+    ? `<button class="disclosure${extra.open ? ' open' : ''}" data-toggle="${esc(c.room.id)}" title="${extra.open ? tr('收起私聊（{n}）', { n: extra.dmCount }) : tr('展开私聊（{n}）', { n: extra.dmCount })}" aria-label="${extra.open ? tr('收起私聊') : tr('展开私聊')}">
         <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : '';
-  const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">私聊</span>` : esc(convTitle(c));
+  const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">${tr('私聊')}</span>` : esc(convTitle(c));
   return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
     ${toggle}${convAvatar(c)}
     <div class="conv-meta">
@@ -842,14 +864,14 @@ function renderConvs() {
 
 function searchHitsHtml(q, hasConvs) {
   const res = S.searchHits;
-  if (!res || res.q !== q) return '<li class="search-head">正在搜聊天记录…</li>';
-  if (!res.hits.length) return `<li class="search-head">${hasConvs ? '聊天记录里没有找到' : '没有找到相关的聊天和消息'}</li>`;
+  if (!res || res.q !== q) return `<li class="search-head">${tr('正在搜聊天记录…')}</li>`;
+  if (!res.hits.length) return `<li class="search-head">${hasConvs ? tr('聊天记录里没有找到') : tr('没有找到相关的聊天和消息')}</li>`;
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
   const items = res.hits.map((h) => {
     const room = roomById(h.roomId);
     if (!room) return '';
-    const where = h.pm ? `${room.name} · ${agentName(h.from)} ${pmVerb(h)} ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
-    const who = h.from === 'user' ? '我' : agentName(h.from);
+    const where = h.pm ? `${room.name} · ${agentName(h.from)} ${pmVerb(h)} ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · ${tr('私聊 {name}', { name: agentName(h.dm) })}` : room.name;
+    const who = h.from === 'user' ? tr('我') : agentName(h.from);
     const text = `${h.cut ? '…' : ''}${String(h.text).replace(/\*\*|`/g, '').replace(/\s+/g, ' ')}`;
     const parts = text.split(re);
     const marks = text.match(re) || [];
@@ -859,7 +881,7 @@ function searchHitsHtml(q, hasConvs) {
       <div class="conv-meta"><div class="conv-line"><span class="name">${esc(who)}<small> · ${esc(where)}</small></span><span class="time">${fmtShort(h.ts)}</span></div>
       <div class="hit-text">${shown}</div></div></li>`;
   });
-  return `<li class="search-head">聊天记录 · ${res.hits.length}${res.more ? '+' : ''} 条</li>${items.join('')}`;
+  return `<li class="search-head">${tr('聊天记录 · {n} 条', { n: `${res.hits.length}${res.more ? '+' : ''}` })}</li>${items.join('')}`;
 }
 
 async function searchMessages(q) {
@@ -897,12 +919,12 @@ function renderShell() {
   const group = room.members.length > 1;
   setHtml($('#room-icon'), convAvatar(conv));
   $('#room-name').textContent = dm ? `${agentLabel(dm)}` : room.name;
-  $('#room-count').textContent = dm ? '· 私聊' : group ? `(${room.members.length + 1})` : '';
-  $('#room-from').textContent = dm ? `来自「${room.name}」` : '';
+  $('#room-count').textContent = dm ? tr('· 私聊') : group ? `(${room.members.length + 1})` : '';
+  $('#room-from').textContent = dm ? tr('来自「{name}」', { name: room.name }) : '';
   $('#room-from').hidden = !dm;
   // 顶部只显示文件夹名，完整路径放在提示里
   $('#room-folder').innerHTML = `${FOLDER_SVG}<span>${esc(room.cwd.split(/[\\/]/).filter(Boolean).pop() || room.cwd)}</span>`;
-  $('#room-folder').title = `${IS_WIN ? '在资源管理器中打开' : '在访达中打开'}：${room.cwd}`;
+  $('#room-folder').title = tr('{label}：{file}', { label: IS_WIN ? tr('在资源管理器中打开') : tr('在访达中打开'), file: room.cwd });
   const perm = $('#room-perm');
   perm.textContent = PERM_LABEL[room.permission] || room.permission;
   perm.className = `badge ${room.permission}`;
@@ -912,7 +934,7 @@ function renderShell() {
   setHtml($('#model-switch'), (dm ? [dm] : room.members).map((a) => modelChipHtml(a, dm ? dmView(room, a) : room)).join(''));
   const entry = $('#dm-entry');
   entry.hidden = dm || !group;
-  entry.innerHTML = group && !dm ? `<span class="muted">私聊</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="私聊 ${esc(agentLabel(a))}">${avatarHtml(a)}</button>`).join('')}` : '';
+  entry.innerHTML = group && !dm ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}` : '';
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
@@ -924,7 +946,7 @@ function renderShell() {
   hint.hidden = !dm;
   $('#chat').classList.toggle('can-mention', !dm && room.members.length > 1); // 群里点消息里的 @ 能填进输入框
   hint.firstElementChild.textContent = dm
-    ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。别的 AI 私下找它的对话也显示在这里；它主动找别人的，在对方的私聊里。`
+    ? tr('这里是你和 {name} 的私聊，{others} 看不到。{name} 记得群里的所有事。别的 AI 私下找它的对话也显示在这里；它主动找别人的，在对方的私聊里。', { name: agentName(dm), others: room.members.filter((a) => a !== dm).map(agentName).join(LIST_SEP) })
     : '';
 
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
@@ -980,7 +1002,7 @@ function stepHtml(s) {
   // 看过、改过的文件：和回复里的路径一样，点一下在访达里显示，图片悬停看缩略图
   const file = ['read', 'edit'].includes(s.kind) && !String(s.text).includes(', ') && looksLikeFile(s.text);
   const text = file
-    ? `<span class="step-text file-ref" data-path="${esc(String(s.text).trim())}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(s.text)}</span>`
+    ? `<span class="step-text file-ref" data-path="${esc(String(s.text).trim())}" title="${REVEAL_LABEL}">${esc(s.text)}</span>`
     : `<span class="step-text">${esc(s.text)}</span>`;
   return `<li class="step step-${esc(s.kind)}"><span class="step-icon">${STEP_ICON[s.kind] || '·'}</span>${text}</li>`;
 }
@@ -988,7 +1010,7 @@ function stepHtml(s) {
 function imagesHtml(roomId, images) {
   if (!images?.length) return '';
   return `<div class="msg-images">${images
-    .map((img) => `<img src="/api/rooms/${esc(roomId)}/uploads/${esc(img.id)}" loading="lazy" alt="图片" class="zoomable">`)
+    .map((img) => `<img src="/api/rooms/${esc(roomId)}/uploads/${esc(img.id)}" loading="lazy" alt="${tr('图片')}" class="zoomable">`)
     .join('')}</div>`;
 }
 
@@ -1003,13 +1025,13 @@ const REPLY_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
 
 function whoLabel(from) {
-  return from === 'user' ? '我' : agentLabel(from);
+  return from === 'user' ? tr('我') : agentLabel(from);
 }
 
 // 一小段原话（回复栏、引用里用）：去掉 Markdown 符号，链接只留文字，读起来干净
 function plainSnippet(text, max = 80) {
   return String(text || '')
-    .replace(/```[\s\S]*?```/g, '[代码]')
+    .replace(/```[\s\S]*?```/g, tr('[代码]'))
     .replace(/!?\[([^\]\n]+)\]\([^)\n]*\)/g, '$1')
     .replace(/`([^`\n]+)`/g, '$1')
     .replace(/\*\*|__|~~/g, '')
@@ -1020,12 +1042,12 @@ function plainSnippet(text, max = 80) {
 }
 
 function snippet(m) {
-  return m.text ? plainSnippet(m.text) : m.images?.length ? '[图片]' : '';
+  return m.text ? plainSnippet(m.text) : m.images?.length ? tr('[图片]') : '';
 }
 
 // 引用：回复别人的消息时，气泡上方带一小段原话，点一下跳回原消息
 function quoteHtml(q) {
-  return `<button class="quote" data-jump="${q.seq}" title="跳到原消息"><b>${esc(whoLabel(q.from))}</b><span>${esc(plainSnippet(q.text, 140))}</span></button>`;
+  return `<button class="quote" data-jump="${q.seq}" title="${tr('跳到原消息')}"><b>${esc(whoLabel(q.from))}</b><span>${esc(plainSnippet(q.text, 140))}</span></button>`;
 }
 
 function messageHtml(roomId, m, prev, conv) {
@@ -1033,57 +1055,57 @@ function messageHtml(roomId, m, prev, conv) {
   if (m.from === 'system') {
     const forwarded = m.action?.type === 'forward' && isForwarded(roomId, m.action.seq);
     const act = m.action?.type === 'fresh'
-      ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>`
+      ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">${esc(tr('给 {name} 换新会话', { name: agentName(m.action.agent) }))}</button>`
       : m.action?.type === 'forward'
-        ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? '已发到群里' : '发到群里'}</button>`
+        ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? tr('已发到群里') : tr('发到群里')}</button>`
         : m.action?.type === 'resume'
           ? resumeButton(roomId, m)
           : '';
     return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
   }
   const d = new Date(m.ts);
-  const full = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const full = `${fmtDate(d, true)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const time = `<time class="msg-time" datetime="${d.toISOString()}" title="${full}">${fmtExact(m.ts)}</time>`;
   const act = (attr, title, icon) => `<button class="act-btn" ${attr} title="${title}" aria-label="${title}">${icon}</button>`;
-  const copyBtn = m.text ? act(`data-copy="${m.seq}"`, '复制', COPY_ICON) : '';
-  const replyBtn = act(`data-reply="${m.seq}"`, '回复这条', REPLY_ICON);
+  const copyBtn = m.text ? act(`data-copy="${m.seq}"`, tr('复制'), COPY_ICON) : '';
+  const replyBtn = act(`data-reply="${m.seq}"`, tr('回复这条'), REPLY_ICON);
   if (m.from === 'user') {
     if (S.editMsg?.roomId === roomId && S.editMsg.seq === m.seq) {
       return `${sep}<div class="msg user editing" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body"><div class="edit-box">
-        <div class="edit-field"><div class="input-mirror edit-mirror" aria-hidden="true" hidden></div><textarea class="edit-input" rows="1" aria-label="修改这条消息">${esc(S.editMsg.text)}</textarea></div>
-        <div class="edit-actions"><span class="edit-hint">改好后会作为新消息发出，大家会知道你改了哪条</span><button class="secondary" data-edit-cancel>取消</button><button class="primary" data-edit-send>发送</button></div>
+        <div class="edit-field"><div class="input-mirror edit-mirror" aria-hidden="true" hidden></div><textarea class="edit-input" rows="1" aria-label="${tr('修改这条消息')}">${esc(S.editMsg.text)}</textarea></div>
+        <div class="edit-actions"><span class="edit-hint">${tr('改好后会作为新消息发出，大家会知道你改了哪条')}</span><button class="secondary" data-edit-cancel>${tr('取消')}</button><button class="primary" data-edit-send>${tr('发送')}</button></div>
       </div></div></div>`;
     }
     const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
     const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
     const edited = m.editOf
-      ? `<button class="quote edit-quote" data-jump="${m.editOf.seq}" title="跳到原消息"><b>修改了</b><span>${esc(String(m.editOf.text || '').replace(/\s+/g, ' '))}</span></button>`
+      ? `<button class="quote edit-quote" data-jump="${m.editOf.seq}" title="${tr('跳到原消息')}"><b>${tr('修改了')}</b><span>${esc(String(m.editOf.text || '').replace(/\s+/g, ' '))}</span></button>`
       : '';
-    const actions = `<div class="msg-actions">${time}${copyBtn}${act(`data-edit="${m.seq}"`, '编辑', EDIT_ICON)}${replyBtn}</div>`;
+    const actions = `<div class="msg-actions">${time}${copyBtn}${act(`data-edit="${m.seq}"`, tr('编辑'), EDIT_ICON)}${replyBtn}</div>`;
     return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${edited}${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
   }
-  const dur = m.durationMs ? `用时 ${fmtDur(m.durationMs)}` : '';
+  const dur = m.durationMs ? tr('用时 {time}', { time: fmtDur(m.durationMs) }) : '';
   // 过程步骤展开时才画出来（长对话里攒了上千步，一直放在页面上会拖慢整个聊天记录）
   const stepsOpen = S.openSteps.has(`${roomId}:${m.seq}`);
   const foot = m.steps?.length
-    ? `<details class="steps" data-steps="${m.seq}"${stepsOpen ? ' open' : ''}><summary>过程 · ${m.steps.length} 步${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? stepsListHtml(m.steps) : ''}</details>`
+    ? `<details class="steps" data-steps="${m.seq}"${stepsOpen ? ' open' : ''}><summary>${tr('过程 · {n} 步', { n: m.steps.length })}${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? stepsListHtml(m.steps) : ''}</details>`
     : dur;
   const canDm = !conv.dm && conv.room.members.length > 1;
-  const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="私聊 ${esc(agentLabel(m.from))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
-  const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? `思考 ${EFFORT_LABEL[m.effort] || m.effort}` : ''].filter(Boolean).join(' · ');
+  const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="${esc(tr('私聊 {name}', { name: agentLabel(m.from) }))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
+  const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? tr('思考 {level}', { level: EFFORT_LABEL[m.effort] || m.effort }) : ''].filter(Boolean).join(' · ');
   const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
-  const sideTag = (m.side ? '<span class="side-tag" title="本体当时在群里忙，这条是分身先回的">分身</span>' : '') +
-    (m.forwardOf !== undefined ? '<span class="side-tag" title="你把它在私聊里的这段话转到了群里">从私聊转来</span>' : '');
+  const sideTag = (m.side ? `<span class="side-tag" title="${tr('本体当时在群里忙，这条是分身先回的')}">${tr('分身')}</span>` : '') +
+    (m.forwardOf !== undefined ? `<span class="side-tag" title="${tr('你把它在私聊里的这段话转到了群里')}">${tr('从私聊转来')}</span>` : '');
   const speaking = S.speaking?.roomId === roomId && S.speaking.seq === m.seq;
   const speakBtn = m.text && HAS_SPEECH
-    ? act(`data-speak="${m.seq}" class="act-btn${speaking ? ' on' : ''}"`, speaking ? '停止朗读' : '朗读', speaking ? STOP_SPEAK_ICON : SPEAK_ICON)
+    ? act(`data-speak="${m.seq}" class="act-btn${speaking ? ' on' : ''}"`, speaking ? tr('停止朗读') : tr('朗读'), speaking ? STOP_SPEAK_ICON : SPEAK_ICON)
     : '';
   // 私聊里的回复：可以转到群里（转过的就不再显示）
-  const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, '发到群里', FORWARD_ICON) : '';
+  const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, tr('发到群里'), FORWARD_ICON) : '';
   const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${forwardBtn}${replyBtn}${time}</div>`;
   // AI 之间的私聊：标明谁私下发给谁、什么时候发的
   const who = m.pm
-    ? `${esc(agentLabel(m.from))}<span class="pm-arrow">→</span>${esc(agentLabel(m.pm))}<span class="side-tag pm-tag" title="它们之间的私聊，群里其他成员看不到">AI 私聊</span><span class="pm-time">${esc(fmtPmTime(m.ts))}</span>`
+    ? `${esc(agentLabel(m.from))}<span class="pm-arrow">→</span>${esc(agentLabel(m.pm))}<span class="side-tag pm-tag" title="${tr('它们之间的私聊，群里其他成员看不到')}">${tr('AI 私聊')}</span><span class="pm-time">${esc(fmtPmTime(m.ts))}</span>`
     : esc(agentLabel(m.from));
   return `${sep}<div class="msg agent from-${esc(m.from)}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
@@ -1111,7 +1133,7 @@ function renderMessages() {
   restoreEditor(typing);
 }
 
-const earlierHtml = (from) => (from > 0 ? `<button class="load-earlier" data-earlier>更早的 ${from} 条消息</button>` : '');
+const earlierHtml = (from) => (from > 0 ? `<button class="load-earlier" data-earlier>${tr('更早的 {n} 条消息', { n: from })}</button>` : '');
 
 // 接上更早的一段，滚动位置保持不动（不会跳）
 function loadEarlier(upTo = null) {
@@ -1168,8 +1190,8 @@ function isForwarded(roomId, seq) {
 // 「让它接着做」按钮：提醒之后它们已经说过话了（接着做过了），按钮就灰掉
 function resumeButton(roomId, m) {
   const done = (S.messages.get(roomId) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
-  const names = m.action.agents.map(agentName).join('、');
-  return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? '已经接着做了' : `让 ${esc(names)} 接着做`}</button>`;
+  const names = m.action.agents.map(agentName).join(LIST_SEP);
+  return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? tr('已经接着做了') : esc(tr('让 {names} 接着做', { names }))}</button>`;
 }
 
 // 上次退出时被打断的活：点一下让它们接着做
@@ -1180,7 +1202,7 @@ async function resumeAgents(btn) {
   btn.disabled = true;
   try {
     await api('POST', `/api/rooms/${conv.roomId}/resume`, { agents });
-    btn.textContent = '已经让它接着做';
+    btn.textContent = tr('已经让它接着做');
   } catch (err) {
     btn.disabled = false;
     toast(err.message);
@@ -1193,11 +1215,11 @@ async function forwardMessage(seq, btn) {
   btn.disabled = true;
   try {
     await api('POST', `/api/rooms/${conv.roomId}/forward`, { seq });
-    toast('已发到群里');
+    toast(tr('已发到群里'));
     document.querySelectorAll(`[data-forward="${seq}"]`).forEach((b) => {
       if (b.classList.contains('notice-action')) {
         b.disabled = true;
-        b.textContent = '已发到群里';
+        b.textContent = tr('已发到群里');
       } else b.remove();
     });
   } catch (err) {
@@ -1226,10 +1248,10 @@ async function copyMessage(seq, btn) {
     ta.remove();
   }
   btn.innerHTML = COPIED_ICON;
-  btn.title = '已复制';
+  btn.title = tr('已复制');
   setTimeout(() => {
     btn.innerHTML = COPY_ICON;
-    btn.title = '复制';
+    btn.title = tr('复制');
   }, 1500);
 }
 
@@ -1272,7 +1294,7 @@ async function sendEdit() {
   const m = ed && findMessage(ed.seq);
   if (!m || !conv) return;
   const text = cleanMentions(ed.text).trim();
-  if (!text && !m.images?.length) return toast('消息是空的');
+  if (!text && !m.images?.length) return toast(tr('消息是空的'));
   if (text === String(m.text || '').trim()) return cancelEdit(); // 没改
   S.editMsg = null;
   rerenderMessage(m.seq);
@@ -1295,15 +1317,18 @@ async function sendEdit() {
 const HAS_SPEECH = 'speechSynthesis' in window;
 
 // 朗读前把 Markdown 收拾成平常说话的文字：代码不念，链接只念文字
+// 代码块、链接换成的那句话跟着这段话本身的语言走（有中文就念中文），不跟界面语言：语音也是按内容挑的
 function speechText(src) {
-  return String(src || '')
-    .replace(/```[\s\S]*?```/g, '（这里有一段代码）')
+  const s = String(src || '')
+    .replace(/```[\s\S]*?```/g, '\uE010')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!?\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/https?:\/\/\S+/g, '链接')
+    .replace(/https?:\/\/\S+/g, '\uE011')
     .replace(/^\s{0,3}(#{1,6}|[-*+]|\d+\.|>)\s+/gm, '')
     .replace(/\*\*|__|~~|\|/g, ' ')
     .replace(/<\/?私聊老板>/g, '');
+  const zh = /[\u4e00-\u9fff]/.test(s);
+  return s.replace(/\uE010/g, zh ? '（这里有一段代码）' : '(code block)').replace(/\uE011/g, zh ? '链接' : 'link');
 }
 
 function pickVoice(lang) {
@@ -1368,21 +1393,21 @@ function convRuns(conv) {
 const IDLE_WARN = 2 * 60 * 1000; // 这么久没有任何动静，就提示可能卡住了
 
 // 「可能卡住了」的提示：本体可以换新会话重来，分身只能停止
-// 最后一步是「正在整理记忆」、还没整理完
+// 最后一步是「正在整理记忆」、还没整理完（服务端给这一步标了 busy；文字会按界面语言换，不能拿文字判断，旧版只能看中文开头）
 const compacting = (key) => {
   const last = (S.live.get(key) || []).at(-1);
-  return last?.kind === 'compact' && last.text.startsWith('正在整理记忆');
+  return last?.kind === 'compact' && (!!last.busy || String(last.text).startsWith('正在整理记忆'));
 };
 
 function idleText(r, key) {
   const idle = Date.now() - (S.liveAt.get(key) || r.startedAt);
   if (idle < IDLE_WARN) return '';
   const last = (S.live.get(key) || []).at(-1);
-  if (compacting(key)) return idle < 5 * 60 * 1000 ? '' : `记忆已经整理了 ${fmtDur(idle)}，比平时久。再等等；一直这样的话，可以点「换新会话重来」。`;
-  const waiting = last?.kind === 'run' ? '它可能还在等一条命令跑完；' : '';
+  if (compacting(key)) return idle < 5 * 60 * 1000 ? '' : tr('记忆已经整理了 {time}，比平时久。再等等；一直这样的话，可以点「换新会话重来」。', { time: fmtDur(idle) });
+  const waiting = last?.kind === 'run' ? tr('它可能还在等一条命令跑完；') : '';
   return r.side
-    ? `分身已经 ${fmtDur(idle)} 没有任何动静了，${waiting}一直这样的话可以点「停止」。`
-    : `已经 ${fmtDur(idle)} 没有任何动静了。${waiting}一直这样的话多半是卡住了（比如会话里的大图太多），可以点「换新会话重来」，它会带上最近的聊天记录重新开始。`;
+    ? tr('分身已经 {time} 没有任何动静了，{waiting}一直这样的话可以点「停止」。', { time: fmtDur(idle), waiting })
+    : tr('已经 {time} 没有任何动静了。{waiting}一直这样的话多半是卡住了（比如会话里的大图太多），可以点「换新会话重来」，它会带上最近的聊天记录重新开始。', { time: fmtDur(idle), waiting });
 }
 
 function updateIdle() {
@@ -1406,20 +1431,20 @@ function renderLive() {
       const open = S.liveOpen.has(key);
       const shown = open ? all : all.slice(-3);
       const toggle = all.length
-        ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? '收起' : '展开'}过程 · ${all.length} 步
+        ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? tr('收起过程 · {n} 步', { n: all.length }) : tr('展开过程 · {n} 步', { n: all.length })}
             <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
         : '';
-      const sideTag = r.side ? '<span class="side-tag" title="本体在群里忙，分身先来回你的私聊（只能看，不能改）">分身</span>' : '';
+      const sideTag = r.side ? `<span class="side-tag" title="${tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
       return `<div class="msg agent live from-${esc(r.agent)}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
-        <span>${r.side ? '正在回复你' : compacting(key) ? '正在整理记忆' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
+        <span>${r.side ? tr('正在回复你') : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
-          r.side ? '' : `<button class="live-fresh-mini" data-agent="${esc(r.agent)}" title="会话太重、卡住时用：结束这一轮，换个新会话重来">换新会话</button>`
-        }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
+          r.side ? '' : `<button class="live-fresh-mini" data-agent="${esc(r.agent)}" title="${tr('会话太重、卡住时用：结束这一轮，换个新会话重来')}">${tr('换新会话')}</button>`
+        }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${tr('停止')}</button></div>
         <div class="live-idle" data-idle="${esc(key)}"${idleText(r, key) ? '' : ' hidden'}><span>${esc(idleText(r, key))}</span>${
-          r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">换新会话重来</button>`
+          r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">${tr('换新会话重来')}</button>`
         }</div>
         ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
@@ -1437,13 +1462,13 @@ function renderStopControls(conv) {
   const box = $('#stop-controls');
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
-  const who = (r) => `${agentName(r.agent)}${r.side ? ' 分身' : r.dm ? '（私聊）' : ''}`;
+  const who = (r) => (r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent));
   if (runs.length === 1) {
     const r = runs[0];
-    setHtml(box, `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}停止 ${esc(who(r))}</button>`);
+    setHtml(box, `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}${esc(tr('停止 {name}', { name: who(r) }))}</button>`);
   } else if (runs.length > 1) {
     const faces = [...new Set(runs.map((r) => r.agent))].map((a) => avatarHtml(a)).join('');
-    setHtml(box, `<button class="chip danger strong" data-stop="" title="${esc(`${runs.map(who).join('、')} 正在干活。要单独停某一位，点它气泡里的「停止」`)}"><span class="chip-stack">${faces}</span>全部停止</button>`);
+    setHtml(box, `<button class="chip danger strong" data-stop="" title="${esc(tr('{names} 正在干活。要单独停某一位，点它气泡里的「停止」', { names: runs.map(who).join(LIST_SEP) }))}"><span class="chip-stack">${faces}</span>${tr('全部停止')}</button>`);
   } else setHtml(box, '');
   fitTools();
 }
@@ -1483,7 +1508,7 @@ function updateToBottom() {
   const n = btn.querySelector('.to-bottom-count');
   n.hidden = !S.newBelow;
   n.textContent = S.newBelow > 99 ? '99+' : String(S.newBelow);
-  btn.title = S.newBelow ? `有 ${S.newBelow} 条新消息，回到最新` : '回到最新消息';
+  btn.title = S.newBelow ? tr('有 {n} 条新消息，回到最新', { n: S.newBelow }) : tr('回到最新消息');
 }
 
 function jumpToBottom() {
@@ -1684,8 +1709,8 @@ function notifyReply(roomId, m, key) {
     ? `ClawChat · ${room.name}`
     : m.pm
       ? `${agentName(m.from)} ${pmVerb(m)} ${agentName(m.pm)} · ${room.name}`
-      : `${agentName(m.from)}${m.dm && !solo ? '（私聊）' : solo ? '' : ` · ${room.name}`}`;
-  const body = plainSnippet(m.text, 140) || (m.images?.length ? '[图片]' : '');
+      : m.dm && !solo ? tr('{name}（私聊）', { name: agentName(m.from) }) : solo ? agentName(m.from) : `${agentName(m.from)} · ${room.name}`;
+  const body = plainSnippet(m.text, 140) || (m.images?.length ? tr('[图片]') : '');
   if (hasNative()) return native({ type: 'notify', title, body, key });
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const n = new Notification(title, { body, tag: key, icon: '/favicon.png' });
@@ -1715,21 +1740,21 @@ function lastSpeakerOf(room) {
 
 // 「不 @ 时」下拉框和输入框里的提示：接着上一位时写明现在是谁，打字前、打字时都看得到这条会发给谁
 function renderTargets(room, dm) {
-  const who = room.members.length > 2 ? '大家' : '两位';
+  const many = room.members.length > 2;
   const last = lastSpeakerOf(room);
   const targets = [
-    ['last', `接着上一位${last ? `（${agentName(last)}）` : ''}`],
-    ['all', `${who}同时开工`],
-    ['sequential', `${who}依次回答`],
-    ...room.members.map((a) => [a, `只发给 ${agentName(a)}`]),
+    ['last', last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
+    ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
+    ['sequential', many ? tr('大家依次回答') : tr('两位依次回答')],
+    ...room.members.map((a) => [a, tr('只发给 {name}', { name: agentName(a) })]),
   ];
   setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
   $('#input').placeholder = dm
-    ? `私聊 ${agentName(dm)}`
+    ? tr('私聊 {name}', { name: agentName(dm) })
     : room.members.length > 1 && room.defaultTarget === 'last' && last
-      ? `发给 ${agentName(last)}（接着上一位），要找别人就 @ 它`
-      : `发送给 ${room.name}`;
+      ? tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
+      : tr('发送给 {name}', { name: room.name });
 }
 
 function onMessage(roomId, m) {
@@ -1763,7 +1788,7 @@ function onMessage(roomId, m) {
       renderConvs();
     }
     if (!focused || (m.dm && S.current !== key)) native({ type: 'attention' });
-    if (m.dm && S.current !== key) toast(`${agentName(m.from)} 私聊你：${firstLine(m.text).slice(0, 40)}`, 4000);
+    if (m.dm && S.current !== key) toast(tr('{name} 私聊你：{text}', { name: agentName(m.from), text: firstLine(m.text).slice(0, 40) }), 4000);
     notifyReply(roomId, m, key);
   } else if (m.from === 'system' && /出错/.test(m.text || '')) {
     notifyReply(roomId, m, key);
@@ -1865,8 +1890,8 @@ function renderAttachments() {
     .map(
       (a, i) => `<div class="att ${a.status}${a.fresh ? ' enter' : ''}">
         <img src="${a.url}" alt="">
-        ${a.status === 'uploading' ? '<span class="att-state">上传中…</span>' : a.status === 'error' ? `<span class="att-state" title="${esc(a.error)}">失败</span>` : ''}
-        <button class="att-remove" data-i="${i}" title="移除">×</button>
+        ${a.status === 'uploading' ? `<span class="att-state">${tr('上传中…')}</span>` : a.status === 'error' ? `<span class="att-state" title="${esc(a.error)}">${tr('失败')}</span>` : ''}
+        <button class="att-remove" data-i="${i}" title="${tr('移除')}">×</button>
       </div>`,
     )
     .join('');
@@ -1888,7 +1913,7 @@ async function prepareImage(file) {
   try {
     bmp = await createImageBitmap(file);
   } catch {
-    throw new Error('这种图片格式（比如 HEIC）在这台电脑上打不开，请先另存成 JPG 或 PNG 再发');
+    throw new Error(tr('这种图片格式（比如 HEIC）在这台电脑上打不开，请先另存成 JPG 或 PNG 再发'));
   }
   const big = Math.max(bmp.width, bmp.height);
   const direct = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type);
@@ -1906,7 +1931,7 @@ async function prepareImage(file) {
   ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
   bmp.close();
   const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
-  if (!blob) throw new Error('这张图片处理不了，换一张试试');
+  if (!blob) throw new Error(tr('这张图片处理不了，换一张试试'));
   return { body: blob, type: 'image/jpeg' };
 }
 
@@ -1915,7 +1940,7 @@ function addFiles(files) {
   if (!conv) return;
   const images = [...files].filter((f) => imageType(f));
   if (!images.length) {
-    if (files.length) toast('只能发图片');
+    if (files.length) toast(tr('只能发图片'));
     return;
   }
   for (const file of images.slice(0, 20 - S.attachments.length)) {
@@ -1925,7 +1950,7 @@ function addFiles(files) {
       .then(({ body, type }) => fetch(`/api/rooms/${conv.roomId}/uploads`, { method: 'POST', headers: { 'content-type': type, 'x-clawchat': '1' }, body }))
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '上传失败');
+        if (!res.ok) throw new Error(data.error || tr('上传失败'));
         att.id = data.id;
         att.status = 'done';
       })
@@ -2052,10 +2077,10 @@ async function sendMessage() {
 const MENTION_ITEMS = [
   { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
   { id: 'gpt', label: 'ChatGPT', sub: 'OpenAI Codex', insert: 'ChatGPT', keys: ['chatgpt', 'gpt', 'codex', 'openai'] },
-  { id: 'deepseek', label: 'DeepSeek', sub: '深度求索', insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
-  { id: 'glm', label: 'GLM', sub: '智谱', insert: 'GLM', keys: ['glm', '智谱', 'zhipu', 'bigmodel'] },
+  { id: 'deepseek', label: 'DeepSeek', sub: tr('深度求索'), insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
+  { id: 'glm', label: 'GLM', sub: tr('智谱'), insert: 'GLM', keys: ['glm', '智谱', 'zhipu', 'bigmodel'] },
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
-  { id: 'all', label: '所有人', sub: '大家一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
+  { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 
 // 正在用 @ 菜单的框：底部的输入框，或者正在改的那条消息的编辑框
@@ -2252,11 +2277,11 @@ function startReply(seq) {
   const m = conv && (S.messages.get(conv.roomId) || []).find((x) => x.seq === seq);
   if (!m) return;
   S.replyTo = { seq: m.seq, from: m.from };
-  $('#reply-who').textContent = `回复 ${whoLabel(m.from)}`;
+  $('#reply-who').textContent = tr('回复 {name}', { name: whoLabel(m.from) });
   $('#reply-snippet').textContent = snippet(m);
   // 回复某位 AI：只有它会回答（又 @ 了别人的话，就按 @ 的来）
   const solo = conv.dm || conv.room.members.length < 2;
-  $('#reply-hint').textContent = m.from !== 'user' && !solo ? `只有 ${agentName(m.from)} 会回复` : '';
+  $('#reply-hint').textContent = m.from !== 'user' && !solo ? tr('只有 {name} 会回复', { name: agentName(m.from) }) : '';
   $('#reply-bar').hidden = false;
   $('#input').focus();
 }
@@ -2277,7 +2302,7 @@ function jumpTo(seq) {
       el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
     }
   }
-  if (!el) return toast('原消息不在这个会话里了');
+  if (!el) return toast(tr('原消息不在这个会话里了'));
   // 直接跳过去（平滑滚动会被图片加载等高度变化打断），下一帧再对准一次
   el.scrollIntoView({ block: 'center' });
   requestAnimationFrame(() => requestAnimationFrame(() => el.scrollIntoView({ block: 'center' })));
@@ -2290,7 +2315,7 @@ function insertMention(name, el = $('#input')) {
   const start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
-  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' ? '' : MENTION_GAP}${name}${MENTION_SEP}`;
+  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' || name === 'everyone' ? '' : MENTION_GAP}${name}${MENTION_SEP}`;
   editInput(el, start, end, token);
 }
 
@@ -2338,14 +2363,14 @@ async function patchSettings(conv, body) {
   S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
 }
 
-const scopeText = (conv) => (conv.dm ? '（只改私聊，群里不变）' : '');
+const scopeText = (conv) => (conv.dm ? tr('（只改私聊，群里不变）') : '');
 
 async function resetDmSettings(agent) {
   const conv = currentConv();
   if (!conv?.dm) return;
   try {
     await patchSettings(conv, { dmSettings: { [agent]: null } });
-    toast(`私聊里的 ${agentName(agent)} 恢复成和群里一样的设置`);
+    toast(tr('私聊里的 {name} 恢复成和群里一样的设置', { name: agentName(agent) }));
   } catch (err) {
     toast(err.message);
   }
@@ -2358,7 +2383,7 @@ async function switchEffort(agent, id) {
   if (!conv) return;
   try {
     await patchSettings(conv, settingsPatch(conv, agent, 'effort', id));
-    toast(`${agentName(agent)} 的思考强度换成了「${id ? EFFORT_LABEL[id] || id : '默认'}」，下一轮生效${scopeText(conv)}`);
+    toast(tr('{name} 的思考强度换成了「{level}」，下一轮生效{scope}', { name: agentName(agent), level: id ? EFFORT_LABEL[id] || id : tr('默认'), scope: scopeText(conv) }));
   } catch (err) {
     toast(err.message);
   }
@@ -2378,7 +2403,7 @@ const CHECK_SVG = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="
 function modelShortName(agent, id) {
   if (id) return modelOptions(agent).find((o) => o.id === id)?.name || modelLabel(id);
   const e = S.engines[AGENT_ENGINE[agent]] || {};
-  return e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : '默认');
+  return e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : tr('默认'));
 }
 
 function effortShortName(agent, modelId, id) {
@@ -2395,10 +2420,10 @@ function modelChipHtml(a, room) {
   const fast = !!room.fast?.[a] && fastSpeed(a, model) !== null;
   const level = heavyLevel(sessionImages(room.id, a));
   const warn = level
-    ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(`会话里存了约 ${(sessionImages(room.id, a) / 1048576).toFixed(1)}MB 图片，越来越慢，点开换新会话`)}"></span>`
+    ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(tr('会话里存了约 {size}MB 图片，越来越慢，点开换新会话', { size: (sessionImages(room.id, a) / 1048576).toFixed(1) }))}"></span>`
     : '';
-  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(agentName(a))} 的模型和思考强度${a === 'gpt' ? '、速度' : ''}，下一轮生效">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
-    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}快速</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
+  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(a === 'gpt' ? tr('{name} 的模型、思考强度和速度，下一轮生效', { name: agentName(a) }) : tr('{name} 的模型和思考强度，下一轮生效', { name: agentName(a) }))}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
+    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
 function menuItemHtml(attrs, label, sub, checked) {
@@ -2407,6 +2432,8 @@ function menuItemHtml(attrs, label, sub, checked) {
 }
 
 const hasCjk = (s) => /[\u4e00-\u9fff]/.test(s || ''); // Codex 自带的模型说明是英文，不显示
+// 模型说明只显示和界面同一种语言的：中文界面只显示中文说明，英文界面只显示不带中文的
+const descForUi = (s) => (I18N.lang === 'zh' ? hasCjk(s) : s && !hasCjk(s)) ? s : '';
 
 function openModelMenu(agent, chip) {
   const conv = currentConv();
@@ -2414,34 +2441,34 @@ function openModelMenu(agent, chip) {
   const room = convRoom(conv, agent);
   const cur = room.models?.[agent] || '';
   const opts = modelOptions(agent);
-  if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: `${cur}（自定义）` });
+  if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: tr('{name}（自定义）', { name: cur }) });
   let html = '';
   const imgs = sessionImages(conv.roomId, agent);
   if (heavyLevel(imgs)) {
-    html += `<div class="menu-note warn${heavyLevel(imgs) > 1 ? ' bad' : ''}">会话里存了约 ${(imgs / 1048576).toFixed(1)}MB 图片：它看过的每张图都存在里面，每轮都要重发，到 15MB 左右就会慢到像卡住。这批活做完就换个新会话。</div>`;
-    html += menuItemHtml('data-pick-fresh', '换新会话…', '可以选一位同事把情况重新交代给它', false) + '<div class="menu-sep"></div>';
+    html += `<div class="menu-note warn${heavyLevel(imgs) > 1 ? ' bad' : ''}">${tr('会话里存了约 {size}MB 图片：它看过的每张图都存在里面，每轮都要重发，到 15MB 左右就会慢到像卡住。这批活做完就换个新会话。', { size: (imgs / 1048576).toFixed(1) })}</div>`;
+    html += menuItemHtml('data-pick-fresh', tr('换新会话…'), tr('可以选一位同事把情况重新交代给它'), false) + '<div class="menu-sep"></div>';
   }
   if (conv.dm) {
-    html += `<div class="menu-note">${SCOPE_ICON}在这里切换只改私聊，群里的设置不变</div>`;
-    if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', '恢复成和群聊一样', '', false) + '<div class="menu-sep"></div>';
+    html += `<div class="menu-note">${SCOPE_ICON}${tr('在这里切换只改私聊，群里的设置不变')}</div>`;
+    if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', tr('恢复成和群聊一样'), '', false) + '<div class="menu-sep"></div>';
   }
-  html += '<div class="menu-section">模型</div>';
-  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, esc(o.name), hasCjk(o.description) ? o.description : '', o.id === cur)).join('');
-  html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, '自定义模型…', '', false);
+  html += `<div class="menu-section">${tr('模型')}</div>`;
+  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, esc(o.name), descForUi(o.description), o.id === cur)).join('');
+  html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, tr('自定义模型…'), '', false);
   const efforts = effortsFor(agent, cur);
   if (efforts.length || room.efforts?.[agent]) {
     const curEffort = room.efforts?.[agent] || '';
     const def = effortShortName(agent, cur, '');
-    html += '<div class="menu-sep"></div><div class="menu-section">思考强度</div>';
-    html += menuItemHtml('data-pick-effort=""', `默认${def ? ` · ${esc(def)}` : ''}`, '跟随自己的设置', !curEffort);
+    html += `<div class="menu-sep"></div><div class="menu-section">${tr('思考强度')}</div>`;
+    html += menuItemHtml('data-pick-effort=""', def ? tr('默认 · {label}', { label: esc(def) }) : tr('默认'), tr('跟随自己的设置'), !curEffort);
     html += efforts.map((id) => menuItemHtml(`data-pick-effort="${esc(id)}"`, esc(EFFORT_LABEL[id] || id), EFFORT_HINT[id] || '', id === curEffort)).join('');
   }
   const speed = fastSpeed(agent, cur);
   if (speed !== null) {
     const on = !!room.fast?.[agent];
-    html += '<div class="menu-sep"></div><div class="menu-section">速度</div>';
-    html += menuItemHtml('data-pick-fast="0"', '标准', '正常消耗额度', !on);
-    html += menuItemHtml('data-pick-fast="1"', `<span class="menu-fast">${BOLT_SVG}快速</span>`, `${speed ? `约 ${speed} 倍速 · ` : ''}额度按 2.5 倍消耗`, on);
+    html += `<div class="menu-sep"></div><div class="menu-section">${tr('速度')}</div>`;
+    html += menuItemHtml('data-pick-fast="0"', tr('标准'), tr('正常消耗额度'), !on);
+    html += menuItemHtml('data-pick-fast="1"', `<span class="menu-fast">${BOLT_SVG}${tr('快速')}</span>`, speed ? tr('约 {speed} 倍速 · 额度按 2.5 倍消耗', { speed }) : tr('额度按 2.5 倍消耗'), on);
   }
   const menu = $('#model-menu');
   menu.innerHTML = html;
@@ -2485,7 +2512,8 @@ async function switchFast(agent, on) {
   if (on && !(await confirmFast(fastSpeed(agent, convRoom(conv, agent).models?.[agent])))) return;
   try {
     await patchSettings(conv, settingsPatch(conv, agent, 'fast', on));
-    toast(`${agentName(agent)} ${on ? '换成了快速模式' : '换回了标准速度'}，下一轮生效${scopeText(conv)}`);
+    const vars = { name: agentName(agent), scope: scopeText(conv) };
+    toast(on ? tr('{name} 换成了快速模式，下一轮生效{scope}', vars) : tr('{name} 换回了标准速度，下一轮生效{scope}', vars));
   } catch (err) {
     toast(err.message);
   }
@@ -2497,11 +2525,11 @@ async function switchFast(agent, on) {
 function openCustomModel(agent) {
   const dlg = $('#dlg-model');
   dlg.dataset.agent = agent;
-  $('#custom-model-title').textContent = `给 ${agentName(agent)} 换一个列表里没有的模型`;
+  $('#custom-model-title').textContent = tr('给 {name} 换一个列表里没有的模型', { name: agentName(agent) });
   $('#custom-model-hint').textContent = {
-    gpt: '填 Codex 里的模型名，比如 gpt-7.0。',
-    deepseek: '填 DeepSeek 的模型名，比如 deepseek-v5-pro。',
-  }[agent] || '填 Claude Code 能用的模型名，比如 claude-opus-6-0，或者 opus、fable 这样的别名。';
+    gpt: tr('填 Codex 里的模型名，比如 gpt-7.0。'),
+    deepseek: tr('填 DeepSeek 的模型名，比如 deepseek-v5-pro。'),
+  }[agent] || tr('填 Claude Code 能用的模型名，比如 claude-opus-6-0，或者 opus、fable 这样的别名。');
   $('#custom-model-input').value = '';
   $('#custom-model-status').textContent = '';
   $('#btn-custom-ok').disabled = false;
@@ -2520,17 +2548,17 @@ async function submitCustomModel(e) {
   const btn = $('#btn-custom-ok');
   btn.disabled = true;
   status.className = 'muted';
-  status.textContent = `正在用 ${id} 试着回一句话，最多等一分半…`;
+  status.textContent = tr('正在用 {model} 试着回一句话，最多等一分半…', { model: id });
   try {
     const res = await api('POST', '/api/models/check', { agent, id });
     if (!res.ok) {
       status.className = 'error';
-      status.textContent = `用不了：${res.error}`;
+      status.textContent = tr('用不了：{error}', { error: res.error });
       return;
     }
     closeDialog(dlg);
     await switchModel(agent, id, true);
-    if (res.model && res.model !== id) toast(`${agentName(agent)} 已切换到 ${id}（实际是 ${modelLabel(res.model)}），下一轮生效`);
+    if (res.model && res.model !== id) toast(tr('{name} 已切换到 {model}（实际是 {actual}），下一轮生效', { name: agentName(agent), model: id, actual: modelLabel(res.model) }));
   } catch (err) {
     status.className = 'error';
     status.textContent = err.message;
@@ -2543,11 +2571,11 @@ async function submitCustomModel(e) {
 async function updateEngine(engine, btn) {
   const name = engine === 'codex' ? 'Codex' : 'Claude Code';
   btn.disabled = true;
-  btn.textContent = '更新中…';
+  btn.textContent = tr('更新中…');
   try {
     const res = await api('POST', '/api/engines/update', { engine });
     S.engines = res.engines || S.engines;
-    toast(res.ok ? `${name} 已是最新：${S.engines[engine]?.version || ''}` : `${name} 更新失败：${res.output}`, 5000);
+    toast(res.ok ? tr('{name} 已是最新：{version}', { name, version: S.engines[engine]?.version || '' }) : tr('{name} 更新失败：{error}', { name, error: res.output }), 5000);
   } catch (err) {
     toast(err.message);
   }
@@ -2600,11 +2628,11 @@ async function openSettings(tab = 'general') {
     $('#set-data-dir').title = info.dataDir;
     $('#set-projects-dir').textContent = tilde(info.projectsDir);
     $('#set-projects-dir').title = info.projectsDir;
-    const ver = `${info.version}${info.commit ? `（${info.commit}）` : ''}`;
+    const ver = info.commit ? tr('{version}（{commit}）', { version: info.version, commit: info.commit }) : info.version;
     $('#set-version').textContent = ver;
-    $('#about-version').textContent = `版本 ${ver}`;
+    $('#about-version').textContent = tr('版本 {version}', { version: ver });
     $('#upd-title').textContent = `ClawChat ${info.version}`;
-    const repo = info.repo ? `<a href="${esc(info.repo)}" target="_blank" rel="noopener">${esc(info.repo.replace(/^https:\/\//, ''))}</a>` : '还没关联 GitHub 仓库';
+    const repo = info.repo ? `<a href="${esc(info.repo)}" target="_blank" rel="noopener">${esc(info.repo.replace(/^https:\/\//, ''))}</a>` : tr('还没关联 GitHub 仓库');
     $('#set-repo').innerHTML = repo;
     $('#about-repo').textContent = info.repo ? info.repo.replace(/^https:\/\//, '') : '';
     $('#about-repo').href = info.repo || '#';
@@ -2621,7 +2649,7 @@ function setUpdateDot(on, res = null) {
   document.querySelectorAll('i.update-dot').forEach((d) => (d.hidden = !on)); // 设置里「软件更新」那一页的小红点
   const badge = $('#btn-update-badge');
   badge.hidden = !on;
-  if (on) badge.title = res?.behind ? `有新版本 ${res.latest || ''}，点这里更新` : '新版本已经下载好，点这里重启生效';
+  if (on) badge.title = res?.behind ? tr('有新版本 {version}，点这里更新', { version: res.latest || '' }) : tr('新版本已经下载好，点这里重启生效');
 }
 
 // 正在干活的有哪几位（名字）
@@ -2629,8 +2657,10 @@ const busyNames = () => [...new Set(S.runs.map((r) => agentName(r.agent)))];
 
 // 更新、重启时有人在干活：可以等它们这一轮干完再自动重启，也可以现在重启（重启后被打断的活自动接着做）
 function busyText(busy) {
-  const it = busy.length > 1 ? '它们' : '它';
-  return `${busy.join('、')} 正在干活。可以等${it}这一轮干完再自动重启；现在重启的话，${it}手上的活会被打断，重启后自动接着做。`;
+  const names = busy.join(LIST_SEP);
+  return busy.length > 1
+    ? tr('{names} 正在干活。可以等它们这一轮干完再自动重启；现在重启的话，它们手上的活会被打断，重启后自动接着做。', { names })
+    : tr('{names} 正在干活。可以等它这一轮干完再自动重启；现在重启的话，它手上的活会被打断，重启后自动接着做。', { names });
 }
 
 // restartOnly：新版本已经下载好，只差重启；否则先拉新代码再重启
@@ -2639,11 +2669,11 @@ async function startRestart(restartOnly, when) {
     const r = await api('POST', '/api/app/restart', { when });
     if (r.waiting) return setRestartPending('restart');
   } else {
-    if (when !== 'idle') toast('正在从 GitHub 拉取最新代码…', 20000);
+    if (when !== 'idle') toast(tr('正在从 GitHub 拉取最新代码…'), 20000);
     const r = await api('POST', '/api/app/update', { when });
     if (!r.ok) throw new Error(r.error);
     if (r.waiting) return setRestartPending('update');
-    if (!r.updated) return toast('已经是最新版');
+    if (!r.updated) return toast(tr('已经是最新版'));
   }
   showRestarting();
 }
@@ -2652,15 +2682,15 @@ async function updateFromBadge() {
   if (S.restartPending) return askCancelPending();
   const res = S.update;
   if (!res) return;
-  if (res.dirty) return toast('本地有没提交的改动，先处理掉才能升级', 5000);
+  if (res.dirty) return toast(tr('本地有没提交的改动，先处理掉才能升级'), 5000);
   const restartOnly = !res.behind && res.needsRestart;
   const busy = busyNames();
   const changes = (res.changes || []).slice(0, 4).map((c) => `· ${c.subject}`).join('\n');
   const ok = await askConfirm({
-    title: restartOnly ? '新版本已经下载好' : `有新版本 ${res.latest || ''}`,
-    text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? '重启 ClawChat 后生效。' : '会从 GitHub 拉取最新代码，然后自动重启。'}聊天记录和记忆都不受影响。${busy.length ? `\n\n${busyText(busy)}` : ''}`,
-    ok: busy.length ? '等干完再重启' : restartOnly ? '立即重启' : '更新并重启',
-    alt: busy.length ? '现在重启' : '',
+    title: restartOnly ? tr('新版本已经下载好') : tr('有新版本 {version}', { version: res.latest || '' }),
+    text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? tr('重启 ClawChat 后生效。聊天记录和记忆都不受影响。') : tr('会从 GitHub 拉取最新代码，然后自动重启。聊天记录和记忆都不受影响。')}${busy.length ? `\n\n${busyText(busy)}` : ''}`,
+    ok: busy.length ? tr('等干完再重启') : restartOnly ? tr('立即重启') : tr('更新并重启'),
+    alt: busy.length ? tr('现在重启') : '',
   });
   if (!ok) return;
   try {
@@ -2677,24 +2707,25 @@ function setRestartPending(kind, error = '', quiet = false) {
   badge.classList.toggle('pending', !!kind);
   if (kind) {
     badge.hidden = false;
-    badge.title = '等正在干活的这一轮干完，就自动重启。点这里可以马上重启，或者不重启了';
-    if (!quiet) toast(`等 ${busyNames().join('、') || '大家'} 这一轮干完，就自动${kind === 'update' ? '更新并' : ''}重启`, 4000);
+    badge.title = tr('等正在干活的这一轮干完，就自动重启。点这里可以马上重启，或者不重启了');
+    const names = busyNames().join(LIST_SEP) || tr('大家');
+    if (!quiet) toast(kind === 'update' ? tr('等 {names} 这一轮干完，就自动更新并重启', { names }) : tr('等 {names} 这一轮干完，就自动重启', { names }), 4000);
   } else {
     setUpdateDot(!!S.update, S.update);
     if (error) toast(error, 5000);
   }
   const status = $('#update-status');
-  if (status && kind) status.textContent = '等正在干活的这一轮干完，就自动重启…';
+  if (status && kind) status.textContent = tr('等正在干活的这一轮干完，就自动重启…');
 }
 
 async function askCancelPending() {
   const kind = S.restartPending;
   const busy = busyNames();
   const ok = await askConfirm({
-    title: '干完后自动重启',
-    text: `${busy.length ? `${busy.join('、')} 还在干活，` : ''}这一轮都干完后，ClawChat 会自动${kind === 'update' ? '更新并' : ''}重启。`,
-    ok: '现在就重启',
-    alt: '不重启了',
+    title: tr('干完后自动重启'),
+    text: `${busy.length ? tr('{names} 还在干活，', { names: busy.join(LIST_SEP) }) : ''}${kind === 'update' ? tr('这一轮都干完后，ClawChat 会自动更新并重启。') : tr('这一轮都干完后，ClawChat 会自动重启。')}`,
+    ok: tr('现在就重启'),
+    alt: tr('不重启了'),
   });
   if (!ok) return;
   try {
@@ -2715,7 +2746,7 @@ async function checkForUpdate(show = false) {
   const box = $('#update-changes-box');
   const btn = $('#btn-do-update');
   if (show) {
-    status.textContent = '正在检查…';
+    status.textContent = tr('正在检查…');
     box.hidden = true;
     btn.hidden = true;
   }
@@ -2733,25 +2764,25 @@ async function checkForUpdate(show = false) {
   }
   if (!res.behind && res.needsRestart) {
     // 代码已经是新的了，只是还没重启
-    status.innerHTML = `<span class="new-text">新版本 ${esc(res.current)} 已经装好，重启 ClawChat 后生效</span>`;
+    status.innerHTML = `<span class="new-text">${tr('新版本 {version} 已经装好，重启 ClawChat 后生效', { version: esc(res.current) })}</span>`;
     btn.hidden = false;
     btn.disabled = false;
-    btn.textContent = '立即重启';
+    btn.textContent = tr('立即重启');
     btn.dataset.mode = 'restart';
     return;
   }
-  btn.textContent = '立即升级';
+  btn.textContent = tr('立即升级');
   btn.dataset.mode = 'update';
   if (!res.behind) {
-    status.innerHTML = `<span class="ok-text">已是最新版本</span>`;
+    status.innerHTML = `<span class="ok-text">${tr('已是最新版本')}</span>`;
     return;
   }
-  status.innerHTML = `<span class="new-text">有新版本 ${esc(res.latest)} 可以升级</span><span class="muted"> · ${res.behind} 处更新</span>`;
+  status.innerHTML = `<span class="new-text">${tr('有新版本 {version} 可以升级', { version: esc(res.latest) })}</span><span class="muted"> · ${tr('{n} 处更新', { n: res.behind })}</span>`;
   list.innerHTML = res.changes.map((c) => `<li><span>${esc(c.subject)}</span><span class="muted">${esc(c.when)}</span></li>`).join('');
   box.hidden = !res.changes.length;
   btn.hidden = false;
   btn.disabled = !!res.dirty;
-  if (res.dirty) status.insertAdjacentHTML('beforeend', '<br><span class="error">本地有没提交的改动，先处理掉才能升级。</span>');
+  if (res.dirty) status.insertAdjacentHTML('beforeend', `<br><span class="error">${tr('本地有没提交的改动，先处理掉才能升级。')}</span>`);
 }
 
 async function doUpdate() {
@@ -2759,7 +2790,7 @@ async function doUpdate() {
   const busy = busyNames();
   let when = 'now';
   if (busy.length) {
-    const ok = await askConfirm({ title: `${busy.join('、')} 正在干活`, text: busyText(busy), ok: '等干完再重启', alt: '现在重启' });
+    const ok = await askConfirm({ title: tr('{names} 正在干活', { names: busy.join(LIST_SEP) }), text: busyText(busy), ok: tr('等干完再重启'), alt: tr('现在重启') });
     if (!ok) return;
     if (ok !== 'alt') when = 'idle';
   }
@@ -2773,24 +2804,24 @@ async function doUpdate() {
   }
   btn.disabled = true;
   if (btn.dataset.mode === 'restart') {
-    btn.textContent = '正在重启…';
+    btn.textContent = tr('正在重启…');
     try {
       await api('POST', '/api/app/restart');
       showRestarting();
     } catch (err) {
       $('#update-status').innerHTML = `<span class="error">${esc(err.message)}</span>`;
       btn.disabled = false;
-      btn.textContent = '立即重启';
+      btn.textContent = tr('立即重启');
     }
     return;
   }
-  btn.textContent = '正在升级…';
-  $('#update-status').textContent = '正在从 GitHub 拉取最新代码…';
+  btn.textContent = tr('正在升级…');
+  $('#update-status').textContent = tr('正在从 GitHub 拉取最新代码…');
   try {
     const res = await api('POST', '/api/app/update');
     if (!res.ok) throw new Error(res.error);
     if (!res.updated) {
-      $('#update-status').textContent = '已经是最新版';
+      $('#update-status').textContent = tr('已经是最新版');
       return;
     }
     showRestarting();
@@ -2798,14 +2829,14 @@ async function doUpdate() {
     $('#update-status').innerHTML = `<span class="error">${esc(err.message)}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = '立即升级';
+    btn.textContent = tr('立即升级');
   }
 }
 
 // 升级后服务会重启：在应用里会自动重开窗口；在浏览器里等服务回来就刷新
 function showRestarting() {
-  $('#update-status').textContent = '升级好了，正在重启，稍等十几秒…';
-  toast('ClawChat 正在重启升级…', 20000);
+  $('#update-status').textContent = tr('升级好了，正在重启，稍等十几秒…');
+  toast(tr('ClawChat 正在重启升级…'), 20000);
   if (hasNative()) return;
   const wait = setInterval(async () => {
     try {
@@ -2836,21 +2867,22 @@ async function askFresh(agent, roomId) {
   const option = (value, icon, label, sub, tag = '') =>
     `<label class="radio fresh-opt"><input type="radio" name="fresh-by" value="${esc(value)}"${value === (suggested || 'self') ? ' checked' : ''}>${icon}<span><b>${esc(label)}</b>${
       tag ? `<em class="tag-rec">${esc(tag)}</em>` : ''}${sub ? `<small>${esc(sub)}</small>` : ''}</span></label>`;
-  $('#fresh-title').textContent = `给 ${name} 换新会话`;
-  $('#fresh-text').textContent =
-    `换了以后，${name} 之前聊过的细节就不记得了，项目文件夹里的东西都还在。${busy ? '它手上这一轮会先停下。' : ''}\n谁来给它交代一下情况？`;
+  $('#fresh-title').textContent = tr('给 {name} 换新会话', { name });
+  $('#fresh-text').textContent = busy
+    ? tr('换了以后，{name} 之前聊过的细节就不记得了，项目文件夹里的东西都还在。它手上这一轮会先停下。\n谁来给它交代一下情况？', { name })
+    : tr('换了以后，{name} 之前聊过的细节就不记得了，项目文件夹里的东西都还在。\n谁来给它交代一下情况？', { name });
   $('#fresh-options').innerHTML = [
     ...peers.map((a) =>
       option(
         a,
         avatarHtml(a),
-        `${agentName(a)} 来交代`,
-        S.runs.some((r) => r.roomId === roomId && r.agent === a && !r.side) ? '它正在干活，这一轮干完再来交代' : '在群里把情况讲给它，讲完它接着干',
-        a === suggested ? '上次给它派活' : '',
+        tr('{name} 来交代', { name: agentName(a) }),
+        S.runs.some((r) => r.roomId === roomId && r.agent === a && !r.side) ? tr('它正在干活，这一轮干完再来交代') : tr('在群里把情况讲给它，讲完它接着干'),
+        a === suggested ? tr('上次给它派活') : '',
       ),
     ),
-    option('self', `<span class="avatar av-note">${NOTE_ICON}</span>`, '不用交代', `它自己翻最近的聊天和完整记录，${busy ? '马上接着干' : '下次叫它时生效'}`),
-    option('boss', avatarHtml('user'), '我自己来交代', inDm || room.members.length === 1 ? '换好后你直接跟它说' : `换好后输入框里会 @ 上 ${name}，你来说`),
+    option('self', `<span class="avatar av-note">${NOTE_ICON}</span>`, tr('不用交代'), busy ? tr('它自己翻最近的聊天和完整记录，马上接着干') : tr('它自己翻最近的聊天和完整记录，下次叫它时生效')),
+    option('boss', avatarHtml('user'), tr('我自己来交代'), inDm || room.members.length === 1 ? tr('换好后你直接跟它说') : tr('换好后输入框里会 @ 上 {name}，你来说', { name })),
   ].join('');
   const dlg = $('#dlg-fresh');
   let answer = null;
@@ -2882,14 +2914,14 @@ async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
     const name = agentName(agent);
     toast(
       result === 'none'
-        ? `${name} 现在没有会话，下次叫它本来就是新开的`
+        ? tr('{name} 现在没有会话，下次叫它本来就是新开的', { name })
         : by === 'boss'
-          ? `${name} 换成了新会话，跟它交代一下吧`
+          ? tr('{name} 换成了新会话，跟它交代一下吧', { name })
           : S.agents[by]
-            ? `${name} 换成了新会话，先请 ${agentName(by)} 把情况交代给它`
+            ? tr('{name} 换成了新会话，先请 {by} 把情况交代给它', { name, by: agentName(by) })
             : result === 'restarted'
-              ? `${name} 正在换新会话`
-              : `${name} 换成了新会话，下次叫它时生效`,
+              ? tr('{name} 正在换新会话', { name })
+              : tr('{name} 换成了新会话，下次叫它时生效', { name }),
       3500,
     );
     if (by === 'boss' && result !== 'none') briefYourself(agent, roomId);
@@ -2936,15 +2968,16 @@ async function refreshSessionImages(roomId) {
 
 // 什么时候该换新会话：写在每一位的会话下面
 const FRESH_TIPS = {
-  claude: '什么时候换：用到七成左右，或一件大事做完时。越长每轮越慢、越费额度；快满时它会自动压缩记忆，要等一两分钟，细节也会丢。',
-  gpt: '什么时候换：用到七成左右，或图片到 8MB 时（一批图做完就换）。图片攒到 15MB 左右，它会慢得像卡住一样。',
-  deepseek: '什么时候换：上限很大，不容易满，一件事做完、或用到七成左右时换。越长每轮越慢、越费钱（大多走缓存，花费很低）。',
+  claude: tr('什么时候换：用到七成左右，或一件大事做完时。越长每轮越慢、越费额度；快满时它会自动压缩记忆，要等一两分钟，细节也会丢。'),
+  gpt: tr('什么时候换：用到七成左右，或图片到 8MB 时（一批图做完就换）。图片攒到 15MB 左右，它会慢得像卡住一样。'),
+  deepseek: tr('什么时候换：上限很大，不容易满，一件事做完、或用到七成左右时换。越长每轮越慢、越费钱（大多走缓存，花费很低）。'),
 };
 const USAGE_WARN = 0.7; // 用到七成：建议换
 const USAGE_BAD = 0.85; // 用到八成五：快满了，随时会自动压缩
 
-// 46.9 万、100 万、8,000
+// 46.9 万、100 万、8,000；英文界面写成 469K、1M、8,000
 function fmtTokens(n) {
+  if (I18N.lang !== 'zh') return n.toLocaleString('en-US', n < 10000 ? {} : { notation: 'compact', maximumFractionDigits: 1 });
   if (n < 10000) return n.toLocaleString('zh-CN');
   return `${(n / 10000).toFixed(n >= 1000000 ? 0 : 1).replace(/\.0$/, '')} 万`;
 }
@@ -2962,23 +2995,23 @@ async function loadSessions(room) {
         const imgLevel = heavyLevel(s.images || 0);
         const ctxLevel = ratio >= USAGE_BAD ? 2 : ratio >= USAGE_WARN ? 1 : 0;
         const level = Math.max(ctxLevel, imgLevel);
-        const parts = [s.busy ? '正在干活' : s.has ? '有会话' : '还没有会话，下次叫它会新开一个'];
+        const parts = [s.busy ? tr('正在干活') : s.has ? tr('有会话') : tr('还没有会话，下次叫它会新开一个')];
         if (s.used) {
           const pct = Math.round(ratio * 100);
           parts.push(
             s.window
-              ? `记忆已用 ${pct || '不到 1'}%（${fmtTokens(s.used)} / ${fmtTokens(s.window)} token）`
-              : `记忆已用 ${fmtTokens(s.used)} token（上限等它下次回复后显示）`,
+              ? tr('记忆已用 {pct}%（{used} / {total} token）', { pct: pct || tr('不到 1'), used: fmtTokens(s.used), total: fmtTokens(s.window) })
+              : tr('记忆已用 {used} token（上限等它下次回复后显示）', { used: fmtTokens(s.used) }),
           );
         }
-        if (s.images) parts.push(`图片 ${(s.images / 1048576).toFixed(1)}MB`);
-        const advice = level > 1 ? (imgLevel > 1 ? '图片太多，马上换新会话' : '快满了，建议现在就换') : level ? '建议换新会话' : '';
+        if (s.images) parts.push(tr('图片 {size}MB', { size: (s.images / 1048576).toFixed(1) }));
+        const advice = level > 1 ? (imgLevel > 1 ? tr('图片太多，马上换新会话') : tr('快满了，建议现在就换')) : level ? tr('建议换新会话') : '';
         const bar = s.used && s.window
           ? `<span class="usage-bar${ctxLevel > 1 ? ' bad' : ctxLevel ? ' warn' : ''}"><i style="width:${Math.min(100, Math.max(1, ratio * 100)).toFixed(1)}%"></i></span>`
           : '';
         return `<div class="list-row top session-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small class="usage-text${level > 1 ? ' bad' : level ? ' warn' : ''}">${esc(
-          parts.join(' · ') + (advice ? `，${advice}` : ''),
-        )}</small>${bar}<small class="fresh-tip">${esc(FRESH_TIPS[a] || '')}</small></span><button type="button" class="secondary" data-fresh="${esc(a)}"${s.has || s.busy ? '' : ' disabled'}>换新会话</button></div>`;
+          advice ? tr('{text}，{advice}', { text: parts.join(' · '), advice }) : parts.join(' · '),
+        )}</small>${bar}<small class="fresh-tip">${esc(FRESH_TIPS[a] || '')}</small></span><button type="button" class="secondary" data-fresh="${esc(a)}"${s.has || s.busy ? '' : ' disabled'}>${tr('换新会话')}</button></div>`;
       })
       .join('');
   } catch (err) {
@@ -2992,17 +3025,17 @@ async function saveProviderKey(id) {
   const btn = $(`#btn-${id}-save`);
   const name = agentName(id);
   btn.disabled = true;
-  btn.textContent = '检查中…';
+  btn.textContent = tr('检查中…');
   try {
     const res = await api('POST', `/api/${id}/key`, { key: input.value.trim() });
     S.engines = res.engines || S.engines;
     input.value = '';
-    toast(res.warning || (S.engines[id]?.hasKey ? `${name} 的 API Key 已保存，可以用了` : `已删掉 ${name} 的 API Key`), 4000);
+    toast(res.warning || (S.engines[id]?.hasKey ? tr('{name} 的 API Key 已保存，可以用了', { name }) : tr('已删掉 {name} 的 API Key', { name })), 4000);
   } catch (err) {
     toast(err.message, 5000);
   } finally {
     btn.disabled = false;
-    btn.textContent = '保存';
+    btn.textContent = tr('保存');
   }
   renderEngines();
   $('#model-switch')._html = null; // 模型列表可能变了
@@ -3015,7 +3048,7 @@ async function quitApp() {
   const busy = S.runs.length;
   if (busy && btn.dataset.armed !== '1') {
     btn.dataset.armed = '1';
-    btn.textContent = `有 ${busy} 位正在干活，再点一次确认退出`;
+    btn.textContent = busy > 1 ? tr('有 {n} 位正在干活，再点一次确认退出', { n: busy }) : tr('有 1 位正在干活，再点一次确认退出');
     return;
   }
   try {
@@ -3025,8 +3058,8 @@ async function quitApp() {
 }
 
 function showQuit() {
-  const again = IS_WIN ? '下次双击桌面上的 ClawChat 就能打开。' : '下次运行 npm start 就能打开。';
-  document.body.innerHTML = `<div class="quit-screen"><h2>ClawChat 已退出</h2><p>可以关掉这个窗口了。${again}</p></div>`;
+  const again = IS_WIN ? tr('下次双击桌面上的 ClawChat 就能打开。') : tr('下次运行 npm start 就能打开。');
+  document.body.innerHTML = `<div class="quit-screen"><h2>${tr('ClawChat 已退出')}</h2><p>${tr('可以关掉这个窗口了。')}${again}</p></div>`;
 }
 
 let lastEngineRefresh = 0;
@@ -3071,8 +3104,10 @@ function refreshSpeedField() {
   const speed = fastSpeed('gpt', formField('modelGpt').value);
   $('#speed-fields').hidden = speed === null || !formField('memberGpt').checked;
   if (speed === null) formField('fastGpt').value = '';
-  formField('fastGpt').options[1].textContent = `快速 · ${speed ? `约 ${speed} 倍速` : '更快'}`;
-  $('#speed-hint').textContent = `快速模式下 ChatGPT ${speed ? `大约快 ${speed} 倍` : '会快一些'}，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（OpenAI 官方数据），所以默认用标准速度。聊天窗口顶部 ChatGPT 的按钮里也能随时切换。`;
+  formField('fastGpt').options[1].textContent = speed ? tr('快速 · 约 {speed} 倍速', { speed }) : tr('快速 · 更快');
+  $('#speed-hint').textContent = speed
+    ? tr('快速模式下 ChatGPT 大约快 {speed} 倍，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（OpenAI 官方数据），所以默认用标准速度。聊天窗口顶部 ChatGPT 的按钮里也能随时切换。', { speed })
+    : tr('快速模式下 ChatGPT 会快一些，但会按标准速度的 2.5 倍消耗你 ChatGPT 订阅里的额度（OpenAI 官方数据），所以默认用标准速度。聊天窗口顶部 ChatGPT 的按钮里也能随时切换。');
 }
 
 // 设置弹窗里换了模型：思考强度的选项跟着换（新模型不支持原来的强度就退回默认）
@@ -3096,7 +3131,7 @@ async function switchModel(agent, id, custom = false) {
   try {
     await patchSettings(conv, { ...settingsPatch(conv, agent, 'model', id), custom: custom ? [agent] : [] });
     const name = modelOptions(agent).find((o) => o.id === id)?.name || id;
-    toast(`${agentName(agent)} 已切换到 ${name}，下一轮生效${scopeText(conv)}`);
+    toast(tr('{name} 已切换到 {model}，下一轮生效{scope}', { name: agentName(agent), model: name, scope: scopeText(conv) }));
   } catch (err) {
     toast(err.message);
   }
@@ -3109,15 +3144,15 @@ function syncMemberFields() {
   $('#group-fields').hidden = members.length < 2;
   for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
   refreshSpeedField();
-  formField('name').placeholder = members.length === 1 ? `留空就叫「${agentLabel(members[0])}」` : '比如：今天争取不加班';
+  formField('name').placeholder = members.length === 1 ? tr('留空就叫「{name}」', { name: agentLabel(members[0]) }) : tr('比如：今天争取不加班');
   // 勾了还不能用的成员，提前说一声（不拦着，先建好也行）
   const ds = S.engines.deepseek;
   const hint = $('#member-hint');
   hint.textContent = !members.includes('deepseek') || !ds || ds.ok
     ? ''
     : !ds.path
-      ? 'DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。'
-      : 'DeepSeek 还没填 API Key：建好后点左下角「设置 → 程序与模型」填一下就能用。';
+      ? tr('DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。')
+      : tr('DeepSeek 还没填 API Key：建好后点左下角「设置 → 程序与模型」填一下就能用。');
   hint.hidden = !hint.textContent;
   return members;
 }
@@ -3132,22 +3167,22 @@ function openDialog(room, preset = null) {
   S.editing = room ? room.id : null;
   const d = room || { ...S.defaults, name: '', cwd: '', members: preset || defaultMembers() };
   const solo = d.members.length === 1;
-  $('#dlg-title').textContent = room ? (solo ? '聊天设置' : '群设置') : '新建聊天';
-  $('#btn-save').textContent = room ? '保存' : '创建';
+  $('#dlg-title').textContent = room ? (solo ? tr('聊天设置') : tr('群设置')) : tr('新建聊天');
+  $('#btn-save').textContent = room ? tr('保存') : tr('创建');
   const del = $('#btn-delete');
   del.hidden = !room;
   del.dataset.armed = '';
-  del.textContent = solo ? '删除聊天' : '删除群聊';
+  del.textContent = solo ? tr('删除聊天') : tr('删除群聊');
   for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
   $('#perm-win-hint').hidden = !IS_WIN;
   $('#session-fields').hidden = !room;
   if (room) {
-    $('#session-list').innerHTML = '<div class="list-row"><span class="row-text"><small>读取中…</small></span></div>';
+    $('#session-list').innerHTML = `<div class="list-row"><span class="row-text"><small>${tr('读取中…')}</small></span></div>`;
     loadSessions(room);
   }
   formField('name').value = d.name || '';
   formField('cwd').value = d.cwd || '';
-  formField('cwd').placeholder = room ? '' : `留空就自动新建：${S.projectsDir}/名字`;
+  formField('cwd').placeholder = room ? '' : tr('留空就自动新建：{dir}/名字', { dir: S.projectsDir });
   formField('permission').value = d.permission || 'project';
   formField('collab').checked = d.collab !== false;
   formField('maxAutoTurns').value = d.maxAutoTurns || 8;
@@ -3201,7 +3236,7 @@ async function deleteRoom() {
   const del = $('#btn-delete');
   if (!del.dataset.armed) {
     del.dataset.armed = '1';
-    del.textContent = '再点一次确认删除（聊天记录和私聊都会清空，项目文件夹不动）';
+    del.textContent = tr('再点一次确认删除（聊天记录和私聊都会清空，项目文件夹不动）');
     return;
   }
   try {
@@ -3322,6 +3357,15 @@ function bind() {
     if (e.key === 'Escape' && !$('#lightbox').hidden) closeLightbox();
   });
   document.querySelectorAll('#theme-switch [data-theme-value]').forEach((b) => (b.onclick = () => applyTheme(b.dataset.themeValue)));
+  const langSel = $('#lang-select');
+  langSel.value = I18N.pref;
+  langSel.onchange = async () => {
+    I18N.setPref(langSel.value);
+    const next = langSel.value === 'system' ? I18N.systemLang() : langSel.value;
+    if (next === I18N.lang) return;
+    await syncLang(next).catch(() => {});
+    location.reload(); // 整个界面按新语言重画
+  };
   $('#notify-switch').checked = notifyOn();
   $('#notify-switch').onchange = (e) => {
     storeSet('clawchat.notify', e.target.checked ? 'on' : 'off');
@@ -3446,7 +3490,7 @@ function bind() {
     if (who !== 'all' && !conv.room.members.includes(who)) return;
     const el = document.querySelector('.edit-input') || $('#input'); // 正在改消息：填进编辑框
     if (document.activeElement !== el) el.setSelectionRange(el.value.length, el.value.length);
-    insertMention(who === 'all' ? '所有人' : agentName(who), el);
+    insertMention(who === 'all' ? ALL_WORD : agentName(who), el);
   });
   // 文件路径：悬停看缩略图、点一下在访达里显示。挂在 #scroller 上，「正在干活」气泡（#live）里的过程也算
   $('#scroller').addEventListener('mouseover', (e) => {
@@ -3536,7 +3580,7 @@ function bind() {
     const mini = e.target.closest('.live-fresh-mini');
     if (mini) freshAgent(mini.dataset.agent, mini);
   });
-  document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention)));
+  document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention === '所有人' ? ALL_WORD : b.dataset.mention)));
 
   // 图片：按钮选择、粘贴、拖进来
   $('#btn-image').onclick = () => $('#file-input').click();
@@ -3637,12 +3681,13 @@ function bind() {
 // Windows：快捷键和「访达」这些说法换成 Windows 的
 function applyPlatformText() {
   if (!IS_WIN) return;
-  $('#btn-app-settings').title = '设置（Ctrl+,）';
-  $('#btn-open-data').textContent = '在资源管理器中显示';
+  $('#btn-app-settings').title = tr('设置（Ctrl+,）');
+  $('#btn-open-data').textContent = tr('在资源管理器中显示');
 }
 
 async function init() {
   S.drafts = loadDrafts();
+  syncLang(I18N.lang).catch(() => {});
   bind();
   applyPlatformText();
   applyTheme(currentTheme());
@@ -3652,7 +3697,7 @@ async function init() {
   try {
     applyState(await api('GET', '/api/state'));
   } catch {
-    toast('连不上 ClawChat 服务', 6000);
+    toast(tr('连不上 ClawChat 服务'), 6000);
   }
   renderEngines();
   let saved = storeGet('clawchat.current');

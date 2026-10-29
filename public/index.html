@@ -271,6 +271,14 @@
             <p class="hint">「自动」会跟着系统外观在浅色和深色之间切换。</p>
           </section>
           <section class="form-section">
+            <h3>语言</h3>
+            <div class="group-box">
+              <div class="form-row"><span>界面语言</span>
+                <select id="lang-select"><option value="system">跟随系统</option><option value="zh">简体中文</option><option value="en">English</option></select></div>
+            </div>
+            <p class="hint">「跟随系统」时，系统是中文就用中文，否则用英文。换语言后，AI 也会用这种语言回复。</p>
+          </section>
+          <section class="form-section">
             <h3>存储</h3>
             <div class="group-box">
               <div class="list-row">
@@ -335,11 +343,11 @@
             <div class="group-box">
               <div class="form-row">
                 <span>API Key</span>
-                <span class="row"><input id="gemini-key" type="password" placeholder="可以不填，用 Google 登录" autocomplete="off" spellcheck="false"><button id="btn-gemini-save" class="secondary">保存</button></span>
+                <span class="row"><input id="gemini-key" type="password" placeholder="可以不填，用 Gemini CLI 自己的登录" autocomplete="off" spellcheck="false"><button id="btn-gemini-save" class="secondary">保存</button></span>
               </div>
             </div>
             <p class="hint" id="gemini-status"></p>
-            <p class="hint">先装 Gemini CLI（<code>npm install -g @google/gemini-cli</code>），运行 <code>gemini</code> 用 Google 账号登录；也可以在这里填 API Key。Key 只存在这台电脑上。</p>
+            <p class="hint">先装 Gemini CLI（<code>npm install -g @google/gemini-cli</code>），运行 <code>gemini</code> 按提示完成登录；也可以在这里填 Gemini API Key（按用量计费）。Key 只存在这台电脑上。</p>
           </section>
           <section class="form-section">
             <h3>现在能用的模型</h3>
@@ -444,6 +452,8 @@
 
   <div id="lightbox" hidden><img alt=""></div>
   <div id="toast" hidden></div>
+  <script src="/i18n-dict.js"></script>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

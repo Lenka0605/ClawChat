@@ -38,6 +38,14 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 - ChatGPT 切到快速档（更耗订阅额度）之前必须二次确认。
 - 不要改用户自己的 `~/.codex/config.toml`、`~/.claude` 的全局设置。
 
+## 多语言
+
+- 界面支持中文和英文，默认跟随系统。**代码里写中文原文，用 `tr('中文原文', { 变量 })` 包起来**（前端是 `public/i18n.js` 提供的全局 `tr`，服务端是 `lib/i18n.js` 导出的 `tr`），变量用 `{name}` 占位，不要用模板字符串拼进去。
+- 英文译文放在 `public/locales/en/` 下（`app.json` 前端、`html.json` 静态页面、`server.json` 服务端；新功能可以自己加一份，比如 `gemini.json`，加载时会合并）。`index.html` 里写死的文字不用改代码，只要把原文加进 `html.json`，页面加载时会自动换掉。
+- `npm test` 会检查每句 `tr()` 都有英文译文、占位符对得上；漏了会直接报出来是哪一句。
+- **发给 AI 的提示词不翻**（AI 看中文没问题），只有「用什么语言回复」那一句按界面语言换。匹配用的标记（`<私聊老板>`、`<群聊>`、`[PASS]`、@ 识别词）也不翻。
+- Mac 外壳（`mac/main.swift`）用 `L("中文", "English")`，语言由网页通过 `native({ type: 'lang' })` 告诉它。
+
 ## 踩过的坑（改相关代码前先看）
 
 - **停止任务要结束整棵进程树**：Codex 会把命令放进单独的进程组。

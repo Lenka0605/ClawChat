@@ -73,14 +73,32 @@ function showError() {
   } catch {}
   const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
   const file = path.join(DATA_DIR, 'start-error.html');
+  // 按系统语言选中文或英文：系统是中文就用中文，否则用英文
+  let zh = true;
+  try {
+    zh = /^zh/i.test(Intl.DateTimeFormat().resolvedOptions().locale || '');
+  } catch {}
+  const t = zh
+    ? {
+        title: 'ClawChat 没能启动',
+        retry: '可以再双击一次桌面上的 ClawChat 试试。还是不行的话，重新运行一次 ClawChat 文件夹里的 <b>Install-Windows.cmd</b>，它会检查缺了什么。',
+        help: '如果要找人帮忙，把下面这段发给对方：',
+        noLog: '（没有日志）',
+      }
+    : {
+        title: 'ClawChat couldn’t start',
+        retry: 'Try double-clicking ClawChat on your desktop again. If that doesn’t work, run <b>Install-Windows.cmd</b> in the ClawChat folder again. It will check what’s missing.',
+        help: 'If you’re asking someone for help, send them the text below:',
+        noLog: '(No log)',
+      };
   fs.writeFileSync(
     file,
-    `<!doctype html><meta charset="utf-8"><title>ClawChat 没能启动</title>
+    `<!doctype html><meta charset="utf-8"><title>${t.title}</title>
 <body style="font:15px/1.7 'Microsoft YaHei UI','Segoe UI',sans-serif;max-width:760px;margin:40px auto;padding:0 20px">
-<h2>ClawChat 没能启动</h2>
-<p>可以再双击一次桌面上的 ClawChat 试试。还是不行的话，重新运行一次 ClawChat 文件夹里的 <b>Install-Windows.cmd</b>，它会检查缺了什么。</p>
-<p>如果要找人帮忙，把下面这段发给对方：</p>
-<pre style="background:#f4f4f5;padding:12px;border-radius:8px;white-space:pre-wrap;font:12px/1.5 Consolas,monospace">${esc(tail || '（没有日志）')}</pre>`,
+<h2>${t.title}</h2>
+<p>${t.retry}</p>
+<p>${t.help}</p>
+<pre style="background:#f4f4f5;padding:12px;border-radius:8px;white-space:pre-wrap;font:12px/1.5 Consolas,monospace">${esc(tail || t.noLog)}</pre>`,
   );
   const browser = findBrowser();
   spawn(browser || 'explorer.exe', [file], { detached: true, stdio: 'ignore' }).unref();

@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        webView.loadHTMLString(statusPage("正在启动…"), baseURL: nil)
+        webView.loadHTMLString(statusPage(L("正在启动…", "Starting…")), baseURL: nil)
         checkHealth { ok in
             if ok {
                 self.loadApp()
@@ -159,11 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func launchServer() {
         let info = Bundle.main.infoDictionary ?? [:]
         guard let node = info["ClawChatNode"] as? String, let root = info["ClawChatRoot"] as? String else {
-            webView.loadHTMLString(statusPage("应用配置不完整，请在项目目录重新运行 npm run app"), baseURL: nil)
+            webView.loadHTMLString(statusPage(L("应用配置不完整，请在项目目录重新运行 npm run app", "The app isn’t set up completely. Run npm run app again in the project folder.")), baseURL: nil)
             return
         }
         guard FileManager.default.fileExists(atPath: root + "/server.js") else {
-            webView.loadHTMLString(statusPage("找不到 \(root)/server.js。项目文件夹被移动过的话，请在新位置重新运行 npm run app"), baseURL: nil)
+            webView.loadHTMLString(statusPage(L("找不到 \(root)/server.js。项目文件夹被移动过的话，请在新位置重新运行 npm run app", "Can’t find \(root)/server.js. If the project folder was moved, run npm run app again in the new location.")), baseURL: nil)
             return
         }
         let p = Process()
@@ -187,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             try p.run()
             server = p
         } catch {
-            webView.loadHTMLString(statusPage("启动本地服务失败：\(error.localizedDescription)"), baseURL: nil)
+            webView.loadHTMLString(statusPage(L("启动本地服务失败：\(error.localizedDescription)", "Couldn’t start the local server: \(error.localizedDescription)")), baseURL: nil)
         }
     }
 
@@ -198,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             } else if attempts > 0, self.server?.isRunning ?? false {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.waitForServer(attempts: attempts - 1) }
             } else {
-                self.webView.loadHTMLString(self.statusPage("本地服务没有启动成功，日志在 ~/.clawchat/server.log"), baseURL: nil)
+                self.webView.loadHTMLString(self.statusPage(L("本地服务没有启动成功，日志在 ~/.clawchat/server.log", "The local server didn’t start. The log is at ~/.clawchat/server.log")), baseURL: nil)
             }
         }
     }
@@ -222,6 +222,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             NSApp.requestUserAttention(.informationalRequest)
         case "notify":
             notify(title: body["title"] as? String ?? "ClawChat", text: body["body"] as? String ?? "", key: body["key"] as? String ?? "")
+        case "lang":
+            let value = body["value"] as? String ?? ""
+            if value != UserDefaults.standard.string(forKey: "lang") {
+                UserDefaults.standard.set(value, forKey: "lang")
+                setupMenu() // 菜单栏跟着界面换语言
+            }
         case "theme":
             let value = body["value"] as? String ?? "system"
             UserDefaults.standard.set(value, forKey: "theme")
@@ -239,8 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             panel.canChooseFiles = false
             panel.canCreateDirectories = true
             panel.allowsMultipleSelection = false
-            panel.prompt = "选择"
-            panel.message = "选择项目文件夹"
+            panel.prompt = L("选择", "Choose")
+            panel.message = L("选择项目文件夹", "Choose a project folder")
             panel.beginSheetModal(for: window) { resp in
                 let path = resp == .OK ? panel.url?.path : nil
                 let args: [Any] = [id, path ?? NSNull()]
@@ -277,7 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.allowedContentTypes = [.image]
-        panel.prompt = "发送"
+        panel.prompt = L("发送", "Send")
         panel.beginSheetModal(for: window) { resp in
             completionHandler(resp == .OK ? panel.urls : nil)
         }
@@ -293,8 +299,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "确定")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L("确定", "OK"))
+        alert.addButton(withTitle: L("取消", "Cancel"))
         completionHandler(alert.runModal() == .alertFirstButtonReturn)
     }
 
@@ -319,51 +325,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 ClawChat", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        let update = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: L("关于 ClawChat", "About ClawChat"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let update = NSMenuItem(title: L("检查更新…", "Check for Updates…"), action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         update.target = self
         appMenu.addItem(update)
         appMenu.addItem(.separator())
-        let settings = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        let settings = NSMenuItem(title: L("设置…", "Settings…"), action: #selector(openSettings(_:)), keyEquivalent: ",")
         settings.target = self
         appMenu.addItem(settings)
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "隐藏 ClawChat", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L("隐藏 ClawChat", "Hide ClawChat"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "退出 ClawChat", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("退出 ClawChat", "Quit ClawChat"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "编辑")
-        edit.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
-        edit.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "Z")
+        let edit = NSMenu(title: L("编辑", "Edit"))
+        edit.addItem(withTitle: L("撤销", "Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: L("重做", "Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(.separator())
-        edit.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L("剪切", "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("拷贝", "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("粘贴", "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("全选", "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
 
         let viewItem = NSMenuItem()
-        let view = NSMenu(title: "显示")
-        let reload = NSMenuItem(title: "重新载入", action: #selector(reloadPage(_:)), keyEquivalent: "r")
+        let view = NSMenu(title: L("显示", "View"))
+        let reload = NSMenuItem(title: L("重新载入", "Reload"), action: #selector(reloadPage(_:)), keyEquivalent: "r")
         reload.target = self
         view.addItem(reload)
         viewItem.submenu = view
         main.addItem(viewItem)
 
         let windowItem = NSMenuItem()
-        let win = NSMenu(title: "窗口")
-        win.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        win.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let win = NSMenu(title: L("窗口", "Window"))
+        win.addItem(withTitle: L("最小化", "Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        win.addItem(withTitle: L("关闭窗口", "Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = win
         main.addItem(windowItem)
 
         NSApp.mainMenu = main
         NSApp.windowsMenu = win
     }
+}
+
+// 界面语言：网页告诉外壳的（设置里选的或跟随系统），还没收到就看系统首选语言
+func L(_ zh: String, _ en: String) -> String {
+    let lang = UserDefaults.standard.string(forKey: "lang") ?? ((Locale.preferredLanguages.first ?? "").hasPrefix("zh") ? "zh" : "en")
+    return lang == "en" ? en : zh
 }
 
 let app = NSApplication.shared

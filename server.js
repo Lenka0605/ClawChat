@@ -5,11 +5,12 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
+import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
 import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
+import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -17,6 +18,7 @@ const PORT = Number(process.env.CLAWCHAT_PORT) || 7317;
 const HOST = '127.0.0.1';
 const PROJECTS_DIR = path.join(os.homedir(), 'ClawChatProjects');
 
+setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群里的提示也用它）
 const store = new Store();
 const hub = new Hub(store);
 const clients = new Set();
@@ -71,7 +73,7 @@ function readRaw(req, limit) {
     req.on('data', (c) => {
       size += c.length;
       if (size > limit) {
-        reject(httpError(413, '图片太大了（最大 25MB）'));
+        reject(httpError(413, tr('图片太大了（最大 25MB）')));
         req.destroy();
       } else chunks.push(c);
     });
@@ -83,11 +85,11 @@ function readRaw(req, limit) {
 async function saveUpload(room, req) {
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const ext = UPLOAD_TYPES[type];
-  if (!ext) throw httpError(415, '只支持图片（PNG、JPG、GIF、WebP、HEIC）');
-  if (IS_WIN && !DIRECT_EXT.has(ext)) throw httpError(415, '这种图片格式（比如 HEIC）在 Windows 上转换不了，请先另存成 JPG 或 PNG 再发');
+  if (!ext) throw httpError(415, tr('只支持图片（PNG、JPG、GIF、WebP、HEIC）'));
+  if (IS_WIN && !DIRECT_EXT.has(ext)) throw httpError(415, tr('这种图片格式（比如 HEIC）在 Windows 上转换不了，请先另存成 JPG 或 PNG 再发'));
   const buf = await readRaw(req, MAX_UPLOAD);
-  if (!buf.length) throw httpError(400, '图片是空的');
-  if (IS_WIN && buf.length > MAX_DIRECT_WIN) throw httpError(413, '图片太大了，请压缩到 5MB 以内再发');
+  if (!buf.length) throw httpError(400, tr('图片是空的'));
+  if (IS_WIN && buf.length > MAX_DIRECT_WIN) throw httpError(413, tr('图片太大了，请压缩到 5MB 以内再发'));
   const dir = store.uploadsDir(room.id);
   fs.mkdirSync(dir, { recursive: true });
   const base = crypto.randomBytes(8).toString('hex');
@@ -99,7 +101,7 @@ async function saveUpload(room, req) {
       await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', '2400', path.join(dir, file), '--out', path.join(dir, out)]);
     } catch {
       fs.rmSync(path.join(dir, file), { force: true });
-      throw httpError(400, '这张图片处理不了，换一张试试');
+      throw httpError(400, tr('这张图片处理不了，换一张试试'));
     }
     fs.rmSync(path.join(dir, file), { force: true });
     file = out;
@@ -113,7 +115,9 @@ function validModel(engine, id) {
 }
 
 const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
+// 存中文原文，用的时候再按当前语言翻译（模块加载时还不知道界面是什么语言）
 const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
+const effortLabel = (id) => (EFFORT_LABEL[id] ? tr(EFFORT_LABEL[id]) : id);
 
 // 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex、DeepSeek 看模型目录（「默认」就看默认模型）
 function effortsFor(agent, modelId) {
@@ -132,18 +136,19 @@ function fastFor(agent, modelId) {
 
 function fastName(agent, on, modelId) {
   const speed = fastFor(agent, modelId).match(/([\d.]+)x speed/i)?.[1];
-  return on ? `快速模式（${speed ? `约 ${speed} 倍速，` : ''}额度按 2.5 倍消耗）` : '标准速度';
+  if (!on) return tr('标准速度');
+  return speed ? tr('快速模式（约 {speed} 倍速，额度按 2.5 倍消耗）', { speed }) : tr('快速模式（额度按 2.5 倍消耗）');
 }
 
 function effortName(agent, id) {
-  if (id) return EFFORT_LABEL[id] || id;
+  if (id) return effortLabel(id);
   const def = engines[AGENT_ENGINE[agent]]?.defaultEffort;
-  return `默认${def ? `（${EFFORT_LABEL[def] || def}）` : ''}`;
+  return def ? tr('默认（{label}）', { label: effortLabel(def) }) : tr('默认');
 }
 
 function modelName(agent, id) {
   const e = engines[AGENT_ENGINE[agent]] || {};
-  if (!id) return `默认模型${e.defaultLabel ? `（${e.defaultLabel}）` : ''}`;
+  if (!id) return e.defaultLabel ? tr('默认模型（{label}）', { label: e.defaultLabel }) : tr('默认模型');
   return e.models?.find((m) => m.id === id)?.name || id;
 }
 
@@ -163,7 +168,7 @@ function readBody(req) {
     req.on('data', (c) => {
       size += c.length;
       if (size > 2 * 1024 * 1024) {
-        reject(httpError(413, '消息太长了'));
+        reject(httpError(413, tr('消息太长了')));
         req.destroy();
       } else chunks.push(c);
     });
@@ -171,7 +176,7 @@ function readBody(req) {
       try {
         resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
       } catch {
-        reject(httpError(400, '请求格式不对'));
+        reject(httpError(400, tr('请求格式不对')));
       }
     });
     req.on('error', reject);
@@ -190,7 +195,7 @@ function normalizeRoom(body, creating, room = null) {
   const out = {};
   if (body.members !== undefined || creating) {
     const members = Object.keys(AGENTS).filter((id) => (Array.isArray(body.members) ? body.members : Object.keys(AGENTS)).includes(id));
-    if (!members.length) throw httpError(400, '至少要选一位成员');
+    if (!members.length) throw httpError(400, tr('至少要选一位成员'));
     out.members = members;
     const target = body.defaultTarget ?? room?.defaultTarget;
     if (target && !['all', 'sequential', 'last'].includes(target) && !members.includes(target)) out.defaultTarget = 'last';
@@ -198,7 +203,7 @@ function normalizeRoom(body, creating, room = null) {
   if (body.name !== undefined || creating) {
     let name = String(body.name || '').trim().slice(0, 40);
     if (!name && out.members?.length === 1) name = AGENTS[out.members[0]].label; // 单聊默认用对方的名字
-    if (!name) throw httpError(400, '名字不能为空');
+    if (!name) throw httpError(400, tr('名字不能为空'));
     out.name = name;
   }
   if (body.cwd !== undefined || creating) {
@@ -208,13 +213,13 @@ function normalizeRoom(body, creating, room = null) {
     try {
       fs.mkdirSync(cwd, { recursive: true });
     } catch (err) {
-      throw httpError(400, `项目文件夹建不了：${err.message}`);
+      throw httpError(400, tr('项目文件夹建不了：{error}', { error: err.message }));
     }
-    if (!fs.statSync(cwd).isDirectory()) throw httpError(400, '项目文件夹路径不是文件夹');
+    if (!fs.statSync(cwd).isDirectory()) throw httpError(400, tr('项目文件夹路径不是文件夹'));
     out.cwd = cwd;
   }
   if (body.permission !== undefined) {
-    if (!['project', 'full', 'readonly'].includes(body.permission)) throw httpError(400, '权限设置不对');
+    if (!['project', 'full', 'readonly'].includes(body.permission)) throw httpError(400, tr('权限设置不对'));
     out.permission = body.permission;
   }
   if (body.collab !== undefined) out.collab = !!body.collab;
@@ -223,7 +228,7 @@ function normalizeRoom(body, creating, room = null) {
     out.maxAutoTurns = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : ROOM_DEFAULTS.maxAutoTurns;
   }
   if (body.defaultTarget !== undefined) {
-    if (!['all', 'sequential', 'last', ...Object.keys(AGENTS)].includes(body.defaultTarget)) throw httpError(400, '默认接话人设置不对');
+    if (!['all', 'sequential', 'last', ...Object.keys(AGENTS)].includes(body.defaultTarget)) throw httpError(400, tr('默认接话人设置不对'));
     out.defaultTarget = body.defaultTarget;
   }
   if (body.models !== undefined) {
@@ -232,10 +237,10 @@ function normalizeRoom(body, creating, room = null) {
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    const owner = { claude: 'Claude', gpt: '当前的 Codex', deepseek: 'DeepSeek' };
+    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek' };
     for (const a of Object.keys(AGENTS)) {
       if (!custom.includes(a) && !keep(a) && !validModel(AGENT_ENGINE[a], out.models[a])) {
-        throw httpError(400, `${owner[a]}用不了 ${out.models[a]} 这个模型，请从列表里选一个`);
+        throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
       }
     }
   }
@@ -246,7 +251,7 @@ function normalizeRoom(body, creating, room = null) {
       const allowed = effortsFor(a, (out.models || room?.models || {})[a]);
       if (efforts[a] && allowed.length && !allowed.includes(efforts[a])) {
         // 换了模型、新模型不支持原来的强度：退回默认，而不是报错
-        if (body.efforts?.[a] !== undefined) throw httpError(400, `${AGENTS[a].name} 现在的模型不支持「${EFFORT_LABEL[efforts[a]] || efforts[a]}」`);
+        if (body.efforts?.[a] !== undefined) throw httpError(400, tr('{name} 现在的模型不支持「{effort}」', { name: AGENTS[a].name, effort: effortLabel(efforts[a]) }));
         efforts[a] = '';
       }
     }
@@ -258,7 +263,7 @@ function normalizeRoom(body, creating, room = null) {
       if (body.fast?.[a] !== undefined) fast[a] = !!body.fast[a];
       if (fast[a] && !fastFor(a, (out.models || room?.models || {})[a])) {
         // 换了个没有快速模式的模型：退回标准速度
-        if (body.fast?.[a]) throw httpError(400, `${AGENTS[a].name} 现在的模型没有快速模式`);
+        if (body.fast?.[a]) throw httpError(400, tr('{name} 现在的模型没有快速模式', { name: AGENTS[a].name }));
         fast[a] = false;
       }
     }
@@ -278,19 +283,19 @@ function normalizeRoom(body, creating, room = null) {
       const cur = { ...next[a] };
       if (v.model !== undefined) {
         const m = String(v.model || '').trim().slice(0, 80);
-        if (!custom.includes(a) && m !== cur.model && !validModel(AGENT_ENGINE[a], m)) throw httpError(400, `${AGENTS[a].name} 用不了 ${m} 这个模型，请从列表里选一个`);
+        if (!custom.includes(a) && m !== cur.model && !validModel(AGENT_ENGINE[a], m)) throw httpError(400, tr('{name} 用不了 {model} 这个模型，请从列表里选一个', { name: AGENTS[a].name, model: m }));
         cur.model = m;
       }
       const model = cur.model ?? groupModels[a];
       if (v.effort !== undefined) cur.effort = String(v.effort || '').trim();
       const allowed = effortsFor(a, model);
       if (cur.effort && allowed.length && !allowed.includes(cur.effort)) {
-        if (v.effort !== undefined) throw httpError(400, `${AGENTS[a].name} 现在的模型不支持「${EFFORT_LABEL[cur.effort] || cur.effort}」`);
+        if (v.effort !== undefined) throw httpError(400, tr('{name} 现在的模型不支持「{effort}」', { name: AGENTS[a].name, effort: effortLabel(cur.effort) }));
         cur.effort = ''; // 换了模型、新模型不支持原来的强度：退回默认
       }
       if (v.fast !== undefined) cur.fast = !!v.fast;
       if (cur.fast && !fastFor(a, model)) {
-        if (v.fast) throw httpError(400, `${AGENTS[a].name} 现在的模型没有快速模式`);
+        if (v.fast) throw httpError(400, tr('{name} 现在的模型没有快速模式', { name: AGENTS[a].name }));
         cur.fast = false;
       }
       next[a] = cur;
@@ -302,18 +307,18 @@ function normalizeRoom(body, creating, room = null) {
 
 // Windows 选文件夹：用 PowerShell 弹系统的文件夹对话框。挂在一个看不见的置顶小窗口下面，免得对话框被 ClawChat 窗口挡住；
 // 路径用 Base64 传回来，免得中文被命令行编码弄乱
-const PICK_FOLDER_PS = `
+const pickFolderPs = (prompt) => `
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0; StartPosition = 'CenterScreen'; Size = New-Object System.Drawing.Size(1, 1) }
 $owner.Show(); $owner.Activate()
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = '选择项目文件夹'; ShowNewFolderButton = $true }
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = '${prompt.replace(/'/g, "''")}'; ShowNewFolderButton = $true }
 if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)) }
 $owner.Close()
 `;
 
 function pickFolder() {
   if (IS_WIN) {
-    const encoded = Buffer.from(PICK_FOLDER_PS, 'utf16le').toString('base64');
+    const encoded = Buffer.from(pickFolderPs(tr('选择项目文件夹')), 'utf16le').toString('base64');
     return new Promise((resolve) =>
       // 不用 windowsHide：它会连对话框一起藏起来。PowerShell 自己的黑窗口用 -WindowStyle Hidden 收起
       execFile('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], { timeout: 10 * 60 * 1000 }, (err, stdout) => {
@@ -325,7 +330,7 @@ function pickFolder() {
   return new Promise((resolve) => {
     execFile(
       'osascript',
-      ['-e', 'activate', '-e', 'POSIX path of (choose folder with prompt "选择项目文件夹")'],
+      ['-e', 'activate', '-e', `POSIX path of (choose folder with prompt "${tr('选择项目文件夹').replace(/[\\"]/g, '\\$&')}")`],
       { timeout: 10 * 60 * 1000 },
       (err, stdout) => resolve(err ? null : stdout.trim().replace(/\/$/, '') || null),
     );
@@ -508,6 +513,16 @@ async function api(req, res, url) {
       restartPending: pendingRestart,
     });
   }
+  if (method === 'POST' && parts[0] === 'lang') {
+    // 前端告诉服务端现在界面是什么语言：群里的提示、AI 的回复语言都跟着它
+    const body = await readBody(req);
+    const was = getLang();
+    const lang = setLang(body.lang);
+    if (readConfig().uiLang !== lang) saveConfig({ uiLang: lang });
+    // 程序状态里的出错提示、模型说明是检测时按当时的语言写的，换了语言就重新检测一遍（有变化会推给界面）
+    if (lang !== was) refreshEngines(true);
+    return send(res, 200, { lang });
+  }
   if (method === 'POST' && parts[0] === 'pick-folder') return send(res, 200, { path: await pickFolder() });
   if (parts[0] === 'app') {
     if (method === 'GET' && !parts[1]) return send(res, 200, { ...(await appInfo()), dataDir: DATA_DIR, projectsDir: PROJECTS_DIR });
@@ -550,7 +565,7 @@ async function api(req, res, url) {
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
     // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code
     const { engine } = await readBody(req);
-    if (!['claude', 'codex'].includes(engine)) return send(res, 400, { error: '不认识这个程序' });
+    if (!['claude', 'codex'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
     const result = await updateEngine(engine);
     await refreshEngines();
     return send(res, 200, { ...result, engines });
@@ -559,21 +574,21 @@ async function api(req, res, url) {
   if (method === 'POST' && PROVIDERS[parts[0]] && parts[1] === 'key') {
     const p = PROVIDERS[parts[0]];
     const key = String((await readBody(req)).key || '').trim();
-    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: `这不像 ${p.name} 的 API Key（一般是一串字母数字）` });
+    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: tr('这不像 {name} 的 API Key（一般是一串字母数字）', { name: p.name }) });
     let warning = '';
     if (key) {
       const check = await providerModelsFor(p.id, key);
-      if (check.badKey) return send(res, 400, { error: `${p.name} 说这个 API Key 不对，请检查一下有没有复制完整` });
-      if (check.error) warning = `已保存，但现在${check.error}，等网络好了会自动用上`;
+      if (check.badKey) return send(res, 400, { error: tr('{name} 说这个 API Key 不对，请检查一下有没有复制完整', { name: p.name }) });
+      if (check.error) warning = tr('已保存，但现在{error}，等网络好了会自动用上', { error: check.error });
     }
     saveConfig({ [p.keyField]: key });
     await refreshEngines(true);
     return send(res, 200, { ok: true, warning, engines });
   }
-  // Gemini 也可以不填 Key（用 Google 账号登录），所以这里只存不校验
+  // Gemini 也可以不填 Key（用 Gemini CLI 自己的登录），所以这里只存不校验
   if (method === 'POST' && parts[0] === 'gemini' && parts[1] === 'key') {
     const key = String((await readBody(req)).key || '').trim();
-    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: '这不像 Gemini 的 API Key（一般是一串字母数字）' });
+    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: tr('这不像 {name} 的 API Key（一般是一串字母数字）', { name: 'Gemini' }) });
     saveConfig({ geminiKey: key });
     await refreshEngines(true);
     return send(res, 200, { ok: true, warning: '', engines });
@@ -581,19 +596,19 @@ async function api(req, res, url) {
   if (method === 'POST' && parts[0] === 'models' && parts[1] === 'check') {
     const { agent, id } = await readBody(req);
     const model = String(id || '').trim();
-    if (!AGENTS[agent] || !/^[\w.:@/-]{1,80}$/.test(model)) return send(res, 400, { error: '模型名不对' });
+    if (!AGENTS[agent] || !/^[\w.:@/-]{1,80}$/.test(model)) return send(res, 400, { error: tr('模型名不对') });
     return send(res, 200, await probeModel(agent, model));
   }
 
   if (parts[0] === 'rooms') {
     if (parts.length === 1 && method === 'POST') {
       const room = store.createRoom(normalizeRoom(await readBody(req), true));
-      hub.notice(room.id, `${room.members.length > 1 ? '群聊' : '聊天'}已创建。项目文件夹：${room.cwd}`);
+      hub.notice(room.id, room.members.length > 1 ? tr('群聊已创建。项目文件夹：{cwd}', { cwd: room.cwd }) : tr('聊天已创建。项目文件夹：{cwd}', { cwd: room.cwd }));
       hub.emitRooms();
       return send(res, 201, { room });
     }
     const room = store.getRoom(parts[1]);
-    if (!room) return send(res, 404, { error: '群聊不存在' });
+    if (!room) return send(res, 404, { error: tr('群聊不存在') });
     const sub = parts[2];
     if (!sub && method === 'PATCH') {
       const patch = normalizeRoom(await readBody(req), false, room);
@@ -617,26 +632,28 @@ async function api(req, res, url) {
         ? Object.keys(ROOM_DEFAULTS.fast).filter((a) => (patch.members || room.members).includes(a) && !!patch.fast[a] !== !!room.fast?.[a])
         : [];
       store.updateRoom(room.id, patch);
-      const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? '，它手上这一轮做完后' : '，下一轮');
-      for (const a of switched) hub.notice(room.id, `${AGENTS[a].name} 换成了 ${modelName(a, patch.models[a])}${when(a)}开始生效`);
-      for (const a of effortSwitched) hub.notice(room.id, `${AGENTS[a].name} 的思考强度换成了「${effortName(a, patch.efforts[a])}」${when(a)}开始生效`);
-      for (const a of fastSwitched) hub.notice(room.id, `${AGENTS[a].name} 换成了${fastName(a, room.fast[a], room.models?.[a])}${when(a)}开始生效`);
+      // 什么时候生效（「，下一轮开始生效」这样的半句，拼在提示后面）
+      const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? tr('，它手上这一轮做完后开始生效') : tr('，下一轮开始生效'));
+      for (const a of switched) hub.notice(room.id, tr('{name} 换成了 {model}{when}', { name: AGENTS[a].name, model: modelName(a, patch.models[a]), when: when(a) }));
+      for (const a of effortSwitched) hub.notice(room.id, tr('{name} 的思考强度换成了「{effort}」{when}', { name: AGENTS[a].name, effort: effortName(a, patch.efforts[a]), when: when(a) }));
+      for (const a of fastSwitched) hub.notice(room.id, tr('{name} 换成了{speed}{when}', { name: AGENTS[a].name, speed: fastName(a, room.fast[a], room.models?.[a]), when: when(a) }));
       if (patch.dmSettings && room.members.length > 1) {
         for (const a of room.members) {
           const was = dmBefore[a];
           const now = dmRoom(room, a);
-          const tail = `${when(a)}开始生效（只改私聊，群里不变）`;
-          if (!room.dmSettings[a] && was.own) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 恢复成和群里一样的设置${when(a)}开始生效`, a);
+          const name = AGENTS[a].name;
+          const tail = when(a) + tr('（只改私聊，群里不变）');
+          if (!room.dmSettings[a] && was.own) hub.notice(room.id, tr('私聊里的 {name} 恢复成和群里一样的设置{when}', { name, when: when(a) }), a);
           else {
-            if ((now.models[a] || '') !== (was.models[a] || '')) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 换成了 ${modelName(a, now.models[a])}${tail}`, a);
-            if ((now.efforts[a] || '') !== (was.efforts[a] || '')) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 的思考强度换成了「${effortName(a, now.efforts[a])}」${tail}`, a);
-            if (!!now.fast?.[a] !== !!was.fast?.[a]) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 换成了${fastName(a, now.fast[a], now.models[a])}${tail}`, a);
+            if ((now.models[a] || '') !== (was.models[a] || '')) hub.notice(room.id, tr('私聊里的 {name} 换成了 {model}{when}', { name, model: modelName(a, now.models[a]), when: tail }), a);
+            if ((now.efforts[a] || '') !== (was.efforts[a] || '')) hub.notice(room.id, tr('私聊里的 {name} 的思考强度换成了「{effort}」{when}', { name, effort: effortName(a, now.efforts[a]), when: tail }), a);
+            if (!!now.fast?.[a] !== !!was.fast?.[a]) hub.notice(room.id, tr('私聊里的 {name} 换成了{speed}{when}', { name, speed: fastName(a, now.fast[a], now.models[a]), when: tail }), a);
           }
         }
       }
       if (cwdChanged) {
         hub.resetSessions(room.id);
-        hub.notice(room.id, `项目文件夹改成了：${patch.cwd}`);
+        hub.notice(room.id, tr('项目文件夹改成了：{cwd}', { cwd: patch.cwd }));
       }
       hub.emitRooms();
       return send(res, 200, { room });
@@ -655,27 +672,27 @@ async function api(req, res, url) {
       const images = [];
       for (const id of ids) {
         if (!UPLOAD_NAME_RE.test(String(id)) || !fs.existsSync(path.join(store.uploadsDir(room.id), id))) {
-          return send(res, 400, { error: '有图片没上传成功，请重新添加' });
+          return send(res, 400, { error: tr('有图片没上传成功，请重新添加') });
         }
         images.push({ id, type: MIME[path.extname(id)] });
       }
-      if (!text && !images.length) return send(res, 400, { error: '消息是空的' });
+      if (!text && !images.length) return send(res, 400, { error: tr('消息是空的') });
       const dm = AGENTS[body.dm] && room.members.includes(body.dm) ? body.dm : null;
       // 回复：只能回复同一个会话里的消息（群里回群里的，私聊里回私聊的），存一段原话摘要
       let replyTo = null;
       if (body.replyTo !== undefined && body.replyTo !== null) {
         const target = store.getMessages(room.id)[Number(body.replyTo)];
         const sameConv = target && (target.pm ? !!dm && (target.pmIn || target.pm) === dm : (target.dm || null) === (room.members.length > 1 ? dm : null));
-        if (!target || target.from === 'system' || !sameConv) return send(res, 400, { error: '要回复的消息找不到了' });
-        replyTo = { seq: target.seq, from: target.from, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
+        if (!target || target.from === 'system' || !sameConv) return send(res, 400, { error: tr('要回复的消息找不到了') });
+        replyTo = { seq: target.seq, from: target.from, text: (target.text || (target.images?.length ? tr('[图片]') : '')).slice(0, 140) };
       }
       // 编辑：老板改了自己之前的一条消息，作为新消息发出去，并注明改的是哪条（大家已经看过原来那条了，没法真的改掉）
       let editOf = null;
       if (body.editOf !== undefined && body.editOf !== null) {
         const target = store.getMessages(room.id)[Number(body.editOf)];
         const sameConv = target && (target.dm || null) === (room.members.length > 1 ? dm : null);
-        if (!target || target.from !== 'user' || !sameConv) return send(res, 400, { error: '要修改的消息找不到了' });
-        editOf = { seq: target.seq, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
+        if (!target || target.from !== 'user' || !sameConv) return send(res, 400, { error: tr('要修改的消息找不到了') });
+        editOf = { seq: target.seq, text: (target.text || (target.images?.length ? tr('[图片]') : '')).slice(0, 140) };
       }
       hub.postUserMessage(room.id, text, images, dm, replyTo, editOf);
       return send(res, 200, { ok: true });
@@ -698,14 +715,14 @@ async function api(req, res, url) {
     // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。by 是老板选的谁来交代情况（某位 AI、self 它自己看记录、boss 老板自己来）
     if (sub === 'fresh' && method === 'POST') {
       const { agent, by } = await readBody(req);
-      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
+      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: tr('群里没有这位') });
       const pick = ['self', 'boss'].includes(by) || (room.members.includes(by) && by !== agent) ? by : undefined;
       return send(res, 200, { ok: true, result: hub.resetAgent(room.id, agent, pick) });
     }
     // 「换新会话」弹窗打开时问一下：默认请谁来交代
     if (sub === 'fresh' && method === 'GET') {
       const agent = url.searchParams.get('agent');
-      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
+      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: tr('群里没有这位') });
       return send(res, 200, { briefer: hub.suggestBriefer(room.id, agent) });
     }
     // 每位现在的会话：有没有、在不在干活、记了多少（上下文用了多少、上限多少，ChatGPT 还有存着的图片），群设置里显示，方便判断要不要换新会话
@@ -733,7 +750,7 @@ async function api(req, res, url) {
     // 把某位在私聊里的回复转到群里（老板点了「发到群里」）
     if (sub === 'forward' && method === 'POST') {
       const { seq } = await readBody(req);
-      if (!hub.forwardToGroup(room.id, Number(seq))) return send(res, 400, { error: '这条消息转不了' });
+      if (!hub.forwardToGroup(room.id, Number(seq))) return send(res, 400, { error: tr('这条消息转不了') });
       return send(res, 200, { ok: true });
     }
     // 消息里提到的文件哪些找得到：找不到的，界面上就不显示成能点的样子
@@ -747,7 +764,7 @@ async function api(req, res, url) {
     if (sub === 'reveal' && method === 'POST') {
       const body = await readBody(req);
       const file = await roomFile(room, body.path, Array.isArray(body.near) ? body.near : []);
-      if (!file) return send(res, 404, { error: '找不到这个文件，可能已经被移走或删掉了' });
+      if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
       if (fs.statSync(file).isDirectory()) openPath(file); // 文件夹直接打开，进到里面
       else revealPath(file);
       return send(res, 200, { ok: true });
@@ -765,7 +782,7 @@ async function api(req, res, url) {
       return fs.createReadStream(file).pipe(res);
     }
   }
-  return send(res, 404, { error: '没有这个接口' });
+  return send(res, 404, { error: tr('没有这个接口') });
 }
 
 function serveStatic(res, pathname) {
@@ -790,6 +807,10 @@ const server = http.createServer(async (req, res) => {
       return await api(req, res, url);
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+    if (url.pathname === '/i18n-dict.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(dictScript());
+    }
     return serveStatic(res, url.pathname);
   } catch (err) {
     if (!res.headersSent) send(res, err.status || 500, { error: err.message });
@@ -868,7 +889,7 @@ async function restartWhenIdle() {
     pendingRestart = false;
     const result = await pullUpdate().catch((err) => ({ ok: false, error: err.message }));
     if (!result.ok || !result.updated) {
-      hub.emit('event', { type: 'restart-pending', waiting: false, error: result.ok ? '已经是最新版了' : result.error || '更新失败' });
+      hub.emit('event', { type: 'restart-pending', waiting: false, error: result.ok ? tr('已经是最新版了') : result.error || tr('更新失败') });
       return;
     }
   }
