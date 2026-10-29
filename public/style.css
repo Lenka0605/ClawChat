@@ -391,8 +391,6 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 
 #scroller { flex: 1; overflow-y: auto; padding: calc(var(--head-h, 52px) + 14px) 20px calc(var(--composer-h, 96px) + 8px); min-height: 0; -webkit-user-select: text; user-select: text; }
 .msg { display: flex; gap: 8px; margin: 0 0 4px; align-items: flex-start; }
-/* 屏幕外的消息先不排版，滚到附近再排：几百条消息的长对话，打开、重画时不会卡（排版是最花时间的一步） */
-#messages > .msg:not(.live), #messages > .notice, #messages > .time-sep { content-visibility: auto; contain-intrinsic-size: auto 90px; }
 .msg.live { margin-bottom: 12px; }
 .load-earlier { display: block; margin: 0 auto 14px; border: 0; background: none; color: var(--muted); font-size: 12px; padding: 4px 10px; border-radius: 8px; }
 .load-earlier:hover { background: var(--fill); color: var(--text); }
@@ -1021,6 +1019,35 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 .msg.user.enter { transform-origin: 100% 100%; }
 .msg.agent.enter { transform-origin: 0 100%; }
 #scroller.switching { animation: fadeIn 0.22s ease; }
+/* 消息区用自己画的滚动条（app.js 的 bindScrollbar），系统的藏起来 */
+#scroller { scrollbar-width: none; }
+#scroller::-webkit-scrollbar { display: none; }
+.scrollbar {
+  position: absolute; right: 2px; top: calc(var(--head-h, 52px) + 6px); bottom: calc(var(--composer-h, 96px) + 6px); width: 13px; z-index: 5;
+  border-radius: 7px; opacity: 0; pointer-events: none; transition: opacity 0.2s, background-color 0.15s;
+}
+.scrollbar.show, .scrollbar.dragging { opacity: 1; pointer-events: auto; }
+.scrollbar.none { display: none; }
+.scrollbar:hover, .scrollbar.dragging { background: var(--fill); }
+.scrollbar-thumb {
+  position: absolute; top: 0; left: 4px; right: 4px; border-radius: 6px; background: rgba(128, 128, 128, 0.5);
+  transition: left 0.12s, right 0.12s, background-color 0.12s;
+}
+.scrollbar:hover .scrollbar-thumb, .scrollbar.dragging .scrollbar-thumb { left: 2px; right: 2px; background: rgba(128, 128, 128, 0.75); }
+/* 「回到最新」按钮（仿飞书）：往上翻远了才出现 */
+.to-bottom {
+  position: absolute; right: 24px; bottom: calc(var(--composer-h, 96px) + 12px); z-index: 7; width: 38px; height: 38px; border-radius: 50%; border: 0; padding: 0;
+  display: grid; place-items: center; color: var(--text);
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), 0 4px 16px rgba(0, 0, 0, 0.16);
+  opacity: 0; transform: translateY(10px) scale(0.9); pointer-events: none; transition: opacity 0.18s, transform 0.22s var(--ease), color 0.12s;
+}
+.to-bottom.show { opacity: 1; transform: none; pointer-events: auto; }
+.to-bottom:hover { color: var(--accent); }
+.to-bottom-count {
+  position: absolute; top: -5px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--bg);
+}
 .msg.flash .bubble { animation: flash 1.2s ease 2; }
 
 /* 过程：展开时往下展开 */

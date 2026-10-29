@@ -15,6 +15,7 @@ const S = {
   openSteps: new Set(), // 展开着的「过程」：roomId:seq（重画后保持展开）
   rendered: null, // 当前会话画到了哪：{ key, from }（长对话只画最近一段）
   sessionImages: new Map(), // roomId -> { gpt: 会话里存的图片字节数 }（会话太重时顶部按钮上提醒）
+  newBelow: 0, // 往上翻着的时候来了几条新消息（标在「回到最新」按钮上）
   pinned: true, // 是不是贴着最底下（消息列表变高时继续贴着；自己往上翻、跳到某条消息时就不贴了）
   messages: new Map(), // roomId -> message[]
   early: new Map(), // 消息列表还没加载完时收到的新消息
@@ -1291,6 +1292,108 @@ function fitTools() {
   row.classList.toggle('compact', row.scrollWidth > row.clientWidth + 1);
 }
 
+// ---------------- 消息区的滚动条和「回到最新」按钮 ----------------
+// 系统滚动条藏起来（顶栏、输入区浮在消息上，会把它两头盖住），换成自己画的一条：只在两者之间，
+// 鼠标移到右边缘才出现，可以拖、可以点。往上翻离最新消息远了，右下角出现「回到最新」按钮（仿飞书），翻上去时来的新消息数也标在上面
+
+function updateScrollbar() {
+  const s = $('#scroller');
+  const bar = $('#scrollbar');
+  const thumb = bar.firstElementChild;
+  const max = s.scrollHeight - s.clientHeight;
+  bar.classList.toggle('none', max <= 1);
+  if (max <= 1) return;
+  const track = bar.clientHeight;
+  const h = Math.min(track, Math.max(36, Math.round((track * s.clientHeight) / s.scrollHeight)));
+  thumb.style.height = `${h}px`;
+  thumb.style.transform = `translateY(${Math.round(((track - h) * s.scrollTop) / max)}px)`;
+}
+
+function updateToBottom() {
+  const s = $('#scroller');
+  const btn = $('#btn-to-bottom');
+  const far = s.scrollHeight - s.scrollTop - s.clientHeight > Math.max(240, s.clientHeight * 0.5);
+  if (!far) S.newBelow = 0;
+  btn.classList.toggle('show', far);
+  btn.tabIndex = far ? 0 : -1;
+  const n = btn.querySelector('.to-bottom-count');
+  n.hidden = !S.newBelow;
+  n.textContent = S.newBelow > 99 ? '99+' : String(S.newBelow);
+  btn.title = S.newBelow ? `有 ${S.newBelow} 条新消息，回到最新` : '回到最新消息';
+}
+
+function jumpToBottom() {
+  const s = $('#scroller');
+  S.newBelow = 0;
+  const target = s.scrollHeight - s.clientHeight;
+  // 离得太远：先一下跳到离底部一屏多的地方，再平滑滚完（不然要滚好几秒）
+  if (target - s.scrollTop > s.clientHeight * 2) s.scrollTop = target - s.clientHeight * 1.5;
+  s.scrollTo({ top: s.scrollHeight, behavior: reduceMotion() ? 'auto' : 'smooth' });
+  // 滚动期间图片可能加载出来把列表撑高：最后对准一次，并恢复「贴着最底下」
+  setTimeout(() => {
+    scrollToBottom();
+    S.pinned = true;
+    updateToBottom();
+  }, 450);
+}
+
+function bindScrollbar() {
+  const s = $('#scroller');
+  const bar = $('#scrollbar');
+  const thumb = bar.firstElementChild;
+  let hideTimer = 0;
+  let grab = null; // 拖动时，鼠标按在滑块上的位置
+  const show = (on) => {
+    clearTimeout(hideTimer);
+    if (on) bar.classList.add('show');
+    else if (grab === null) hideTimer = setTimeout(() => bar.classList.remove('show'), 600);
+  };
+  $('#chat').addEventListener('mousemove', (e) => {
+    const r = bar.getBoundingClientRect();
+    show(e.clientX >= r.left - 18 && e.clientY >= r.top && e.clientY <= r.bottom);
+  });
+  $('#chat').addEventListener('mouseleave', () => show(false));
+  const moveTo = (y) => {
+    const r = bar.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (y - r.top - grab) / Math.max(1, r.height - thumb.offsetHeight)));
+    s.scrollTop = ratio * (s.scrollHeight - s.clientHeight);
+  };
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const t = thumb.getBoundingClientRect();
+    // 按在滑块上就从按住的地方拖；按在空白处，滑块先跳过来（中心对准鼠标）
+    grab = e.clientY >= t.top && e.clientY <= t.bottom ? e.clientY - t.top : t.height / 2;
+    S.pinned = false;
+    bar.classList.add('dragging');
+    bar.setPointerCapture(e.pointerId);
+    moveTo(e.clientY);
+  });
+  bar.addEventListener('pointermove', (e) => grab !== null && moveTo(e.clientY));
+  const end = () => {
+    if (grab === null) return;
+    grab = null;
+    bar.classList.remove('dragging');
+    show(false);
+    if (S.rendered?.from && s.scrollTop < 400) loadEarlier(); // 拖的时候不接更早的消息（滑块会跳），松手再接
+  };
+  bar.addEventListener('pointerup', end);
+  bar.addEventListener('pointercancel', end);
+  bar.dragging = () => grab !== null;
+  s.addEventListener(
+    'scroll',
+    () => {
+      requestAnimationFrame(updateScrollbar);
+      updateToBottom();
+    },
+    { passive: true },
+  );
+  const ro = new ResizeObserver(() => requestAnimationFrame(() => (updateScrollbar(), updateToBottom())));
+  ro.observe(s, { box: 'border-box' }); // 只看外框：顶栏、输入区变高时上下留白会变，那不用管
+  ro.observe($('#messages'));
+  $('#btn-to-bottom').onclick = jumpToBottom;
+}
+
 function nearBottom() {
   const s = $('#scroller');
   return s.scrollHeight - s.scrollTop - s.clientHeight < 140;
@@ -1385,6 +1488,7 @@ async function openConv(key) {
   }
   S.current = key;
   if (switching) {
+    S.newBelow = 0;
     loadDraft(key);
     refreshSessionImages(c.roomId);
   }
@@ -1445,12 +1549,14 @@ function onMessage(roomId, m) {
   const conv = currentConv();
   if (list && conv && conv.key === key) {
     const near = nearBottom() || m.from === 'user';
+    if (!near && m.from !== 'system') S.newBelow = (S.newBelow || 0) + 1;
     const shown = convMessages(conv);
     const tpl = document.createElement('template');
     tpl.innerHTML = messageHtml(roomId, m, shown[shown.length - 2], conv);
     for (const el of tpl.content.children) el.classList.add('enter');
     $('#messages').appendChild(tpl.content);
     if (near) scrollToBottom();
+    updateToBottom();
   }
   if (m.from !== 'user' && m.from !== 'system') {
     const focused = document.hasFocus();
@@ -1915,7 +2021,7 @@ function jumpTo(seq) {
     }
   }
   if (!el) return toast('原消息不在这个会话里了');
-  // 直接跳过去（平滑滚动会被消息高度的变化打断）；屏幕外消息的高度是估的，排好版后再对准一次
+  // 直接跳过去（平滑滚动会被图片加载等高度变化打断），下一帧再对准一次
   el.scrollIntoView({ block: 'center' });
   requestAnimationFrame(() => requestAnimationFrame(() => el.scrollIntoView({ block: 'center' })));
   el.classList.remove('flash');
@@ -2904,12 +3010,12 @@ function bind() {
   });
   $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
   // 往上翻快到顶了：接上更早的一段；也可以点最上面的「更早的 N 条消息」
-  $('#scroller').addEventListener('scroll', () => S.rendered?.from && $('#scroller').scrollTop < 400 && loadEarlier(), { passive: true });
+  $('#scroller').addEventListener('scroll', () => S.rendered?.from && $('#scroller').scrollTop < 400 && !$('#scrollbar').dragging?.() && loadEarlier(), { passive: true });
   $('#messages').addEventListener('click', (e) => e.target.closest('[data-earlier]') && loadEarlier());
-  // 消息列表变高了（图片慢慢加载出来、屏幕外的消息排版后量出了真实高度）：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
+  // 消息列表变高了（比如图片慢慢加载出来）：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
   $('#scroller').addEventListener('scroll', () => (S.pinned = nearBottom()), { passive: true });
   $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && S.pinned && scrollToBottom(), true);
-  new ResizeObserver(() => S.pinned && scrollToBottom()).observe($('#messages'));
+  new ResizeObserver(() => requestAnimationFrame(() => S.pinned && scrollToBottom())).observe($('#messages'));
   $('#model-menu').addEventListener('click', (e) => {
     const item = e.target.closest('.menu-item');
     if (item) pickFromMenu(item);
@@ -3097,6 +3203,7 @@ async function init() {
   applyTheme(currentTheme());
   detectIcons();
   trackChrome();
+  bindScrollbar();
   try {
     applyState(await api('GET', '/api/state'));
   } catch {
