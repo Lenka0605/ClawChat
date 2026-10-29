@@ -1434,12 +1434,12 @@ function renderLive() {
         ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? tr('收起过程 · {n} 步', { n: all.length }) : tr('展开过程 · {n} 步', { n: all.length })}
             <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
         : '';
-      const sideTag = r.side ? `<span class="side-tag" title="${tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
+      const sideTag = r.side ? `<span class="side-tag" title="${r.peer ? tr('本体在群里忙，分身先来回同事的私聊（只能看，不能改）') : tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
       return `<div class="msg agent live from-${esc(r.agent)}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
-        <span>${r.side ? tr('正在回复你') : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
+        <span>${r.side ? (r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
           r.side ? '' : `<button class="live-fresh-mini" data-agent="${esc(r.agent)}" title="${tr('会话太重、卡住时用：结束这一轮，换个新会话重来')}">${tr('换新会话')}</button>`
         }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${tr('停止')}</button></div>

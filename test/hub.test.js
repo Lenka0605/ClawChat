@@ -661,6 +661,91 @@ test('本体在群里忙时私聊它：分身马上回；本体干完后看到�
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.dm).length, 1); // 没有重复回私聊
 });
 
+test('本体在群里忙时同事私下找它：分身马上私下回同事；本体干完后看到分身聊了什么', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  // Claude 先有一个会话，然后在群里干一件很久的活
+  hub.postUserMessage(room.id, '@Claude 你好');
+  await tick();
+  calls[0].finish('你好老板');
+  await settle(hub);
+  hub.postUserMessage(room.id, '@Claude 去重构整个项目');
+  await tick();
+  const mainCall = calls.at(-1);
+  assert.equal(mainCall.agent, 'claude');
+  // 老板让 ChatGPT 去问问；ChatGPT 私下找 Claude
+  hub.postUserMessage(room.id, '@ChatGPT 问问 Claude 做到哪了');
+  await tick();
+  const gptCall = calls.at(-1);
+  assert.equal(gptCall.agent, 'gpt');
+  gptCall.finish('<私聊 Claude>你那边重构做到哪了？</私聊>');
+  await tick();
+  // 不用等 Claude 干完：分身马上开工，知道是 ChatGPT 私下找它
+  const sideCall = calls.at(-1);
+  assert.equal(sideCall.agent, 'claude');
+  assert.equal(sideCall.side, true);
+  assert.equal(sideCall.session, 'claude-s');
+  assert.match(sideCall.prompt, /你是本体的分身，专门先回 ChatGPT 私下找你的话/);
+  assert.match(sideCall.prompt, /你那边重构做到哪了/);
+  assert.ok(hub.runs.has(hub.key(room.id, 'claude')));
+  // 分身的状态显示在 ChatGPT 找 Claude 的那段私聊里
+  const st = hub.status().find((r) => r.side);
+  assert.equal(st.peer, 'gpt');
+  assert.equal(st.pmIn, 'claude');
+  sideCall.finish('在改第三个模块了，大概还要十分钟');
+  await tick();
+  const reply = store.getMessages(room.id).find((m) => m.from === 'claude' && m.side);
+  assert.equal(reply.pm, 'gpt'); // 默认私下回 ChatGPT，不发到群里、也不进老板的私聊
+  assert.equal(reply.pmIn, 'claude');
+  assert.equal(reply.dm, undefined);
+  // ChatGPT 被叫醒，看到回复
+  const gptAgain = calls.at(-1);
+  assert.equal(gptAgain.agent, 'gpt');
+  assert.match(gptAgain.prompt, /在改第三个模块了/);
+  gptAgain.finish('老板，Claude 说在改第三个模块，大概还要十分钟');
+  await tick();
+  // 本体干完：接着看一眼分身替它聊了什么，不会把 ChatGPT 的私聊再回一遍
+  mainCall.finish('重构完了');
+  await tick();
+  const syncCall = calls.at(-1);
+  assert.equal(syncCall.agent, 'claude');
+  assert.equal(syncCall.side, false);
+  assert.match(syncCall.prompt, /你的分身（私下发给 ChatGPT）\] 在改第三个模块了/);
+  syncCall.finish('[PASS]');
+  await settle(hub);
+  assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.pm === 'gpt').length, 1);
+});
+
+test('同事私下找时开的分身出错了：提示留在那段私聊里，不发到群里', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 去重构整个项目');
+  await tick();
+  const mainCall = calls.at(-1);
+  hub.postUserMessage(room.id, '@ChatGPT 问问 Claude');
+  await tick();
+  calls.at(-1).finish('<私聊 Claude>做到哪了？</私聊>');
+  await tick();
+  const sideCall = calls.at(-1);
+  assert.equal(sideCall.side, true);
+  hub.stop(room.id, 'claude', 'side'); // 只停分身
+  await tick();
+  const note = store.getMessages(room.id).find((m) => m.from === 'system' && /分身/.test(m.text));
+  assert.ok(note);
+  assert.equal(note.pm, 'gpt');
+  assert.equal(note.pmIn, 'claude');
+  assert.equal(note.dm, undefined);
+  mainCall.finish('重构完了');
+  for (let i = 0; i < 20 && (hub.runs.size || hub.sideRuns.size); i++) {
+    await tick();
+    for (const c of calls) c.finish('[PASS]');
+  }
+});
+
 test('上下文满了：自动换新会话重来，完整记录里没有另一位的私聊；换了还超就提示分几次发', async () => {
   const store = new Store();
   let overflow = 0; // 还要报几次「上下文满了」

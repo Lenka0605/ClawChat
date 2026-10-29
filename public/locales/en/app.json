@@ -298,5 +298,7 @@
   "要先装 Gemini CLI": "Install Gemini CLI first",
   "跟随 Gemini CLI 的设置": "Follows Gemini CLI's settings",
   "还没填。填了 Gemini API Key 就按 Key 用（按用量计费）；不填就用 Gemini CLI 自己的登录。": "Not set. With a Gemini API key, usage is billed to that key; without one, Gemini CLI's own sign-in is used.",
-  "还没填。填好后，新建聊天时勾上 {name} 就能用了。": "Not set yet. Once it's filled in, select {name} when creating a chat."
+  "还没填。填好后，新建聊天时勾上 {name} 就能用了。": "Not set yet. Once it's filled in, select {name} when creating a chat.",
+  "正在回复 {name}": "Replying to {name}",
+  "本体在群里忙，分身先来回同事的私聊（只能看，不能改）": "The main session is busy in the group, so a clone is replying to this private chat first (read-only, can't make changes)"
 }
