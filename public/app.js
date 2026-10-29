@@ -242,6 +242,14 @@ function fmtTime(ts) {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
+// AI 之间私聊的时间：一直显示在名字旁边（今天的只写时分，不是今天的带上日期）
+function fmtPmTime(ts) {
+  const d = new Date(ts);
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (sameDay(d, new Date())) return `今天 ${hm}`;
+  return fmtTime(ts);
+}
+
 // 鼠标移到消息上显示的发送时间：24 小时制，精确到秒；不是今天的带上日期
 function fmtExact(ts) {
   const d = new Date(ts);
@@ -529,8 +537,9 @@ function parseKey(key) {
   return null;
 }
 
+// 一条消息的「主场」（未读数、通知、搜索结果都记在这里）：AI 之间的私聊记在收到的那一位的私聊里
 function convOf(roomId, m) {
-  return m.dm ? `d:${roomId}:${m.dm}` : `g:${roomId}`;
+  return m.dm ? `d:${roomId}:${m.dm}` : m.pm ? `d:${roomId}:${m.pm}` : `g:${roomId}`;
 }
 
 function currentConv() {
@@ -541,7 +550,9 @@ function currentConv() {
   return { ...c, room };
 }
 
+// 这条消息显示在不在这个会话里：AI 之间的私聊，在两位各自和老板的私聊里都显示
 function inConv(conv, m) {
+  if (m.pm) return !!conv.dm && (m.pm === conv.dm || m.from === conv.dm);
   return conv.dm ? m.dm === conv.dm : !m.dm;
 }
 
@@ -687,11 +698,12 @@ function convAvatar(c) {
 
 function convItemHtml(c, extra = {}) {
   const busy = S.runs
-    .filter((x) => x.roomId === c.room.id && (c.dm ? x.dm && x.agent === c.dm : !x.dm))
+    .filter((x) => runInConv(x, c))
     .map((x) => `${agentName(x.agent)}${x.side ? ' 分身' : ''}`)
     .join('、');
   const last = c.last;
-  const lastText = last ? (last.from === 'user' || c.dm || c.room.members.length === 1 ? '' : `${agentName(last.from)}：`) + last.text.replace(/\s+/g, ' ') : '';
+  const who = last?.pm ? `${agentName(last.from)} → ${agentName(last.pm)}：` : last && !(last.from === 'user' || c.dm || c.room.members.length === 1) ? `${agentName(last.from)}：` : '';
+  const lastText = last ? who + last.text.replace(/\s+/g, ' ') : '';
   const preview = busy ? `<span class="busy">${esc(busy)} 正在干活…</span>` : last ? esc(lastText) : c.dm ? '私聊' : '还没有消息';
   const unread = (S.unread.get(c.key) || 0) + (extra.hiddenUnread || 0);
   const toggle = extra.dmCount
@@ -736,7 +748,7 @@ function searchHitsHtml(q, hasConvs) {
   const items = res.hits.map((h) => {
     const room = roomById(h.roomId);
     if (!room) return '';
-    const where = h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
+    const where = h.pm ? `${room.name} · ${agentName(h.from)} 私下找 ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
     const who = h.from === 'user' ? '我' : agentName(h.from);
     const text = `${h.cut ? '…' : ''}${String(h.text).replace(/\*\*|`/g, '').replace(/\s+/g, ' ')}`;
     const parts = text.split(re);
@@ -814,7 +826,7 @@ function renderShell() {
   const hint = $('#dm-hint');
   hint.hidden = !dm;
   hint.firstElementChild.textContent = dm
-    ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。`
+    ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。它和其他 AI 之间的私聊也会显示在这里。`
     : '';
   $('#input').placeholder = dm ? `私聊 ${agentName(dm)}` : `发送给 ${room.name}`;
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
@@ -969,7 +981,11 @@ function messageHtml(roomId, m, prev, conv) {
   // 私聊里的回复：可以转到群里（转过的就不再显示）
   const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, '发到群里', FORWARD_ICON) : '';
   const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${forwardBtn}${replyBtn}${time}</div>`;
-  return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
+  // AI 之间的私聊：标明谁私下发给谁、什么时候发的
+  const who = m.pm
+    ? `${esc(agentLabel(m.from))}<span class="pm-arrow">→</span>${esc(agentLabel(m.pm))}<span class="side-tag pm-tag" title="它们之间的私聊，群里其他成员看不到">AI 私聊</span><span class="pm-time">${esc(fmtPmTime(m.ts))}</span>`
+    : esc(agentLabel(m.from));
+  return `${sep}<div class="msg agent from-${esc(m.from)}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
 }
@@ -1204,8 +1220,15 @@ function liveKey(r) {
   return `${r.roomId}:${r.agent}${r.side ? ':side' : ''}`;
 }
 
+// 这个会话里该显示哪些「正在干活」：被另一位 AI 私下找来的那一轮，显示在它俩的私聊里，不在群里
+function runInConv(r, conv) {
+  if (r.roomId !== (conv.roomId ?? conv.room?.id)) return false; // 侧栏的会话只记了 room
+  if (r.peer) return !!conv.dm && (conv.dm === r.agent || conv.dm === r.peer);
+  return conv.dm ? r.dm && r.agent === conv.dm : !r.dm;
+}
+
 function convRuns(conv) {
-  return S.runs.filter((r) => r.roomId === conv.roomId && (conv.dm ? r.dm && r.agent === conv.dm : !r.dm));
+  return S.runs.filter((r) => runInConv(r, conv));
 }
 
 const IDLE_WARN = 2 * 60 * 1000; // 这么久没有任何动静，就提示可能卡住了
@@ -1248,7 +1271,7 @@ function renderLive() {
       const sideTag = r.side ? '<span class="side-tag" title="本体在群里忙，分身先来回你的私聊（只能看，不能改）">分身</span>' : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
-      return `<div class="msg agent live${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
+      return `<div class="msg agent live from-${esc(r.agent)}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
@@ -1516,7 +1539,9 @@ function notifyReply(roomId, m, key) {
   const solo = room.members.length === 1;
   const title = m.from === 'system'
     ? `ClawChat · ${room.name}`
-    : `${agentName(m.from)}${m.dm && !solo ? '（私聊）' : solo ? '' : ` · ${room.name}`}`;
+    : m.pm
+      ? `${agentName(m.from)} 私下找 ${agentName(m.pm)} · ${room.name}`
+      : `${agentName(m.from)}${m.dm && !solo ? '（私聊）' : solo ? '' : ` · ${room.name}`}`;
   const body = plainSnippet(m.text, 140) || (m.images?.length ? '[图片]' : '');
   if (hasNative()) return native({ type: 'notify', title, body, key });
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -1547,7 +1572,7 @@ function onMessage(roomId, m) {
   }
   const key = convOf(roomId, m);
   const conv = currentConv();
-  if (list && conv && conv.key === key) {
+  if (list && conv && conv.roomId === roomId && inConv(conv, m)) {
     const near = nearBottom() || m.from === 'user';
     if (!near && m.from !== 'system') S.newBelow = (S.newBelow || 0) + 1;
     const shown = convMessages(conv);

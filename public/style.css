@@ -32,6 +32,12 @@
   --accent-ring: rgba(0, 122, 255, 0.5);
   --menu-bg: rgba(246, 246, 248, 0.94);
   --fast: #e68600;
+  /* 三位 AI 的气泡（贴近各自的官方配色）：上下两个颜色做渐变，描边和光晕带一点品牌色 */
+  --claude-b1: #fdf8f3; --claude-b2: #f6ece3; --claude-edge: rgba(217, 119, 87, 0.26); --claude-glow: rgba(217, 119, 87, 0.3);
+  --gpt-b1: #f9f9fa; --gpt-b2: #eeeff1; --gpt-edge: rgba(16, 163, 127, 0.22); --gpt-glow: rgba(0, 0, 0, 0.16);
+  --ds-b1: #f4f6ff; --ds-b2: #e8edff; --ds-edge: rgba(77, 107, 254, 0.26); --ds-glow: rgba(77, 107, 254, 0.3);
+  --user-b1: #3b9aff;
+  --bubble-hi: rgba(255, 255, 255, 0.95);
   /* Liquid Glass：半透明 + 背景模糊 + 顶部一道高光边 */
   --glass: rgba(255, 255, 255, 0.6);
   --glass-strong: rgba(252, 252, 253, 0.8);
@@ -84,6 +90,11 @@
     --accent-ring: rgba(10, 132, 255, 0.6);
     --menu-bg: rgba(44, 44, 46, 0.94);
     --fast: #ffb340;
+    --claude-b1: #3c2e27; --claude-b2: #2f241f; --claude-edge: rgba(217, 119, 87, 0.36); --claude-glow: rgba(217, 119, 87, 0.22);
+    --gpt-b1: #343436; --gpt-b2: #29292b; --gpt-edge: rgba(16, 163, 127, 0.32); --gpt-glow: rgba(0, 0, 0, 0.55);
+    --ds-b1: #272e4c; --ds-b2: #1f253e; --ds-edge: rgba(77, 107, 254, 0.42); --ds-glow: rgba(77, 107, 254, 0.24);
+    --user-b1: #3d9dff;
+    --bubble-hi: rgba(255, 255, 255, 0.09);
     --glass: rgba(50, 50, 52, 0.55);
     --glass-strong: rgba(34, 34, 36, 0.78);
     --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
@@ -129,6 +140,11 @@
   --accent-ring: rgba(10, 132, 255, 0.6);
   --menu-bg: rgba(44, 44, 46, 0.94);
   --fast: #ffb340;
+  --claude-b1: #3c2e27; --claude-b2: #2f241f; --claude-edge: rgba(217, 119, 87, 0.36); --claude-glow: rgba(217, 119, 87, 0.22);
+  --gpt-b1: #343436; --gpt-b2: #29292b; --gpt-edge: rgba(16, 163, 127, 0.32); --gpt-glow: rgba(0, 0, 0, 0.55);
+  --ds-b1: #272e4c; --ds-b2: #1f253e; --ds-edge: rgba(77, 107, 254, 0.42); --ds-glow: rgba(77, 107, 254, 0.24);
+  --user-b1: #3d9dff;
+  --bubble-hi: rgba(255, 255, 255, 0.09);
   --glass: rgba(50, 50, 52, 0.55);
   --glass-strong: rgba(34, 34, 36, 0.78);
   --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
@@ -406,6 +422,24 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
   word-wrap: break-word; overflow-wrap: anywhere; font-size: 14px; line-height: 1.45; position: relative;
 }
 .msg.user .bubble { background: var(--bubble-user); color: var(--bubble-user-text); white-space: pre-wrap; }
+/* 气泡的质感：上亮下暗的渐变 + 顶上一道细高光 + 半像素的品牌色描边 + 同色的柔和光晕 */
+.msg.agent .bubble {
+  background: linear-gradient(180deg, var(--b1, var(--bubble-agent)), var(--b2, var(--bubble-agent)));
+  box-shadow: inset 0 1px 0 var(--bubble-hi), inset 0 0 0 0.5px var(--b-edge, transparent), 0 1px 1px rgba(0, 0, 0, 0.03), 0 10px 26px -16px var(--b-glow, transparent);
+}
+.msg.from-claude { --b1: var(--claude-b1); --b2: var(--claude-b2); --b-edge: var(--claude-edge); --b-glow: var(--claude-glow); }
+.msg.from-gpt { --b1: var(--gpt-b1); --b2: var(--gpt-b2); --b-edge: var(--gpt-edge); --b-glow: var(--gpt-glow); }
+.msg.from-deepseek { --b1: var(--ds-b1); --b2: var(--ds-b2); --b-edge: var(--ds-edge); --b-glow: var(--ds-glow); }
+.msg.user .bubble {
+  background: linear-gradient(180deg, var(--user-b1), var(--bubble-user));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 24px -14px rgba(0, 122, 255, 0.6);
+}
+/* AI 之间的私聊：名字一栏写明谁发给谁、什么时候 */
+.pm-arrow { margin: 0 3px; color: var(--faint); font-weight: 400; }
+:root .side-tag.pm-tag { color: #b25f00; background: rgba(255, 159, 10, 0.16); }
+:root[data-theme="dark"] .side-tag.pm-tag { color: #ffb340; background: rgba(255, 159, 10, 0.18); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .side-tag.pm-tag { color: #ffb340; background: rgba(255, 159, 10, 0.18); } }
+.pm-time { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .msg-foot { font-size: 11px; color: var(--muted); margin: 3px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .time-sep { text-align: center; font-size: 11px; color: var(--muted); margin: 8px 0 12px; font-weight: 500; }
 .notice { text-align: center; margin: 0 0 12px; }

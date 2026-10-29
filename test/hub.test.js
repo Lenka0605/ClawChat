@@ -90,10 +90,19 @@ test('buildTurn：DeepSeek 用看不了图的模型时，图片只给文件路�
 });
 
 test('splitReply 拆出私聊和群聊', () => {
-  assert.deepEqual(splitReply('好的。<私聊老板>我觉得 Claude 的方案有问题</私聊老板>', false), { group: '好的。', dm: '我觉得 Claude 的方案有问题' });
-  assert.deepEqual(splitReply('<私聊老板>只跟你说', false), { group: '', dm: '只跟你说' });
-  assert.deepEqual(splitReply('收到老板。<群聊>@Claude 按你的方案来</群聊>', true), { group: '@Claude 按你的方案来', dm: '收到老板。' });
-  assert.deepEqual(splitReply('普通回复', false), { group: '普通回复', dm: '' });
+  assert.deepEqual(splitReply('好的。<私聊老板>我觉得 Claude 的方案有问题</私聊老板>', false), { group: '好的。', dm: '我觉得 Claude 的方案有问题', pms: [] });
+  assert.deepEqual(splitReply('<私聊老板>只跟你说', false), { group: '', dm: '只跟你说', pms: [] });
+  assert.deepEqual(splitReply('收到老板。<群聊>@Claude 按你的方案来</群聊>', true), { group: '@Claude 按你的方案来', dm: '收到老板。', pms: [] });
+  assert.deepEqual(splitReply('普通回复', false), { group: '普通回复', dm: '', pms: [] });
+  // 私下找另一位 AI
+  assert.deepEqual(splitReply('群里说一句。<私聊 DeepSeek>你那边的接口先别动</私聊>', false), { group: '群里说一句。', dm: '', pms: [{ to: 'deepseek', text: '你那边的接口先别动' }] });
+  assert.deepEqual(splitReply('<私聊ChatGPT>只跟你说</私聊 ChatGPT>', false), { group: '', dm: '', pms: [{ to: 'gpt', text: '只跟你说' }] });
+  // 被另一位私下找来的回合：默认私下回它，<群聊> 发群里，<私聊老板> 给老板
+  assert.deepEqual(splitReply('好的，我改。<群聊>@ChatGPT 接口改好了</群聊><私聊老板>Claude 让我改接口</私聊老板>', false, 'claude'), {
+    group: '@ChatGPT 接口改好了',
+    dm: 'Claude 让我改接口',
+    pms: [{ to: 'claude', text: '好的，我改。' }],
+  });
 });
 
 // 假的 AI：按脚本回复，记录每次收到的消息
@@ -464,6 +473,38 @@ test('本体忙时，分身在私聊里写的 <群聊> 会发到群里，并叫�
     calls.forEach((c) => c.finish('[PASS]'));
     await tick();
   }
+});
+
+test('AI 私下找另一位 AI：对方被叫醒、默认私下回；第三位看不到；老板在两位的私聊里都能看到', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt, n) => {
+    if (agent === 'claude' && n === 1) return '大家好。<私聊 DeepSeek>你那边的接口先别动，等我改完</私聊>';
+    if (agent === 'deepseek') return '好的，等你。';
+    return '[PASS]';
+  });
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.postUserMessage(room.id, '@Claude 开工');
+  await settle(hub);
+  const msgs = store.getMessages(room.id);
+  const pm = msgs.find((m) => m.pm === 'deepseek');
+  assert.equal(pm.from, 'claude');
+  assert.equal(pm.text, '你那边的接口先别动，等我改完');
+  // DeepSeek 被叫醒，知道是 Claude 私下找它，回复默认私下回 Claude
+  const dsCall = calls.find((c) => c.agent === 'deepseek');
+  assert.match(dsCall.prompt, /Claude（私下发给你，别人看不到）\] 你那边的接口先别动/);
+  assert.match(dsCall.prompt, /Claude 私下找你/);
+  const reply = msgs.find((m) => m.from === 'deepseek');
+  assert.equal(reply.pm, 'claude');
+  assert.equal(reply.text, '好的，等你。');
+  // ChatGPT 看不到这两条
+  hub.postUserMessage(room.id, '@ChatGPT 你看看进度');
+  await settle(hub);
+  const gptCall = calls.filter((c) => c.agent === 'gpt').at(-1);
+  assert.doesNotMatch(gptCall.prompt, /接口先别动|好的，等你/);
+  // 侧栏：两位各自的私聊里都有最新一条
+  assert.equal(store.getRoom(room.id).dmLast.claude.pm, 'claude');
+  assert.equal(store.getRoom(room.id).dmLast.deepseek.text, '好的，等你。');
 });
 
 test('老板编辑了自己的消息：作为新消息发出，大家看得到改的是哪条、以新的为准', async () => {

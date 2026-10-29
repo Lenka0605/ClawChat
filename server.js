@@ -406,7 +406,7 @@ async function api(req, res, url) {
         if (at < 0) continue;
         found++;
         const start = Math.max(0, at - 30);
-        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, ts: m.ts, text: m.text.slice(start, at + q.length + 90), cut: start > 0 });
+        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, pm: m.pm || null, ts: m.ts, text: m.text.slice(start, at + q.length + 90), cut: start > 0 });
       }
     }
     hits.sort((a, b) => b.ts - a.ts);
@@ -566,7 +566,7 @@ async function api(req, res, url) {
       let replyTo = null;
       if (body.replyTo !== undefined && body.replyTo !== null) {
         const target = store.getMessages(room.id)[Number(body.replyTo)];
-        const sameConv = target && (target.dm || null) === (room.members.length > 1 ? dm : null);
+        const sameConv = target && (target.pm ? !!dm && (target.pm === dm || target.from === dm) : (target.dm || null) === (room.members.length > 1 ? dm : null));
         if (!target || target.from === 'system' || !sameConv) return send(res, 400, { error: '要回复的消息找不到了' });
         replyTo = { seq: target.seq, from: target.from, text: (target.text || (target.images?.length ? '[图片]' : '')).slice(0, 140) };
       }
