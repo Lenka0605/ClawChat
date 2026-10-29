@@ -758,3 +758,13 @@ test('GPT 的速度每次都明确指定，不跟着老板 Codex 配置里的 se
   assert.ok(fast.includes('service_tier="fast"') && fast.includes('features.fast_mode=true'));
   assert.ok(!fast.includes('features.fast_mode=false'));
 });
+
+test('ChatGPT 的新会话：群聊说明作为开发者指令传进去；续上的会话不再传', () => {
+  const room = { cwd: os.tmpdir(), permission: 'project', models: {}, efforts: {} };
+  const intro = '你现在在一个叫「t」的群聊里。\n5. 私聊：有些话想私下跟老板说，写在 <私聊老板>…</私聊老板> 里，"引号"也没事';
+  const fresh = codexArgs(room, null, [], false, intro);
+  const arg = fresh.find((a) => a.startsWith('developer_instructions='));
+  assert.ok(arg);
+  assert.equal(JSON.parse(arg.slice('developer_instructions='.length)), intro); // 原样传过去，换行、引号都不丢
+  assert.ok(!codexArgs(room, 'gpt-session', [], false, intro).some((a) => a.startsWith('developer_instructions=')));
+});

@@ -1903,10 +1903,20 @@ function pickMention(i) {
   const el = $('#input');
   const it = S.mention?.items[i];
   if (!it) return;
-  const start = S.mention.start;
-  // 光标后面紧跟着的半截名字和一个空格也一起换掉（比如在 @Cl|aude 中间选了菜单）
-  let end = el.selectionStart + (el.value.slice(el.selectionStart).match(/^\S*/)?.[0].length || 0);
-  if (el.value[end] === ' ') end++;
+  // 按光标现在的位置重新算（菜单打开后光标可能被挪过，比如点进了别的 @ 标签）
+  const mq = mentionQuery();
+  if (!mq) return hideMentionMenu();
+  const start = mq.start;
+  // 光标停在名字中间（比如 @Cl|aude）时，后半截名字一起换掉；但只换「正好能接上名字」的那几个字母，
+  // 别的一个字都不动（以前会把光标后面直到空格的字全删掉，中文没有空格，后面整段话就没了）
+  let end = el.selectionStart;
+  const typed = el.value.slice(start + 1, end).toLowerCase();
+  const after = el.value.slice(end).match(/^[A-Za-z0-9]*/)[0];
+  const name = it.insert.toLowerCase();
+  if (after && name.startsWith(typed) && name.startsWith(typed + after.toLowerCase())) {
+    end += after.length;
+    if (el.value[end] === ' ' || el.value[end] === MENTION_SEP) end++; // 名字后面原来的空格，换成标签自带的
+  }
   const token = `@${it.id === 'all' ? '' : MENTION_GAP}${it.insert}${MENTION_SEP}`; // @所有人没有头像，不用留空隙
   hideMentionMenu();
   editInput(el, start, end, token);
@@ -1973,6 +1983,7 @@ function snapToMentions() {
     if (t) {
       const p = s - t.start < t.end - s ? t.start : t.end;
       el.setSelectionRange(p, p);
+      updateMentionMenu(); // 光标挪了，@ 菜单跟着重新判断
     }
     return;
   }
