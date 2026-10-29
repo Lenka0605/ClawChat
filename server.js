@@ -595,6 +595,12 @@ async function api(req, res, url) {
       openPath(room.cwd);
       return send(res, 200, { ok: true });
     }
+    // 把某位在私聊里的回复转到群里（老板点了「发到群里」）
+    if (sub === 'forward' && method === 'POST') {
+      const { seq } = await readBody(req);
+      if (!hub.forwardToGroup(room.id, Number(seq))) return send(res, 400, { error: '这条消息转不了' });
+      return send(res, 200, { ok: true });
+    }
     if (sub === 'reveal' && method === 'POST') {
       const file = roomFile(room, (await readBody(req)).path);
       if (!file) return send(res, 404, { error: '找不到这个文件，可能已经被移走或删掉了' });

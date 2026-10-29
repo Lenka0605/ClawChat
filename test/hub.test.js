@@ -409,6 +409,63 @@ test('私聊里单独换的模型、强度只用在私聊那一轮，群里照�
   assert.equal(store.getRoom(room.id).efforts.claude, 'high');
 });
 
+test('私聊里 @ 了别人却没发到群里：不自动转，提醒老板并能一键转到群里', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? '@ChatGPT 进度如下：APK 已打好' : 'gpt 收到'));
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '你去群里发一下进度', [], 'claude');
+  await settle(hub);
+  assert.deepEqual(calls.map((c) => c.agent), ['claude']); // ChatGPT 没被叫起来：私聊里的话不自动公开
+  const msgs = store.getMessages(room.id);
+  const dmReply = msgs.find((m) => m.from === 'claude');
+  assert.equal(dmReply.dm, 'claude');
+  const tip = msgs.find((m) => m.action?.type === 'forward');
+  assert.equal(tip.dm, 'claude');
+  assert.equal(tip.action.seq, dmReply.seq);
+  // 老板点「发到群里」
+  assert.equal(hub.forwardToGroup(room.id, dmReply.seq), true);
+  await settle(hub);
+  assert.equal(calls.at(-1).agent, 'gpt');
+  assert.match(calls.at(-1).prompt, /Claude（老板从私聊转到群里的）\] @ChatGPT 进度如下/);
+  assert.equal(store.getMessages(room.id).filter((m) => m.forwardOf === dmReply.seq).length, 1);
+  hub.forwardToGroup(room.id, dmReply.seq); // 再点一次不会重复发
+  assert.equal(store.getMessages(room.id).filter((m) => m.forwardOf === dmReply.seq).length, 1);
+});
+
+test('本体忙时，分身在私聊里写的 <群聊> 会发到群里，并叫醒被 @ 的那位', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@Claude 打包');
+  await tick();
+  calls[0].finish('好的');
+  await settle(hub);
+  hub.postUserMessage(room.id, '@Claude 继续打包');
+  await tick();
+  const main = calls.at(-1);
+  hub.postUserMessage(room.id, '你去群里同步一下进度', [], 'claude');
+  await tick();
+  const side = calls.at(-1);
+  assert.equal(side.side, true);
+  assert.match(side.prompt, /写在 <群聊>…<\/群聊> 里，会发到群里/);
+  side.finish('<群聊>@ChatGPT 安卓包进度：APK 已打好</群聊>老板，已经在群里同步了');
+  await tick();
+  const msgs = store.getMessages(room.id);
+  const inGroup = msgs.find((m) => m.from === 'claude' && m.side && !m.dm);
+  assert.equal(inGroup.text, '@ChatGPT 安卓包进度：APK 已打好');
+  assert.ok(msgs.some((m) => m.from === 'claude' && m.side && m.dm === 'claude' && m.text === '老板，已经在群里同步了'));
+  assert.equal(calls.at(-1).agent, 'gpt'); // ChatGPT 被叫起来了
+  assert.match(calls.at(-1).prompt, /@ChatGPT 安卓包进度/);
+  main.finish('打完了');
+  // 本体干完会再起一轮看分身替它聊了什么：把还没结束的轮次都结束掉
+  for (let i = 0; i < 20 && (hub.runs.size || hub.sideRuns.size); i++) {
+    calls.forEach((c) => c.finish('[PASS]'));
+    await tick();
+  }
+});
+
 test('老板编辑了自己的消息：作为新消息发出，大家看得到改的是哪条、以新的为准', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner((agent) => `${agent} 收到`);

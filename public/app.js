@@ -827,6 +827,7 @@ const COPIED_ICON = svgIcon('<path d="m5 12.5 4.5 4.5L19 7.5"/>');
 const EDIT_ICON = svgIcon('<path d="M14.5 5.5 18.5 9.5"/><path d="M4 20l1-4.6L15.6 4.8a2 2 0 0 1 2.8 0l.8.8a2 2 0 0 1 0 2.8L8.6 19 4 20z"/>');
 const SPEAK_ICON = svgIcon('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>');
 const STOP_SPEAK_ICON = svgIcon('<rect x="6.5" y="6.5" width="11" height="11" rx="2.2" fill="currentColor" stroke="none"/>');
+const FORWARD_ICON = svgIcon('<path d="M14 5l6 6-6 6"/><path d="M20 11H10a6 6 0 0 0-6 6v1.5"/>');
 const REPLY_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
 
@@ -859,7 +860,12 @@ function quoteHtml(q) {
 function messageHtml(roomId, m, prev, conv) {
   const sep = !prev || m.ts - prev.ts > 5 * 60 * 1000 ? `<div class="time-sep">${fmtTime(m.ts)}</div>` : '';
   if (m.from === 'system') {
-    const act = m.action?.type === 'fresh' ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>` : '';
+    const forwarded = m.action?.type === 'forward' && isForwarded(roomId, m.action.seq);
+    const act = m.action?.type === 'fresh'
+      ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>`
+      : m.action?.type === 'forward'
+        ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? '已发到群里' : '发到群里'}</button>`
+        : '';
     return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
   }
   const d = new Date(m.ts);
@@ -891,12 +897,15 @@ function messageHtml(roomId, m, prev, conv) {
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="私聊 ${esc(agentLabel(m.from))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
   const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? `思考 ${EFFORT_LABEL[m.effort] || m.effort}` : ''].filter(Boolean).join(' · ');
   const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
-  const sideTag = m.side ? '<span class="side-tag" title="本体当时在群里忙，这条是分身先回的">分身</span>' : '';
+  const sideTag = (m.side ? '<span class="side-tag" title="本体当时在群里忙，这条是分身先回的">分身</span>' : '') +
+    (m.forwardOf !== undefined ? '<span class="side-tag" title="你把它在私聊里的这段话转到了群里">从私聊转来</span>' : '');
   const speaking = S.speaking?.roomId === roomId && S.speaking.seq === m.seq;
   const speakBtn = m.text && HAS_SPEECH
     ? act(`data-speak="${m.seq}" class="act-btn${speaking ? ' on' : ''}"`, speaking ? '停止朗读' : '朗读', speaking ? STOP_SPEAK_ICON : SPEAK_ICON)
     : '';
-  const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${replyBtn}${time}</div>`;
+  // 私聊里的回复：可以转到群里（转过的就不再显示）
+  const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, '发到群里', FORWARD_ICON) : '';
+  const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${forwardBtn}${replyBtn}${time}</div>`;
   return `${sep}<div class="msg agent" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${esc(agentLabel(m.from))}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${md(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
@@ -925,13 +934,31 @@ function renderMessages() {
 
 // ---------------- 消息上的操作：复制、编辑、朗读 ----------------
 
+// 私聊里的这条回复是不是已经转到群里了
+function isForwarded(roomId, seq) {
+  return (S.messages.get(roomId) || []).some((x) => x.forwardOf === seq);
+}
+
+async function forwardMessage(seq, btn) {
+  const conv = currentConv();
+  if (!conv) return;
+  btn.disabled = true;
+  try {
+    await api('POST', `/api/rooms/${conv.roomId}/forward`, { seq });
+    toast('已发到群里');
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message);
+  }
+}
+
 function findMessage(seq) {
   const conv = currentConv();
   return conv ? (S.messages.get(conv.roomId) || []).find((m) => m.seq === seq) : null;
 }
 
 async function copyMessage(seq, btn) {
-  const text = String(findMessage(seq)?.text || '').replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@');
+  const text = cleanMentions(findMessage(seq)?.text || '');
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -976,7 +1003,7 @@ async function sendEdit() {
   const conv = currentConv();
   const m = ed && findMessage(ed.seq);
   if (!m || !conv) return;
-  const text = ed.text.replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').trim();
+  const text = cleanMentions(ed.text).trim();
   if (!text && !m.images?.length) return toast('消息是空的');
   if (text === String(m.text || '').trim()) return cancelEdit(); // 没改
   S.editMsg = null;
@@ -1474,6 +1501,10 @@ function autoGrow() {
 // 从菜单或快捷按钮插入的是「@ + 半角空格 + 名字」：头像盖住「@ 」这一段，和名字之间正好留出空隙；
 // 自己手打的 @Claude 没有这个空格，放不下头像，就只显示成蓝色标签
 const MENTION_GAP = '\u2002';
+// @ 标签后面跟一个全角空格：标签底色左右各伸出 4 像素，普通空格（约 4 像素）会被盖满，看着像和后面的字贴在一起
+const MENTION_SEP = '\u2003';
+// 发出去、复制出去的文字换回普通的写法：@Claude 后面一个普通空格
+const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
 const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)/gi;
 const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek' };
 function renderInputMirror() {
@@ -1508,7 +1539,7 @@ async function sendMessage() {
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
   const raw = el.value;
-  const text = raw.replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').trim(); // 发出去的还是普通的 @Claude
+  const text = cleanMentions(raw).trim(); // 发出去的还是普通的 @Claude
   const draftKey = S.current;
   const sent = S.attachments.filter((a) => a.status === 'done' && a.roomId === conv.roomId);
   if (!text && !sent.length) return;
@@ -1589,7 +1620,7 @@ function pickMention(i) {
   if (!it) return;
   const start = S.mention.start;
   const tail = el.value.slice(el.selectionStart);
-  const token = `@${it.id === 'all' ? '' : MENTION_GAP}${it.insert} `; // @所有人没有头像，不用留空隙
+  const token = `@${it.id === 'all' ? '' : MENTION_GAP}${it.insert}${MENTION_SEP}`; // @所有人没有头像，不用留空隙
   el.value = el.value.slice(0, start) + token + tail.replace(/^\S*/, '').replace(/^ /, '');
   el.selectionStart = el.selectionEnd = start + token.length;
   hideMentionMenu();
@@ -1617,7 +1648,7 @@ function mentionKeydown(e) {
 
 // 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
 // 认的写法和 lib/hub.js 的 MENTION_RE 一样；返回 true 表示这个按键被用掉了
-const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone) ?)$/i;
+const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)[ \u2003]?)$/i;
 function selectMentionOnBackspace(e) {
   const el = e.target;
   if (e.key !== 'Backspace' || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
@@ -1665,7 +1696,7 @@ function insertMention(name) {
   const start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
-  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' ? '' : MENTION_GAP}${name} `;
+  const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' ? '' : MENTION_GAP}${name}${MENTION_SEP}`;
   el.value = before + token + el.value.slice(end);
   el.selectionStart = el.selectionEnd = start + token.length;
   el.focus();
@@ -2480,6 +2511,8 @@ function bind() {
     if (e.target.closest('[data-edit-send]')) sendEdit();
     const speak = e.target.closest('[data-speak]');
     if (speak) toggleSpeak(Number(speak.dataset.speak));
+    const forward = e.target.closest('[data-forward]');
+    if (forward && !forward.disabled) forwardMessage(Number(forward.dataset.forward), forward);
     const jump = e.target.closest('[data-jump]');
     if (jump) jumpTo(Number(jump.dataset.jump));
     const fresh = e.target.closest('[data-fresh]');
