@@ -816,12 +816,8 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 .live-steps.enter { animation: drop 0.2s var(--ease); }
 .steps summary::before { transition: transform 0.18s var(--ease); }
 
-/* 侧栏：群下面的私聊展开时滑进来，收起时滑出去 */
-.conv-item.child.enter { animation: drop 0.2s var(--ease) both; }
-.conv-item.child.enter + .conv-item.child.enter { animation-delay: 0.04s; }
-@keyframes childOut { to { opacity: 0; transform: translateY(-4px); } }
-.conv-item.child.leaving { animation: childOut 0.16s var(--ease) forwards; }
-.disclosure svg { transition: transform 0.18s var(--ease); }
+/* 侧栏：群下面的私聊展开、收起时的滑动由 app.js 里的 slideItem 做；小三角跟着转 */
+.disclosure svg { transition: transform 0.22s var(--ease); }
 
 /* 输入区：回复条、图片预览、@ 菜单出现时的动画 */
 .reply-bar:not([hidden]), .attachments:not([hidden]) { animation: rise 0.2s var(--ease); }

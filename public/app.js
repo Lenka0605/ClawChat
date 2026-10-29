@@ -411,22 +411,46 @@ const collapsed = new Set((() => {
     return [];
   }
 })());
+// 私聊项滑开 / 收起：高度、上下留白、透明度一起变，下面的项跟着平滑移动，不会一下子跳过去
+function slideItem(li, opening) {
+  const cs = getComputedStyle(li);
+  const full = { height: `${li.offsetHeight}px`, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginBottom: cs.marginBottom, opacity: 1, transform: 'none' };
+  const zero = { height: '0px', paddingTop: '0px', paddingBottom: '0px', marginBottom: '0px', opacity: 0, transform: 'translateY(-6px)' };
+  li.style.overflow = 'hidden';
+  const anim = li.animate(opening ? [zero, full] : [full, zero], {
+    duration: opening ? 260 : 200,
+    easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)',
+    fill: opening ? 'none' : 'forwards', // 收起的最后一帧停在 0 高度，等列表重画
+  });
+  anim.finished.then(() => (li.style.overflow = '')).catch(() => {});
+  return anim.finished.catch(() => {});
+}
+
 function toggleCollapsed(roomId) {
+  if (toggleCollapsed.busy) return; // 动画没放完又点了一下：忽略，免得抖
   const closing = !collapsed.has(roomId);
   document.querySelector(`[data-toggle="${CSS.escape(roomId)}"]`)?.classList.toggle('open', !closing);
-  const children = [...document.querySelectorAll('.conv-item.child')].filter((li) => li.dataset.key.startsWith(`d:${roomId}:`));
+  const childrenOf = () => [...document.querySelectorAll('.conv-item.child')].filter((li) => li.dataset.key.startsWith(`d:${roomId}:`));
   const apply = () => {
     if (closing) collapsed.add(roomId);
     else collapsed.delete(roomId);
     storeSet('clawchat.collapsed', JSON.stringify([...collapsed]));
-    S.enterRoom = closing ? null : roomId; // 展开时给新出现的私聊加进场动画
     renderConvs();
-    S.enterRoom = null;
   };
-  if (closing && children.length && !reduceMotion()) {
-    children.forEach((li) => li.classList.add('leaving'));
-    setTimeout(apply, 170);
-  } else apply();
+  if (reduceMotion()) return apply();
+  toggleCollapsed.busy = true;
+  const done = () => (toggleCollapsed.busy = false);
+  if (closing) {
+    Promise.all(childrenOf().map((li) => slideItem(li, false))).then(apply).finally(done);
+  } else {
+    apply();
+    // 列表重画后小三角是新的，补一段转过来的动画
+    document.querySelector(`[data-toggle="${CSS.escape(roomId)}"] svg`)?.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(90deg)' }], {
+      duration: 220,
+      easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)',
+    });
+    Promise.all(childrenOf().map((li) => slideItem(li, true))).finally(done);
+  }
 }
 
 function convTitle(c) {
@@ -512,7 +536,7 @@ function convItemHtml(c, extra = {}) {
         <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : '';
   const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">私聊</span>` : esc(convTitle(c));
-  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.enter ? ' enter' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
+  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
     ${toggle}${convAvatar(c)}
     <div class="conv-meta">
       <div class="conv-line"><span class="name">${name}</span><span class="time">${last ? fmtShort(last.ts) : ''}</span></div>
@@ -531,7 +555,7 @@ function renderConvs() {
     const open = !!q || !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
     const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
-    if (open) for (const d of dmHits) html.push(convItemHtml(d, { enter: S.enterRoom === group.room.id }));
+    if (open) for (const d of dmHits) html.push(convItemHtml(d));
   }
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
@@ -1690,11 +1714,19 @@ function bind() {
   $('#conv-list').addEventListener('click', (e) => {
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
-      toggleCollapsed(toggle.dataset.toggle); // 只展开收起，不切换会话
+      toggleCollapsed(toggle.dataset.toggle); // 小三角：只展开收起，不切换会话
       return;
     }
     const li = e.target.closest('.conv-item');
-    if (li) openConv(li.dataset.key);
+    if (!li) return;
+    // 点有私聊的群这一整项：正在看这个群，就展开 / 收起它的私聊；没在看就打开它，私聊收着的话顺便展开
+    const roomId = parseKey(li.dataset.key)?.roomId;
+    if (li.classList.contains('has-children') && S.current === li.dataset.key) {
+      toggleCollapsed(roomId);
+      return;
+    }
+    openConv(li.dataset.key);
+    if (li.classList.contains('has-children') && collapsed.has(roomId)) toggleCollapsed(roomId);
   });
   $('#search').addEventListener('input', (e) => {
     S.filter = e.target.value;
@@ -1856,6 +1888,14 @@ function bind() {
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu();
   });
   input.addEventListener('blur', () => setTimeout(hideMentionMenu, 150));
+  $('#mention-menu').addEventListener('mousemove', (e) => {
+    const item = e.target.closest('[data-mention-pick]');
+    if (!item || !S.mention) return;
+    const i = Number(item.dataset.mentionPick);
+    if (i === S.mention.index) return;
+    S.mention.index = i;
+    updateMentionMenu();
+  });
   $('#mention-menu').addEventListener('mousedown', (e) => {
     const item = e.target.closest('[data-mention-pick]');
     if (!item) return;
