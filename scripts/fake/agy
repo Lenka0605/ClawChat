@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// 假 Antigravity CLI：只写测试数据，校验订阅计费开关，不连接任何模型。
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+
+if (process.argv.includes('--version')) { process.stdout.write('1.4.10-fake\n'); process.exit(0); }
+const args = process.argv.slice(2);
+const value = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : '';
+const emit = (e) => process.stdout.write(`${JSON.stringify(e)}\n`);
+const home = process.env.CLAWCHAT_HOME;
+if (!home || path.resolve(home) === path.join(os.homedir(), '.clawchat') || path.resolve(home) === os.homedir()) {
+  process.stderr.write('假 agy 必须使用独立的 CLAWCHAT_HOME\n'); process.exit(1);
+}
+const settings = JSON.parse(value('--settings') || '{}');
+if (settings.useG1Credits !== false || settings.modelProvider !== '' || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+  process.stderr.write('订阅测试必须禁止点数和 API 回退\n'); process.exit(1);
+}
+const dir = path.join(home, 'fake-agy');
+fs.mkdirSync(dir, { recursive: true });
+const sid = value('--conversation') || crypto.randomUUID();
+if (!/^[\w-]+$/.test(sid)) process.exit(1);
+const file = path.join(dir, `${sid}.json`);
+let messages = [];
+if (value('--conversation')) {
+  try { messages = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { process.stderr.write('找不到假 agy 的历史会话\n'); process.exit(1); }
+}
+const input = JSON.parse(fs.readFileSync(0, 'utf8').trim());
+if (input.event !== 'user' || typeof input.message?.content !== 'string') process.exit(1);
+messages.push(input.message.content);
+emit({ event: 'init', conversation_id: sid, init: { model: value('--model') } });
+await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
+const response = '（假的 Gemini 订阅）做完了';
+fs.writeFileSync(file, JSON.stringify(messages), { mode: 0o600 });
+emit({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, state: 'DONE', text_delta: response, usage: { input_tokens: 100, output_tokens: 10 } } });
+emit({ event: 'result', result: { conversation_id: sid, status: 'SUCCESS', response, usage: { input_tokens: 100, output_tokens: 10, thinking_tokens: 0 } } });

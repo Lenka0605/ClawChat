@@ -345,11 +345,12 @@
             <div class="group-box">
               <div class="form-row">
                 <span>API Key</span>
-                <span class="row"><input id="gemini-key" type="password" placeholder="可以不填，用 Gemini CLI 自己的登录" autocomplete="off" spellcheck="false"><button id="btn-gemini-save" class="secondary">保存</button></span>
+                <span class="row"><input id="gemini-key" type="password" placeholder="留空就用 Google 订阅" autocomplete="off" spellcheck="false"><button id="btn-gemini-save" class="secondary">保存</button></span>
               </div>
             </div>
             <p class="hint" id="gemini-status"></p>
-            <p class="hint">先装 Gemini CLI（<code>npm install -g @google/gemini-cli</code>），运行 <code>gemini</code> 按提示完成登录；也可以在这里填 Gemini API Key（按用量计费）。Key 只存在这台电脑上。</p>
+            <p class="hint">订阅（Google AI Pro / Ultra）：Key 留空，用 Antigravity CLI 跑，消耗订阅额度，用完要等恢复。个人订阅已经不能再用 Gemini CLI。</p>
+            <p class="hint">API：填 Gemini API Key（在 Google AI Studio 创建），按用量计费。Key 只存在这台电脑上。</p>
           </section>
           <section class="form-section">
             <h3>现在能用的模型</h3>

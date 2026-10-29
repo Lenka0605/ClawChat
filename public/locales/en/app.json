@@ -288,7 +288,6 @@
   "设置（Ctrl+,）": "Settings (Ctrl+,)",
   "连不上 ClawChat 服务": "Can't connect to the ClawChat service",
   " · API Key 已填（{hint}）": " · API key set ({hint})",
-  " · 用 Gemini CLI 的登录": " · Uses Gemini CLI sign-in",
   "{name} 的 API Key 已保存，可以用了": "{name} API key saved and ready to use",
   "已删掉 {name} 的 API Key": "{name} API key removed",
   "智谱": "Zhipu",
@@ -296,9 +295,12 @@
   "智谱的 GLM": "Zhipu's GLM",
   "没找到，请先安装": "Not found. Install it first.",
   "要先装 Gemini CLI": "Install Gemini CLI first",
-  "跟随 Gemini CLI 的设置": "Follows Gemini CLI's settings",
-  "还没填。填了 Gemini API Key 就按 Key 用（按用量计费）；不填就用 Gemini CLI 自己的登录。": "Not set. With a Gemini API key, usage is billed to that key; without one, Gemini CLI's own sign-in is used.",
   "还没填。填好后，新建聊天时勾上 {name} 就能用了。": "Not set yet. Once it's filled in, select {name} when creating a chat.",
   "正在回复 {name}": "Replying to {name}",
-  "本体在群里忙，分身先来回同事的私聊（只能看，不能改）": "The main session is busy in the group, so a clone is replying to this private chat first (read-only, can't make changes)"
+  "本体在群里忙，分身先来回同事的私聊（只能看，不能改）": "The main session is busy in the group, so a clone is replying to this private chat first (read-only, can't make changes)",
+  "跟随当前 CLI 的设置": "Follow the current CLI settings",
+  "要先装 {cli}": "Install {cli} first",
+  " · 用 Antigravity 订阅": " · Using the Antigravity subscription",
+  "没填 Key：正在用 Antigravity 订阅，消耗的是订阅额度，用完要等恢复。想改用 API 就填 Gemini API Key。": "No key set: using the Antigravity subscription. It spends subscription quota, so wait for it to reset when it runs out. To use the API instead, enter a Gemini API key.",
+  "没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。": "No key set: install Antigravity CLI (agy) to use the subscription, or enter a Gemini API key here to use the API (billed per use)."
 }

@@ -116,7 +116,9 @@
   "智谱的 API Key": "Zhipu API key",
   "创建 API Key。GLM 借 Claude Code 干活，所以要装好 Claude Code，但不用登录 Claude 账号。Key 只存在这台电脑上。": "and paste it here. GLM works through Claude Code, so Claude Code needs to be installed, but you don't need to sign in to a Claude account. The key is stored only on this computer.",
   "可以不填，用 Gemini CLI 自己的登录": "Optional; uses Gemini CLI's own sign-in",
-  "先装 Gemini CLI（": "Install Gemini CLI first (",
   "），运行": "), then run",
-  "按提示完成登录；也可以在这里填 Gemini API Key（按用量计费）。Key 只存在这台电脑上。": "and follow the prompts to sign in, or enter a Gemini API key here (billed by usage). The key is stored only on this computer."
+  "按提示完成登录；也可以在这里填 Gemini API Key（按用量计费）。Key 只存在这台电脑上。": "and follow the prompts to sign in, or enter a Gemini API key here (billed by usage). The key is stored only on this computer.",
+  "订阅（Google AI Pro / Ultra）：Key 留空，用 Antigravity CLI 跑，消耗订阅额度，用完要等恢复。个人订阅已经不能再用 Gemini CLI。": "Subscription (Google AI Pro / Ultra): leave the key empty and ClawChat runs Antigravity CLI on your subscription quota; wait for it to reset when it runs out. Personal subscriptions can no longer be used with Gemini CLI.",
+  "API：填 Gemini API Key（在 Google AI Studio 创建），按用量计费。Key 只存在这台电脑上。": "API: enter a Gemini API key (create one in Google AI Studio) and usage is billed per use. The key is stored only on this computer.",
+  "留空就用 Google 订阅": "Leave empty to use your Google subscription"
 }

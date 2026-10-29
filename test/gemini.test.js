@@ -8,7 +8,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-gemini-test-'));
 process.env.CLAWCHAT_HOME = path.join(root, 'clawchat');
 process.env.GEMINI_CLI_HOME = path.join(root, 'gemini-home');
 delete process.env.GEMINI_API_KEY;
-const { runGemini, geminiArgs, findGeminiSession, geminiSessionUsage, detectGemini } = await import('../lib/gemini.js');
+const { runGeminiApi: runGemini, geminiArgs, findGeminiSession, geminiSessionUsage, detectGemini } = await import('../lib/gemini.js');
 const { saveConfig } = await import('../lib/store.js');
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 const room = { cwd: root, permission: 'full', models: {} };

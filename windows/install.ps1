@@ -1,5 +1,5 @@
 ﻿# ClawChat 的 Windows 安装脚本（由 ClawChat 文件夹里的 Install-Windows.cmd 启动，可以重复运行，相当于「修复」）：
-# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）和 Gemini CLI（Google 的 Gemini）
+# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）和 Google 的 Gemini（Antigravity CLI / Gemini CLI）
 # 2. 接上 GitHub，以后可以在 设置 → 软件更新 里一键升级
 # 3. 在桌面和开始菜单放一个 ClawChat 快捷方式，然后打开 ClawChat
 # 这个文件要存成带 BOM 的 UTF-8，Windows PowerShell 才能认出中文。
@@ -28,7 +28,8 @@ function RefreshPath {
     [Environment]::GetEnvironmentVariable('Path', 'Machine'),
     [Environment]::GetEnvironmentVariable('Path', 'User'),
     "$env:USERPROFILE\.local\bin",
-    "$env:APPDATA\npm"
+    "$env:APPDATA\npm",
+    "$env:LOCALAPPDATA\agy\bin"
   )
   $env:Path = ($parts | Where-Object { $_ }) -join ';'
 }
@@ -108,16 +109,30 @@ if (-not (Has 'codex')) {
 }
 if (Has 'codex') { Ok (codex --version) } else { Say '   没装 Codex，群里就先不拉 ChatGPT。以后想用，再运行一次这个安装程序。' }
 
-# ---------- Gemini CLI（可选） ----------
-Step '检查 Gemini CLI（Google 的 Gemini，可以不装）'
-if (-not (Has 'gemini')) {
-  if (Ask '要装 Gemini CLI 吗？可以用 Google 账号登录，也可以在 ClawChat 设置中填 API Key' $false) {
-    & npm.cmd install -g @google/gemini-cli
-    RefreshPath
-    if ((Has 'gemini.cmd') -and (Ask '现在登录 Google 账号吗？会打开 Gemini CLI，按提示选择 Google 登录，登录后输入 /quit 返回安装程序' $true)) { & gemini.cmd }
+# ---------- Gemini（可选：个人订阅 / API 两条入口） ----------
+Step '检查 Gemini（Google，可以不装）'
+if (-not (Has 'agy')) {
+  if (Ask '要装 Antigravity CLI 吗？用已有 Google AI Pro / Ultra 订阅，ClawChat 禁止额外点数消费' $false) {
+    $agyInstaller = Join-Path ([IO.Path]::GetTempPath()) ('clawchat-agy-' + [guid]::NewGuid().ToString() + '.ps1')
+    try {
+      Invoke-WebRequest -UseBasicParsing 'https://antigravity.google/cli/install.ps1' -OutFile $agyInstaller -ErrorAction Stop
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agyInstaller
+      RefreshPath
+    } catch { Warn "Antigravity CLI 安装失败：$_。也可以按 https://antigravity.google/docs/getting-started/?tab=cli 手动安装。" }
+    finally { Remove-Item -LiteralPath $agyInstaller -Force -ErrorAction SilentlyContinue }
   }
 }
-if (Has 'gemini.cmd') { Ok (& gemini.cmd --version) } else { Say '   没装 Gemini CLI，群里就先不拉 Gemini。以后想用，再运行一次这个安装程序。' }
+if (Has 'agy') {
+  Ok (agy --version)
+  if (Ask '现在运行 agy 登录购买订阅的 Google 账号吗？完成首次设置后退出，再回到安装程序' $true) { agy }
+} else { Say '   没装 Antigravity CLI，暂时不能用 Gemini 的个人订阅。以后可以重新运行安装程序选装。' }
+if (-not (Has 'gemini')) {
+  if (Ask '另外要装 Gemini CLI 的 API 入口吗？API 独立计费，不抵扣个人订阅；用订阅可直接跳过' $false) {
+    & npm.cmd install -g @google/gemini-cli@latest
+    RefreshPath
+  }
+}
+if (Has 'gemini') { Ok (gemini --version) }
 
 # ---------- 接上 GitHub（在线升级） ----------
 Step '接上 GitHub（以后在 设置 → 软件更新 里一键升级）'
@@ -213,7 +228,7 @@ Say '装好了！' 'Green'
 Say '  · 用 DeepSeek：在 ClawChat 左下角点「设置」→「程序与模型」，填上 DeepSeek 的 API Key'
 Say '    （在 https://platform.deepseek.com/api_keys 创建，需要先充值一点余额）。'
 Say '  · 用 Claude：在开始菜单打开「命令提示符」，运行一次 claude，按提示登录 Claude 账号。'
-Say '  · 用 Gemini：运行一次 gemini 登录 Google 账号，或在「设置 → 程序与模型」里填写 Gemini API Key。'
+Say '  · 用 Gemini 订阅：运行 agy 登录，ClawChat 中 Key 留空。填写 API Key 会改走独立计费的 API 入口。'
 Say '  · 以后双击桌面上的 ClawChat 就能打开。关掉窗口它会在后台接着干活；'
 Say '    要彻底退出，在「设置 → 通用」里点「退出 ClawChat」。'
 Done 0

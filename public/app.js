@@ -368,7 +368,7 @@ function agentName(id) {
 }
 
 const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
-const DEFAULT_HINT = { claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随 Gemini CLI 的设置') };
+const DEFAULT_HINT = { claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置') };
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
 // 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
@@ -759,7 +759,12 @@ const ENGINE_INFO = [
 
 function engineState(e, key) {
   if (!e) return tr('检测中…');
-  if (key === 'gemini') return !e.path ? tr('要先装 Gemini CLI') : e.ok ? `${esc(e.version || tr('已就绪'))}${e.hasKey ? tr(' · API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr(' · 用 Gemini CLI 的登录')}` : tr('没找到，请先安装');
+  if (key === 'gemini') {
+    const cli = e.cli === 'agy' ? 'Antigravity CLI' : 'Gemini CLI';
+    if (!e.path) return tr('要先装 {cli}', { cli });
+    if (!e.ok) return e.error ? esc(e.error) : tr('没找到，请先安装');
+    return `${esc(e.version || tr('已就绪'))}${e.authMode === 'api' ? tr(' · API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr(' · 用 Antigravity 订阅')}`;
+  }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
   return e.ok ? esc(e.version || tr('已就绪')) : tr('没找到，请先安装并登录');
 }
@@ -777,7 +782,7 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: 'Google · Gemini CLI' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}` };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
     const bad = BYOK[key] ? (!e?.path ? tr('缺 Claude Code') : !e?.hasKey ? tr('没填 Key') : tr('Key 不对')) : tr('没找到');
@@ -799,7 +804,9 @@ function renderEngines() {
           ? tr('已填：{hint}（{error}）。要换就填新的再点保存；清空后保存就是删掉。', { hint: e.keyHint, error: e.keyError })
           : tr('已填：{hint}。要换就填新的再点保存；清空后保存就是删掉。', { hint: e.keyHint })
         : id === 'gemini'
-          ? tr('还没填。填了 Gemini API Key 就按 Key 用（按用量计费）；不填就用 Gemini CLI 自己的登录。')
+          ? e.path
+            ? tr('没填 Key：正在用 Antigravity 订阅，消耗的是订阅额度，用完要等恢复。想改用 API 就填 Gemini API Key。')
+            : tr('没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。')
           : tr('还没填。填好后，新建聊天时勾上 {name} 就能用了。', { name: agentName(id) });
   }
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {

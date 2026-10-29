@@ -1,5 +1,5 @@
 #!/bin/bash
-# 用假的 claude / codex / gemini 起一个测试实例，不叫起任何真 AI、不耗你的额度。
+# 用假的 claude / codex / gemini / agy 起一个测试实例，不叫起任何真 AI、不耗你的额度。
 # 用法：bash scripts/run-fake.sh [端口，默认 7399]
 # 数据放在 /tmp/clawchat-fake（不碰 ~/.clawchat）；FAKE_SECS 控制假 AI 每轮「干活」多少秒；
 # touch /tmp/clawchat-fake/compact.on 可以让假 Claude 每轮模拟一次自动压缩记忆。

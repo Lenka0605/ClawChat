@@ -1,0 +1,14 @@
+{
+  "Gemini session not found：找不到上一轮的记忆": "Gemini session not found: the previous session could not be found",
+  "CLI 没有写出会话文件，请检查 CLI 版本或磁盘空间": "The CLI did not save a session file. Check the CLI version and available disk space.",
+  "Gemini 已完成这次任务，但记忆没有保存。下次将从聊天记录恢复，请勿重复发送刚才的操作。原因：{message}": "Gemini completed this task, but could not save its memory. The next turn will recover from chat history. Do not repeat the previous action. Reason: {message}",
+  "订阅默认模型，不使用额外点数": "Default subscription model; additional AI credits are disabled",
+  "个人订阅需要 Antigravity CLI：请先安装 agy，运行 agy 登录购买订阅的 Google 账号，再刷新程序列表。": "Personal subscriptions require Antigravity CLI. Install agy, run agy to sign in with the Google account holding your subscription, then refresh the program list.",
+  "Gemini 的接入方式已改变。旧记忆仍保留，请先用「换新会话」交代情况，再使用订阅入口。": "The Gemini connection method has changed. Your previous memory is preserved. Use “New session” to hand over the context before using the subscription connection.",
+  "Gemini 的接入方式已改变。订阅记忆仍保留，请先用「换新会话」交代情况，再使用 API Key。": "The Gemini connection method has changed. Your subscription memory is preserved. Use “New session” to hand over the context before using an API key.",
+  "找不到 Gemini 分身需要的对话备份，本体任务不受影响。": "The conversation backup needed by the Gemini side agent could not be found. The main task is unaffected.",
+  "Gemini 已完成任务，原生会话仍保留，但分身的文字备份保存失败：{message}": "Gemini completed the task and its native session is preserved, but the text backup for the side agent could not be saved: {message}",
+  "请在终端运行 agy update 更新 Antigravity CLI，然后刷新程序列表": "Run agy update in your terminal to update Antigravity CLI, then refresh the program list.",
+  "Antigravity CLI 版本太旧（{version}），请在终端运行 agy update 升级到 {min} 或更新的版本，再刷新程序列表": "Antigravity CLI is too old ({version}). Run agy update in Terminal to upgrade to {min} or later, then refresh the engine list.",
+  "Gemini 这一轮做完了，但没拿到会话编号，下一轮会带上最近的聊天记录重新开始": "Gemini finished this turn but didn't return a conversation ID. The next turn will start fresh with the recent chat history."
+}

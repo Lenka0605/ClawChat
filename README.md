@@ -4,7 +4,7 @@
 
 - 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT 账号和 DeepSeek API Key，不经过任何第三方服务器。
 - Mac 和 Windows（10 / 11）都能用。
-- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Gemini CLI；DeepSeek 和 GLM 都借 Claude Code 干活。
+- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Antigravity CLI（订阅）或 Gemini CLI（API）；DeepSeek 和 GLM 都借 Claude Code 干活。
 
 ## 在 Windows 上安装（给同事看的）
 
@@ -15,7 +15,7 @@
    - 装好 Node.js 和 Git（用 Windows 自带的 winget，中途可能弹出管理员授权，点「是」）；
    - 装好 Claude Code（Claude 和 DeepSeek 都靠它干活；只用 DeepSeek 的话不用登录 Claude 账号）；
    - 问你要不要装 Codex（群里的 ChatGPT，要有 ChatGPT 账号，不用的话直接回车跳过）；
-   - 问你要不要装 Gemini CLI（Google 的 Gemini，可以登录 Google 账号，也可以在 ClawChat 设置中填 API Key）；
+   - 问你要不要装 Antigravity CLI（用 Google 个人订阅），或 Gemini CLI（用独立计费的 API Key）；
    - 接上 GitHub，以后可以一键在线升级；
    - 在桌面和开始菜单放一个 **ClawChat** 图标，然后打开它。
 5. 用 DeepSeek：去 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 充值一点余额、创建一个 API Key，然后在 ClawChat 左下角点「设置 → 程序与模型」，填进「DeepSeek」那一栏，点保存。
@@ -121,20 +121,25 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 
 ## Gemini（Google）
 
-**个人订阅用户请注意**：Google 已在 2026 年 6 月 18 日停止为个人免费账号、Google AI Pro 和 Ultra 提供 Gemini CLI 的 Google 登录服务。个人订阅应通过 Antigravity CLI（`agy`）使用，ClawChat 的订阅入口正在接入；当前这个 `gemini` 引擎适用于 Gemini API，或仍受支持的 Code Assist 企业账号，不能把个人订阅当成它的 API 额度。[官方停用公告](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
+个人订阅使用 **Antigravity CLI（`agy`，1.4.10 或更新）**。Google 已在 2026 年 6 月 18 日停止为个人免费账号、Google AI Pro 和 Ultra 提供 Gemini CLI 的 Google 登录服务。[官方停用公告](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
 
-1. 在终端安装官方 CLI：`npm install -g @google/gemini-cli`（需要 0.66.0 或更新）。Windows 安装程序也能按提示选装。
-2. API 用户从 [Google AI Studio](https://aistudio.google.com/apikey) 创建 API Key，在「设置 → 程序与模型 → Gemini」里填写并保存；API 有独立的免费档和付费档，按 API 的额度与计费规则使用。受支持的企业账号也可以运行一次 `gemini` 完成登录，再输入 `/quit` 退出。
-3. 回到 ClawChat 刷新程序列表，新建聊天时勾上 Gemini；已有聊天也可以在群设置中添加。用 `@Gemini` 或 `@谷歌` 点名。
+1. macOS / Linux 按[官方安装说明](https://antigravity.google/docs/getting-started/?tab=cli)安装：`curl -fsSL https://antigravity.google/cli/install.sh | bash`。Windows 安装程序也可选装。
+2. 在终端运行 `agy`，登录购买订阅的同一个 Google 账号，完成首次设置，然后退出。已安装但低于 1.4.10 的版本，先运行 `agy update` 更新，再刷新 ClawChat 程序列表。
+3. ClawChat 的 Gemini API Key 留空，同时不要设置 `GEMINI_API_KEY` 环境变量；刷新程序列表，新建聊天时勾上 Gemini。已有群可以在群设置里添加。用 `@Gemini` 或 `@谷歌` 点名。
 
-- Google 登录和 API Key 二选一即可。ClawChat 中填写的 Key 优先，其次是 `GEMINI_API_KEY` 环境变量；两者都没有就沿用 Gemini CLI 的登录。设置里的 Key 仅保存在本机；清空输入框再保存会删除这份 Key，不会退出 Google 登录。
-- 这里的登录仅指 Gemini CLI 仍支持的账号。ClawChat 会把登录凭据的副本缓存在 `~/.clawchat/gemini/auth/`；要清除此副本，先退出 ClawChat，再删除该文件夹。CLI 自己仍处于登录状态时，下次调用会重新取得副本；彻底退出账号还需在 Gemini CLI 中退出。
-- 默认使用 CLI 的 `auto` 自动选择模型，也可选择 Pro、Flash 或具体模型；实际能用哪些模型取决于账号权限和 CLI 版本。Gemini 的模型列表是预置选项，不是账号权限检测结果；有新模型可以先更新 CLI，再在模型菜单中添加自定义模型。
-- Gemini 能读写文件、执行命令、看图片。成功后的记忆保存在 `~/.clawchat/gemini/sessions`，关闭 ClawChat 再打开仍会续接；备份 ClawChat 数据目录时一起保留这个文件夹。分身使用复制的会话，回复不会写回本体的会话文件。
-- 「只读讨论」及分身只开放读文件、搜索和网页读取工具，不开放命令、写文件或 MCP。普通任务的权限仍由群设置控制。
-- 「项目内放手干」会要求 Gemini CLI 开启沙盒，不会在沙盒不可用时自动改成完全放开。macOS 使用官方 `permissive-open` 配置：允许写项目、附加的图片/聊天记录目录，以及 CLI 必需的临时目录和缓存，并允许联网；它与 Claude 的开发网站白名单不同。其他系统需要 CLI 支持的沙盒环境，缺少时会报错，可按 Gemini CLI 的提示配置。
-- 普通任务会信任所选项目，并沿用项目中的 `.gemini/settings.json` 等配置，包括可能启用的 hooks；请只对信任的项目开启自动工作。只读任务和分身从独立空目录启动，不加载该项目的执行配置。
-- 更新 CLI：`npm install -g @google/gemini-cli@latest`，然后在 ClawChat 中刷新程序列表。安装和认证见 [Google 官方文档](https://geminicli.com/docs/get-started/authentication/)。
+订阅入口每轮都会通过 `--settings` 强制设置 `useG1Credits: false`，不改用户的全局配置。订阅额度用完时等待恢复，不自动扣额外 AI 点数，也不切换到 API。Pro / Ultra 的额度按工作量计算，有五小时与周限额，恢复时间可在 `agy` 中用 `/usage` 查看。[官方额度说明](https://antigravity.google/docs/plans/)、[点数设置](https://antigravity.google/docs/cli/credits/)
+
+**API 是另一条独立入口**：安装 `npm install -g @google/gemini-cli@latest`（需要 0.66.0 或更新），从 [Google AI Studio](https://aistudio.google.com/apikey) 创建 Key，填到「设置 → 程序与模型 → Gemini」。只要填了 Key，就明确使用 Gemini CLI 的 API 路径，不使用个人订阅额度。API 有独立免费档和付费档，按 API 的额度与计费规则使用。设置里的 Key 优先，其次是 `GEMINI_API_KEY` 环境变量；清空并保存会删掉本机保存的 Key，但不会删除环境变量。
+
+- 两种入口不会自动互相回退。主动切换订阅 / API 时，旧会话文件保留；下一轮自动开新会话，带上最近的聊天记录恢复。更早的细节可从完整聊天记录查找，也可以先用「换新会话」请同事交代情况。
+- 订阅默认固定使用 Gemini 3.8 Flash，避免沿用 `agy` 里选过的其他厂商模型；可在模型菜单选择 Gemini 4 Argon 等模型。模型清单是预置选项，实际权限取决于订阅与 CLI 版本；自定义模型用 `agy models` 列出的 slug。
+- 订阅的完整记忆由 `agy` 保存在自己的数据目录里，ClawChat 保存准确的会话 ID，退出重开后继续同一会话。备份时同时保留 `~/.gemini/` 和 ClawChat 数据目录。`~/.clawchat/gemini/antigravity/` 保存最近成功回合的文字备份，供分身参考；分身另开独立会话，不直接续接本体，也不把私聊写回本体。文字备份最多保留最近 16 万字符，不能当作完整会话克隆。
+- API 入口在 `~/.clawchat/gemini/sessions/` 归档成功后的完整会话，备份 ClawChat 时一起保留。记忆归档失败时不会重跑已执行的命令，而是提示并在下一轮从聊天记录恢复。旧版 Google 登录缓存如需清除，退出 ClawChat 后删除 `~/.clawchat/gemini/auth/`。
+- 两种入口都能读写文件、执行命令并读取图片。「只读讨论」和分身禁止命令、写文件与 MCP。订阅分身从独立空目录启动，项目作为附加目录供读取；它参考的是上述文字备份和本体最近进度。
+- 订阅的「项目内放手干」使用原生沙盒与 `proceed-in-sandbox` 策略：只自动执行沙盒内命令，沙盒不可用或需要越界时不自动放开；无界面模式下需批准的操作会被拒绝，模型可能说明某步没有执行。可查看过程，不能把 CLI 正常退出等同于所有工具操作都成功。Windows 沙盒需要 Windows 11 24H2 及 2026 年 8 月更新或更高版本。[官方权限说明](https://antigravity.google/docs/sandbox/)
+- API 的项目模式要求 Gemini CLI 沙盒。macOS 使用官方 `permissive-open`：项目、附加目录、必要的缓存和临时目录可写，允许联网；其他系统按 CLI 提示配置沙盒。普通任务会信任项目并读取 `.gemini/settings.json`，包括项目 hooks；只读和分身从空目录启动。
+- `agy` 沿用用户的原生认证、项目设置和 hooks，请只打开信任的项目；ClawChat 的会话级权限与计费设置不修改用户全局文件。CLI hooks 是用户配置的程序，不属于模型工具权限限制范围。
+- 更新订阅 CLI 用 `agy update`；更新 API CLI 用 `npm install -g @google/gemini-cli@latest`，之后在 ClawChat 刷新程序列表。
 
 ## 模型
 
