@@ -535,10 +535,12 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 /* 输入框里的 @成员：输入框只能显示纯文字，所以在它底下垫一层逐字对齐的文字，@ 的位置换成成员头像
    （app.js 的 renderInputMirror）。有 @ 时输入框自己的字变透明，只留光标和选中的底色 */
 .input-mirror {
-  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
   padding: 6px 14px; line-height: 20px; font-size: 14px; white-space: pre-wrap; overflow-wrap: break-word;
 }
 .input-wrap.mirrored #input { color: transparent; caret-color: var(--text); }
+/* 输入框叠在垫层上面：闪烁的光标、选中的底色由输入框自己画，标签的底色和头像不会把它们盖住 */
+#input { position: relative; z-index: 1; }
 .input-wrap.mirrored #input::selection { background: rgba(0, 122, 255, 0.3); }
 /* 左右的内边距用等量的负外边距抵消，字的位置和输入框里一模一样 */
 .mention-tok { color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1px 4px; margin: 0 -4px; }
