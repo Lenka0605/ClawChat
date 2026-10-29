@@ -12,7 +12,7 @@ REPLY_FILE="${CLAWCHAT_HOME:-/tmp}/fake-replies/codex.txt"
 if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; else TEXT="（假的 ChatGPT）做完了"; fi
 json() { node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1"; }
 echo "{\"type\":\"thread.started\",\"thread_id\":\"$SID\"}"
-echo '{"type":"item.started","item":{"type":"command_execution","command":"ls"}}'
+echo '{"type":"item.started","item":{"type":"command_execution","command":"echo 假的 ChatGPT 在干活"}}'
 sleep "${FAKE_CODEX_SECS:-${FAKE_SECS:-6}}"
 echo "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":$(json "$TEXT")}}"
 echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'

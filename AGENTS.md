@@ -7,6 +7,7 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 
 ## 协作
 
+- **每人在自己的工作副本里干活**：`git worktree add .worktrees/<名字> -b <名字>/<事> origin/main`，干完推上去就删掉。别直接在主目录里改：大家共用一个目录时，谁的改动没提交、谁停在旧版本都看不出来，测试工具也可能是旧的。
 - 动手前在群里认领要改的文件，别同时改同一个文件。`test/hub.test.js`、`README.md`、`package.json` 是公共文件，改之前先认领。
 - 一个功能要跨到别人负责的文件时，先在群里说「我要动 xx 的哪一块」，对方同意再改。
 - 改完一位做、另一位看（review），再提交。
