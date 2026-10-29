@@ -32,6 +32,15 @@
   --accent-ring: rgba(0, 122, 255, 0.5);
   --menu-bg: rgba(246, 246, 248, 0.94);
   --fast: #e68600;
+  /* Liquid Glass：半透明 + 背景模糊 + 顶部一道高光边 */
+  --glass: rgba(255, 255, 255, 0.6);
+  --glass-strong: rgba(252, 252, 253, 0.74);
+  --glass-blur: blur(24px) saturate(180%);
+  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.07);
+  --sheet-glass: rgba(246, 246, 248, 0.82);
+  --radio-bg: #ffffff;
+  --radio-edge: rgba(0, 0, 0, 0.22);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
   --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   --claude: #d97757;
@@ -75,6 +84,13 @@
     --accent-ring: rgba(10, 132, 255, 0.6);
     --menu-bg: rgba(44, 44, 46, 0.94);
     --fast: #ffb340;
+    --glass: rgba(50, 50, 52, 0.55);
+    --glass-strong: rgba(34, 34, 36, 0.72);
+    --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+    --sheet-glass: rgba(36, 36, 38, 0.84);
+    --radio-bg: rgba(255, 255, 255, 0.08);
+    --radio-edge: rgba(255, 255, 255, 0.24);
     --shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
     --control-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
     --gpt: #48484a;
@@ -113,6 +129,13 @@
   --accent-ring: rgba(10, 132, 255, 0.6);
   --menu-bg: rgba(44, 44, 46, 0.94);
   --fast: #ffb340;
+  --glass: rgba(50, 50, 52, 0.55);
+  --glass-strong: rgba(34, 34, 36, 0.72);
+  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+  --sheet-glass: rgba(36, 36, 38, 0.84);
+  --radio-bg: rgba(255, 255, 255, 0.08);
+  --radio-edge: rgba(255, 255, 255, 0.24);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --control-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   --gpt: #48484a;
@@ -185,7 +208,7 @@ html.native .logo { visibility: hidden; }
 .conv-avatar { position: relative; width: 40px; height: 40px; flex: none; }
 .conv-avatar > .avatar { width: 40px; height: 40px; }
 .conv-avatar.stack .avatar { position: absolute; width: 27px; height: 27px; box-shadow: 0 0 0 1.5px var(--side); }
-html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.14); }
 /* 群下面的私聊：缩进、头像小一号；群前面的小三角用来展开收起 */
 .conv-item { position: relative; }
 .conv-item.has-children { padding-left: 4px; }
@@ -246,31 +269,37 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
   width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
   color: #fff; font-size: 13px; font-weight: 600; background-size: 58% 58%; background-position: center; background-repeat: no-repeat;
 }
-/* Claude / ChatGPT 用官方应用图标（打包时从本机的官方应用里取，放在 /icons/），取不到时退回简笔头像 */
-.av-claude, .av-gpt, .av-deepseek { border-radius: 23%; background-size: cover, 58% 58%; }
+/* 内置的简笔头像（官方图标取不到时用）：彩色底 + 白色图案 */
+.av-claude, .av-gpt, .av-deepseek { border-radius: 23%; background-size: 58% 58%; }
 .av-claude {
   background-color: var(--claude);
-  background-image: url("/icons/claude.png"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4'/%3E%3C/g%3E%3C/svg%3E");
 }
 .av-gpt {
   background-color: var(--gpt);
-  background-image: url("/icons/gpt.png"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z' fill='none' stroke='white' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='12' r='2.6' fill='white'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z' fill='none' stroke='white' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='12' r='2.6' fill='white'/%3E%3C/svg%3E");
 }
-/* DeepSeek：官方头像（白底蓝鲸鱼，启动时从 DeepSeek 官方 GitHub 下载到 /icons/）；下载不到时退回内置的简笔小鲸鱼 */
 .av-deepseek {
   background-color: var(--deepseek);
-  background-size: 112% 112%, 66% 66%;
-  background-image: var(--ds-icon, url("/icons/deepseek.png")), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 12.6c0-4.3 3.9-7.4 8.9-7.4 3.4 0 6 1.4 7.5 3.6l2.3-2c.5-.4 1.2 0 1.1.6l-.7 4.1.7 4.1c.1.6-.6 1-1.1.6l-2.3-2c-1.5 2.4-4.1 3.8-7.5 3.8-5 0-8.9-2.3-8.9-5.4z' fill='white'/%3E%3Ccircle cx='7.6' cy='11' r='1.3' fill='%234d6bfe'/%3E%3C/svg%3E");
+  background-size: 66% 66%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 12.6c0-4.3 3.9-7.4 8.9-7.4 3.4 0 6 1.4 7.5 3.6l2.3-2c.5-.4 1.2 0 1.1.6l-.7 4.1.7 4.1c.1.6-.6 1-1.1.6l-2.3-2c-1.5 2.4-4.1 3.8-7.5 3.8-5 0-8.9-2.3-8.9-5.4z' fill='white'/%3E%3Ccircle cx='7.6' cy='11' r='1.3' fill='%234d6bfe'/%3E%3C/svg%3E");
 }
+/* 官方图标（app.js 的 detectIcons 确认取得到才用）：Claude、ChatGPT 的图标自带圆角，四角透明，底色要透明；
+   DeepSeek 的是白底方图，底色用白色，边上就不会透出一圈蓝 */
+html.icon-claude .av-claude { background-color: transparent; background-image: url("/icons/claude.png"); background-size: cover; }
+html.icon-gpt .av-gpt { background-color: transparent; background-image: url("/icons/gpt.png"); background-size: cover; }
+html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(--ds-icon, url("/icons/deepseek.png")); background-size: 112% 112%; }
 .av-user { background-color: var(--accent); }
 
 /* ---------- 主区域 ---------- */
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 #chat { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; }
+/* 顶栏和输入区浮在消息上面：消息从后面滚过去，透过玻璃隐约看得见（app.js 的 trackChrome 量好高度留出空间） */
 #room-head {
-  display: flex; align-items: center; gap: 10px; padding: 0 12px 0 20px; height: 52px; flex: none;
-  border-bottom: 0.5px solid var(--line); background: var(--header);
-  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+  display: flex; align-items: center; gap: 10px; padding: 0 12px 0 20px; height: 52px;
+  border-bottom: 0.5px solid var(--line); background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
 .head-main { flex: 1; min-width: 0; }
 .room-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; display: flex; gap: 4px; align-items: baseline; white-space: nowrap; min-width: 0; }
@@ -299,9 +328,9 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 /* 顶部的模型按钮：头像 + 模型 · 思考强度，点开是菜单（app.js 的 openModelMenu） */
 .model-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 4px; border: 0; border-radius: 8px; flex: none;
-  background: transparent; color: var(--text); font-size: 12px; box-shadow: inset 0 0 0 0.5px var(--line); transition: background 0.12s;
+  background: var(--glass); color: var(--text); font-size: 12px; box-shadow: var(--glass-edge); transition: background 0.12s;
 }
-.model-chip:hover, .model-chip.open { background: var(--fill); }
+.model-chip:hover, .model-chip.open { background: var(--fill-hover); }
 .model-chip .avatar { width: 18px; height: 18px; border-radius: 5px; }
 .chip-model { font-weight: 500; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .chip-effort { color: var(--muted); white-space: nowrap; }
@@ -312,7 +341,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 /* 弹出菜单（仿 macOS 的菜单：半透明底、悬停时整行变成强调色） */
 .menu {
   position: fixed; z-index: 40; min-width: 250px; max-width: 360px; padding: 5px; border-radius: 11px; overflow-y: auto;
-  background: var(--menu-bg); box-shadow: var(--shadow);
+  background: var(--menu-bg); box-shadow: var(--glass-edge), var(--shadow);
   -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
   animation: menu-in 0.14s var(--ease);
 }
@@ -345,7 +374,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .dm-btn:hover .avatar { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
 .dm-entry .avatar { width: 24px; height: 24px; }
 
-#scroller { flex: 1; overflow-y: auto; padding: 14px 20px 8px; min-height: 0; -webkit-user-select: text; user-select: text; }
+#scroller { flex: 1; overflow-y: auto; padding: calc(var(--head-h, 52px) + 14px) 20px calc(var(--composer-h, 96px) + 8px); min-height: 0; -webkit-user-select: text; user-select: text; }
 .msg { display: flex; gap: 8px; margin: 0 0 12px; align-items: flex-start; }
 .msg.user { justify-content: flex-end; }
 .msg.user > .avatar { display: none; }
@@ -422,13 +451,20 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .live-stop { border: 0; background: none; color: var(--danger); font-size: 12px; padding: 0; margin-left: auto; }
 
 /* ---------- 输入区 ---------- */
-#composer { background: var(--bg); padding: 6px 16px 14px; flex: none; }
+#composer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; padding: 6px 16px 14px; pointer-events: none; }
+#composer > * { pointer-events: auto; }
+/* 最底下一小段淡淡地过渡到背景色，输入框下面的字不会和消息混在一起（仿 macOS 的滚动边缘效果） */
+#composer::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; z-index: -1; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg) 85%);
+}
 .composer-tools { display: flex; gap: 6px; align-items: center; margin: 0 0 8px 40px; flex-wrap: wrap; min-height: 22px; }
 .chip {
-  border: 0; background: var(--fill); border-radius: 11px; padding: 2px 10px; font-size: 12px; color: var(--text);
+  border: 0; background: var(--glass); border-radius: 11px; padding: 2px 10px; font-size: 12px; color: var(--text);
   display: inline-flex; align-items: center; gap: 4px; height: 22px;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
 }
-.chip:hover { background: var(--fill-hover); }
+.chip:hover { background: var(--glass-strong); }
 .chip.danger { color: var(--danger); }
 .chip.danger.strong { background: var(--danger); color: #fff; }
 .chip .avatar { width: 14px; height: 14px; }
@@ -438,7 +474,10 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .chip-stack .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--bg); }
 .stop-controls { display: inline-flex; gap: 6px; align-items: center; }
 #group-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.target { font-size: 12px; color: var(--muted); display: inline-flex; gap: 2px; align-items: center; margin-left: 4px; }
+.target {
+  font-size: 12px; color: var(--muted); display: inline-flex; gap: 2px; align-items: center; margin-left: 4px; height: 24px; padding: 0 4px 0 10px;
+  border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
+}
 .target select { color: var(--text); }
 .attachments { display: flex; gap: 8px; margin: 0 0 8px 40px; flex-wrap: wrap; }
 .att { position: relative; width: 64px; height: 64px; border-radius: 12px; overflow: hidden; background: var(--fill); }
@@ -452,11 +491,16 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 }
 .composer-row { display: flex; gap: 8px; align-items: flex-end; }
 .round-btn {
-  width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--fill); color: var(--muted);
+  width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--glass); color: var(--muted);
   display: grid; place-items: center; flex: none;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
 }
-.round-btn:hover { background: var(--fill-hover); color: var(--text); }
-.input-wrap { flex: 1; min-width: 0; border: 0.5px solid var(--faint); border-radius: 17px; background: var(--field); display: flex; }
+.round-btn:hover { background: var(--glass-strong); color: var(--text); }
+.input-wrap {
+  flex: 1; min-width: 0; border: 0.5px solid transparent; border-radius: 17px; display: flex;
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+}
 .input-wrap:focus-within { border-color: var(--accent-ring); }
 #input {
   flex: 1; resize: none; border: 0; background: transparent; padding: 6px 14px; outline: none; box-shadow: none;
@@ -478,6 +522,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 .send-btn {
   width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
   display: grid; place-items: center; flex: none; transition: opacity 0.15s, transform 0.1s;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45), 0 3px 10px rgba(0, 122, 255, 0.3);
 }
 .send-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .send-btn:active:not(:disabled) { transform: scale(0.94); }
@@ -513,8 +558,9 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
 
 /* ---------- 对话框（macOS 表单风格：标题和按钮固定，中间滚动） ---------- */
 dialog {
-  border: 0; border-radius: 14px; padding: 0; width: min(520px, calc(100vw - 32px)); background: var(--sheet); color: var(--text);
-  box-shadow: var(--shadow); max-height: calc(100vh - 56px); overflow: hidden;
+  border: 0; border-radius: 16px; padding: 0; width: min(520px, calc(100vw - 32px)); background: var(--sheet-glass); color: var(--text);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--glass-edge), var(--shadow); max-height: calc(100vh - 56px); overflow: hidden;
 }
 dialog.wide { width: min(640px, calc(100vw - 32px)); }
 dialog.small { width: min(400px, calc(100vw - 32px)); }
@@ -523,7 +569,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 .sheet-head { padding: 16px 20px 10px; flex: none; }
 .sheet-head h2 { margin: 0; font-size: 14px; font-weight: 600; text-align: center; }
 .sheet-body { padding: 4px 20px 16px; overflow-y: auto; flex: 1; min-height: 0; display: grid; gap: 16px; align-content: start; }
-.sheet-foot { padding: 12px 20px 14px; border-top: 0.5px solid var(--line); flex: none; display: grid; gap: 8px; background: var(--sheet); }
+.sheet-foot { padding: 12px 20px 14px; border-top: 0.5px solid var(--line); flex: none; display: grid; gap: 8px; }
 .form-section { display: grid; gap: 6px; }
 .form-section h3 { margin: 0 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text); }
 .form-section h3 small { font-weight: 400; color: var(--muted); margin-left: 4px; }
@@ -575,7 +621,18 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 .group-box { background: var(--group); border-radius: 10px; padding: 2px 12px; display: grid; box-shadow: 0 0 0 0.5px var(--line); }
 .group-box > * + * { border-top: 0.5px solid var(--line); }
 .radio { display: flex; gap: 9px; align-items: flex-start; padding: 9px 0; font-weight: 400; font-size: 13px; }
-.radio input { margin: 3px 0 0; accent-color: var(--accent); }
+.radio input {
+  -webkit-appearance: none; appearance: none; flex: none; width: 16px; height: 16px; margin: 2px 0 0; border-radius: 50%;
+  display: grid; place-items: center; background: var(--radio-bg);
+  box-shadow: inset 0 0 0 0.5px var(--radio-edge), 0 0.5px 1px rgba(0, 0, 0, 0.1); transition: background-color 0.15s, box-shadow 0.15s;
+}
+.radio input::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #fff; transform: scale(0); transition: transform 0.2s var(--spring); }
+.radio input:checked {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #fff), var(--accent));
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0.5px 1.5px rgba(0, 80, 200, 0.35);
+}
+.radio input:checked::after { transform: scale(1); box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.2); }
+.radio input:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 0.5px var(--radio-edge); }
 .radio b { font-weight: 600; }
 .radio small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; line-height: 1.45; }
 .check { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 400; min-height: 38px; }
@@ -779,6 +836,20 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .pair-sep { font-size: 11px; color: var(--muted); padding-left: 6px; border-left: 0.5px solid var(--line); }
 /* 下拉框比选中的字宽时，字靠右、贴着右边的箭头 */
 .group-box select { text-align: right; text-align-last: right; }
+/* 文件路径：点一下在访达中显示；图片悬停时弹出缩略图 */
+.file-ref { cursor: pointer; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+.file-ref:hover { color: var(--accent); text-decoration-color: var(--accent); }
+.file-preview {
+  position: fixed; z-index: 45; padding: 6px; border-radius: 12px; pointer-events: none; display: grid; gap: 5px; max-width: 340px;
+  background: var(--menu-bg); box-shadow: var(--glass-edge), var(--shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  animation: menu-in 0.14s var(--ease);
+}
+.file-preview img {
+  display: block; max-width: 328px; max-height: 240px; border-radius: 7px; object-fit: contain; margin: 0 auto;
+  background: repeating-conic-gradient(var(--fill) 0% 25%, transparent 0% 50%) 50% / 16px 16px; /* 透明图片底下的棋盘格 */
+}
+.fp-name { font-size: 11px; color: var(--muted); padding: 0 4px 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .confirm-text { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-line; max-width: 380px; }
 
 /* ---------- 过程（干完的和正在干的共用） ---------- */
@@ -806,7 +877,8 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .input-wrap { position: relative; }
 .mention-menu {
   position: absolute; left: 6px; bottom: calc(100% + 8px); min-width: 230px; padding: 5px; border-radius: 12px; z-index: 15;
-  background: var(--sheet); box-shadow: var(--shadow);
+  background: var(--menu-bg); box-shadow: var(--glass-edge), var(--shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
 }
 .mention-item { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px; cursor: default; }
 .mention-item .avatar { width: 24px; height: 24px; }
@@ -908,10 +980,8 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 #chat > #drop-overlay:not([hidden]) { animation: fadeIn 0.15s ease; }
 .welcome-card { animation: rise 0.4s var(--ease); }
 
-/* 切换浅色 / 深色：颜色渐变过去 */
-html.theme-switching, html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
-  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, fill 0.4s ease !important;
-}
+/* 切换浅色 / 深色：app.js 用视图过渡，新旧两张整页画面交叉淡化 */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.34s; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
 
 /* 系统设置里开了「减少动态效果」：动画都关掉 */
 @media (prefers-reduced-motion: reduce) {

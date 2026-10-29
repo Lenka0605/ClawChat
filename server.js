@@ -320,6 +320,23 @@ function openPath(p) {
   execFile(IS_WIN ? 'explorer.exe' : 'open', [p], () => {});
 }
 
+// 在访达 / 资源管理器里显示某个文件（打开它所在的文件夹，并选中它）
+function revealPath(p) {
+  if (IS_WIN) execFile('explorer.exe', [`/select,${p}`], () => {});
+  else execFile('open', ['-R', p], () => {});
+}
+
+// 消息、过程里提到的文件：相对路径按项目文件夹算，~ 开头的按家目录；不存在返回 null
+function roomFile(room, p) {
+  p = String(p || '').trim();
+  if (!p || p.length > 1000) return null;
+  const abs = path.resolve(room.cwd, expandHome(p));
+  return fs.existsSync(abs) ? abs : null;
+}
+
+// 鼠标移到文件名上时显示的缩略图：只给这几种浏览器能直接显示的图片
+const PREVIEW_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
+
 function events(req, res) {
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -515,6 +532,24 @@ async function api(req, res, url) {
     if (sub === 'open-folder' && method === 'POST') {
       openPath(room.cwd);
       return send(res, 200, { ok: true });
+    }
+    if (sub === 'reveal' && method === 'POST') {
+      const file = roomFile(room, (await readBody(req)).path);
+      if (!file) return send(res, 404, { error: '找不到这个文件，可能已经被移走或删掉了' });
+      revealPath(file);
+      return send(res, 200, { ok: true });
+    }
+    // 读本机的图片给缩略图用：只认 ClawChat 自己页面发来的请求（别的网站用 <img> 嵌进来时浏览器会标成跨站），只给图片
+    if (sub === 'preview' && method === 'GET') {
+      const site = req.headers['sec-fetch-site'];
+      if (site && !['same-origin', 'none'].includes(site)) return send(res, 403, { error: 'forbidden' });
+      const file = roomFile(room, url.searchParams.get('path'));
+      const type = file && PREVIEW_MIME[path.extname(file).toLowerCase()];
+      if (!type) return send(res, 404, { error: 'not found' });
+      const stat = fs.statSync(file);
+      if (!stat.isFile() || stat.size > 50 * 1024 * 1024) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      return fs.createReadStream(file).pipe(res);
     }
   }
   return send(res, 404, { error: '没有这个接口' });

@@ -72,17 +72,90 @@ function currentTheme() {
 
 function applyTheme(mode) {
   const root = document.documentElement;
-  if (applyTheme.ready && !reduceMotion()) {
-    root.classList.add('theme-switching');
-    clearTimeout(applyTheme.timer);
-    applyTheme.timer = setTimeout(() => root.classList.remove('theme-switching'), 450);
-  }
+  const set = () => {
+    if (mode === 'light' || mode === 'dark') root.dataset.theme = mode;
+    else delete root.dataset.theme;
+  };
+  // 用「视图过渡」淡过去：只对新旧两张整页画面做一次交叉淡化，交给显卡合成，很流畅
+  // （以前是让页面上每个元素各自做颜色过渡，元素一多就掉帧）。老系统不支持就直接切换
+  if (applyTheme.ready && document.startViewTransition && !reduceMotion()) document.startViewTransition(set);
+  else set();
   applyTheme.ready = true;
-  if (mode === 'light' || mode === 'dark') document.documentElement.dataset.theme = mode;
-  else delete document.documentElement.dataset.theme;
   storeSet('clawchat.theme', mode);
   native({ type: 'theme', value: mode }); // 让窗口的毛玻璃和系统控件也跟着变
   document.querySelectorAll('#theme-switch [data-theme-value]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeValue === mode)));
+}
+
+// 官方头像（打包时从本机官方应用里取的、启动时从 DeepSeek 官方 GitHub 下载的）在不在：
+// 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
+const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek' };
+function detectIcons(bust = '') {
+  for (const a of AGENT_IDS) {
+    const img = new Image();
+    img.onload = () => document.documentElement.classList.add(`icon-${a}`);
+    img.onerror = () => document.documentElement.classList.remove(`icon-${a}`);
+    img.src = `/icons/${ICON_FILE[a]}.png${bust}`;
+  }
+}
+
+// 顶栏和输入区浮在消息上面（Liquid Glass：消息从它们后面滚过去，透出模糊的内容），
+// 所以消息列表上下要留出它们的高度；输入框变高时，原来在最底下的话继续贴着最底下
+function trackChrome() {
+  const chat = $('#chat');
+  const sync = () => {
+    const stay = nearBottom();
+    chat.style.setProperty('--head-h', `${$('#room-head').offsetHeight}px`);
+    chat.style.setProperty('--composer-h', `${$('#composer').offsetHeight}px`);
+    if (stay) scrollToBottom();
+  };
+  const ro = new ResizeObserver(sync);
+  ro.observe($('#room-head'));
+  ro.observe($('#composer'));
+}
+
+// ---------------- 文件路径：悬停看缩略图，点击在访达中显示 ----------------
+
+function showFilePreview(el) {
+  const conv = currentConv();
+  const file = el.dataset.path;
+  if (!conv || !IMAGE_EXT_RE.test(file)) return;
+  clearTimeout(showFilePreview.timer);
+  showFilePreview.timer = setTimeout(() => {
+    const box = $('#file-preview');
+    const img = box.querySelector('img');
+    box.querySelector('.fp-name').textContent = file.split('/').pop();
+    box.dataset.for = file;
+    img.onload = () => {
+      if (box.dataset.for !== file) return;
+      box.hidden = false;
+      // 放在路径下面；下面放不下就放上面，左右不超出窗口
+      const r = el.getBoundingClientRect();
+      const w = box.offsetWidth;
+      const h = box.offsetHeight;
+      const below = r.bottom + 8 + h < window.innerHeight - 8;
+      box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      box.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - h - 8)}px`;
+    };
+    img.onerror = () => hideFilePreview();
+    img.src = `/api/rooms/${conv.roomId}/preview?path=${encodeURIComponent(file)}`;
+  }, 150);
+}
+
+function hideFilePreview() {
+  clearTimeout(showFilePreview.timer);
+  const box = $('#file-preview');
+  box.hidden = true;
+  delete box.dataset.for;
+}
+
+async function revealFile(file) {
+  const conv = currentConv();
+  if (!conv) return;
+  try {
+    await api('POST', `/api/rooms/${conv.roomId}/reveal`, { path: file });
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 // 原生窗口没有标题栏：告诉外壳哪些区域可以拖动窗口（按钮等可点的地方除外）
@@ -314,11 +387,24 @@ const ltr = (s) => `‎${s}‎`;
 
 // ---------------- Markdown（够聊天用的精简版） ----------------
 
+// 看起来像文件路径的：带 / 的，或者是常见的文件类型。这样的「`路径`」点一下在访达里显示，图片还能悬停看缩略图
+const FILE_EXT = 'png|jpe?g|gif|webp|bmp|heic|svg|psd|ai|fig|sketch|pdf|md|txt|json|csv|tsv|xlsx?|docx?|pptx?|key|numbers|pages|html?|css|js|mjs|ts|tsx|jsx|vue|py|sh|swift|go|rs|java|kt|rb|php|sql|ya?ml|toml|xml|zip|mp4|mov|mp3|wav|log';
+const FILE_RE = new RegExp(`^(?:~?/|\\.{1,2}/)?(?:[^\\s\`<>|*?"]+/)*[^\\s\`<>|*?"/]+\\.(?:${FILE_EXT}|[A-Za-z0-9]{1,6})$`, 'i');
+const KNOWN_EXT_RE = new RegExp(`\\.(?:${FILE_EXT})$`, 'i');
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
+function looksLikeFile(s) {
+  s = String(s || '').trim();
+  return FILE_RE.test(s) && (s.includes('/') || KNOWN_EXT_RE.test(s));
+}
+
 function inline(s) {
   return String(s)
     .split(/(`[^`\n]+`)/g)
     .map((part, idx) => {
-      if (idx % 2 === 1) return `<code>${esc(part.slice(1, -1))}</code>`;
+      if (idx % 2 === 1) {
+        const code = part.slice(1, -1);
+        return looksLikeFile(code) ? `<code class="file-ref" data-path="${esc(code.trim())}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(code)}</code>` : `<code>${esc(code)}</code>`;
+      }
       let h = esc(part);
       h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
       h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）]*[^\s<>()（）.,;:!?。，；：！？'"])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
@@ -700,7 +786,12 @@ function syncToolsRow() {
 }
 
 function stepHtml(s) {
-  return `<li class="step step-${esc(s.kind)}"><span class="step-icon">${STEP_ICON[s.kind] || '·'}</span><span class="step-text">${esc(s.text)}</span></li>`;
+  // 看过、改过的文件：和回复里的路径一样，点一下在访达里显示，图片悬停看缩略图
+  const file = ['read', 'edit'].includes(s.kind) && !String(s.text).includes(', ') && looksLikeFile(s.text);
+  const text = file
+    ? `<span class="step-text file-ref" data-path="${esc(String(s.text).trim())}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(s.text)}</span>`
+    : `<span class="step-text">${esc(s.text)}</span>`;
+  return `<li class="step step-${esc(s.kind)}"><span class="step-icon">${STEP_ICON[s.kind] || '·'}</span>${text}</li>`;
 }
 
 function imagesHtml(roomId, images) {
@@ -998,6 +1089,7 @@ function handleEvent(ev) {
     case 'icons':
       // 服务刚下载好 DeepSeek 的官方头像：换个地址让浏览器重新取（之前取不到的结果可能被记住了）
       document.documentElement.style.setProperty('--ds-icon', `url("/icons/deepseek.png?v=${Date.now()}")`);
+      detectIcons(`?v=${Date.now()}`);
       break;
     case 'activity':
       S.liveAt.set(liveKey(ev), ev.at);
@@ -2109,6 +2201,22 @@ function bind() {
     closeModelMenu();
     if (!again) openModelMenu(chip.dataset.menu, chip);
   });
+  $('#messages').addEventListener('mouseover', (e) => {
+    const ref = e.target.closest('.file-ref');
+    if (ref && !ref.contains(e.relatedTarget)) showFilePreview(ref);
+  });
+  $('#messages').addEventListener('mouseout', (e) => {
+    const ref = e.target.closest('.file-ref');
+    if (ref && !ref.contains(e.relatedTarget)) hideFilePreview();
+  });
+  $('#messages').addEventListener('click', (e) => {
+    const ref = e.target.closest('.file-ref');
+    if (!ref || getSelection().toString()) return; // 在选字的时候别打断
+    e.preventDefault();
+    hideFilePreview();
+    revealFile(ref.dataset.path);
+  });
+  $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
   $('#model-menu').addEventListener('click', (e) => {
     const item = e.target.closest('.menu-item');
     if (item) pickFromMenu(item);
@@ -2286,6 +2394,8 @@ async function init() {
   bind();
   applyPlatformText();
   applyTheme(currentTheme());
+  detectIcons();
+  trackChrome();
   try {
     applyState(await api('GET', '/api/state'));
   } catch {
