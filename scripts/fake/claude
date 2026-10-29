@@ -1,0 +1,15 @@
+#!/bin/bash
+# 假的 Claude Code：只用来测 ClawChat 的界面和重启流程，不连任何 AI
+if [ "$1" = "--version" ]; then echo "9.9.9 (Claude Code 假的)"; exit 0; fi
+cat > /dev/null &
+SID="fake-$(date +%s)"
+echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$SID\",\"model\":\"claude-fake\"}"
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"我先看一下项目文件夹里的东西"}]}}'
+if [ -f "$FAKE_COMPACT" ]; then
+  sleep 1
+  echo '{"type":"system","subtype":"status","status":"compacting"}'
+  sleep "${FAKE_COMPACT_SECS:-4}"
+  echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":900000}}'
+fi
+sleep "${FAKE_SECS:-6}"
+echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"（假的 Claude）做完了\",\"session_id\":\"$SID\",\"modelUsage\":{\"claude-fake\":{\"contextWindow\":1000000}}}"

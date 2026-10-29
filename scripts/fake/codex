@@ -1,0 +1,4 @@
+#!/bin/bash
+# 假的 Codex：只回版本号，别的一律失败（测试时绝不调用真的 ChatGPT）
+if [ "$1" = "--version" ]; then echo "codex-cli 0.0.0-fake"; exit 0; fi
+echo "fake codex" >&2; exit 1

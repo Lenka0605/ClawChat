@@ -1,0 +1,2 @@
+#!/bin/bash
+printf "__CLAWCHAT__%s__CLAWCHAT__" "$PATH"
