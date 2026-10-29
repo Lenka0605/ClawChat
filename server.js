@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
 import { Hub } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, sessionImageBytes } from './lib/agents.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -274,6 +274,23 @@ function pickFolder() {
   });
 }
 
+// DeepSeek 的头像：从 DeepSeek 官方 GitHub 账号下载一份存在本机（和 Claude、GPT 的图标一样，不放进代码仓库）。
+// Mac 打包、Windows 安装时也会下载；这里是兜底。下载不到就用界面里内置的简笔头像
+const DEEPSEEK_ICON_URL = 'https://avatars.githubusercontent.com/u/148330874?s=256';
+async function ensureDeepseekIcon() {
+  const file = path.join(PUBLIC, 'icons', 'deepseek.png');
+  if (fs.existsSync(file)) return;
+  try {
+    const res = await fetch(DEEPSEEK_ICON_URL, { signal: AbortSignal.timeout(20000) });
+    const buf = Buffer.from(await res.arrayBuffer());
+    const png = buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
+    if (!res.ok || !png || buf.length > 2 * 1024 * 1024) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, buf);
+    hub.emit('event', { type: 'icons' }); // 已经打开的窗口换上新头像
+  } catch {}
+}
+
 // 在访达 / 资源管理器里打开
 function openPath(p) {
   execFile(IS_WIN ? 'explorer.exe' : 'open', [p], () => {});
@@ -451,11 +468,21 @@ async function api(req, res, url) {
       hub.stop(room.id, AGENTS[agent] ? agent : undefined, ['side', 'main'].includes(only) ? only : null);
       return send(res, 200, { ok: true });
     }
-    // 卡住了：换一个新会话，带上最近的聊天记录把这一轮重来
+    // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。有 AI 给它派过活的，会先请那位重新交代情况
     if (sub === 'fresh' && method === 'POST') {
       const { agent } = await readBody(req);
-      if (!AGENTS[agent] || !hub.restartFresh(room.id, agent)) return send(res, 409, { error: '它现在没在干活' });
-      return send(res, 200, { ok: true });
+      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
+      return send(res, 200, { ok: true, result: hub.resetAgent(room.id, agent) });
+    }
+    // 每位现在的会话：有没有、在不在干活、GPT 的会话里存了多少图片（群设置里显示，方便判断要不要换新会话）
+    if (sub === 'sessions' && method === 'GET') {
+      const state = store.getState(room.id);
+      const sessions = {};
+      for (const a of room.members) {
+        const id = state.sessions[a] || null;
+        sessions[a] = { has: !!id, busy: hub.runs.has(hub.key(room.id, a)), images: id ? await sessionImageBytes(a, id) : 0 };
+      }
+      return send(res, 200, { sessions });
     }
     if (sub === 'open-folder' && method === 'POST') {
       openPath(room.cwd);
@@ -502,6 +529,7 @@ setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   hub.noticeInterrupted();
+  ensureDeepseekIcon();
   refreshEngines().then(() => console.log('[clawchat] 引擎：', JSON.stringify(engines)));
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
 });

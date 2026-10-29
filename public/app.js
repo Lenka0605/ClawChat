@@ -661,7 +661,10 @@ function quoteHtml(q) {
 
 function messageHtml(roomId, m, prev, conv) {
   const sep = !prev || m.ts - prev.ts > 5 * 60 * 1000 ? `<div class="time-sep">${fmtTime(m.ts)}</div>` : '';
-  if (m.from === 'system') return `${sep}<div class="notice"><span>${esc(m.text)}</span></div>`;
+  if (m.from === 'system') {
+    const act = m.action?.type === 'fresh' ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">给 ${esc(agentName(m.action.agent))} 换新会话</button>` : '';
+    return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
+  }
   const replyBtn = `<button class="reply-btn" data-reply="${m.seq}" title="回复这条">${REPLY_ICON}</button>`;
   if (m.from === 'user') {
     const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
@@ -744,7 +747,9 @@ function renderLive() {
       return `<div class="msg agent live${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? '正在回复你' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
-        ${toggle}<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
+        ${toggle}${
+          r.side ? '' : `<button class="live-fresh-mini${S.freshArmed === key ? ' armed' : ''}" data-agent="${esc(r.agent)}" data-key="${esc(key)}" title="会话太重、卡住时用：结束这一轮，换个新会话重来">${S.freshArmed === key ? '确定换？' : '换新会话'}</button>`
+        }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
         <div class="live-idle" data-idle="${esc(key)}"${idleText(r, key) ? '' : ' hidden'}><span>${esc(idleText(r, key))}</span>${
           r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">换新会话重来</button>`
         }</div>
@@ -920,6 +925,10 @@ function handleEvent(ev) {
       break;
     case 'quitting':
       showQuit();
+      break;
+    case 'icons':
+      // 服务刚下载好 DeepSeek 的官方头像：换个地址让浏览器重新取（之前取不到的结果可能被记住了）
+      document.documentElement.style.setProperty('--ds-icon', `url("/icons/deepseek.png?v=${Date.now()}")`);
       break;
     case 'activity':
       S.liveAt.set(liveKey(ev), ev.at);
@@ -1471,6 +1480,51 @@ function showRestarting() {
   }, 1500);
 }
 
+// 给某位换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。有 AI 给它派过活的，会先请那位重新交代情况
+async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
+  if (!roomId) return;
+  if (btn) btn.disabled = true;
+  try {
+    const { result } = await api('POST', `/api/rooms/${roomId}/fresh`, { agent });
+    const name = agentName(agent);
+    toast(
+      {
+        restarted: `${name} 正在换新会话`,
+        briefing: `${name} 换成了新会话，先请上一个给它派活的同事把情况交代给它`,
+        reset: `${name} 换成了新会话，下次叫它时生效`,
+        none: `${name} 现在没有会话，下次叫它本来就是新开的`,
+      }[result] || '换好了',
+      3500,
+    );
+  } catch (err) {
+    toast(err.message);
+    if (btn) btn.disabled = false;
+  }
+  if (S.editing === roomId && $('#dlg-room').open) setTimeout(() => loadSessions(roomById(roomId)), 600);
+}
+
+// 群设置里的「会话（记忆）」：每位有没有会话、GPT 的会话里存了多少图片，随时可以手动换
+async function loadSessions(room) {
+  const box = $('#session-list');
+  if (!room) return;
+  try {
+    const { sessions } = await api('GET', `/api/rooms/${room.id}/sessions`);
+    box.innerHTML = room.members
+      .map((a) => {
+        const s = sessions[a] || {};
+        const mb = s.images ? `会话里存了约 ${(s.images / 1048576).toFixed(1)}MB 图片` : '';
+        const state = s.busy ? '正在干活' : s.has ? '有会话' : '还没有会话，下次叫它会新开一个';
+        const heavy = s.images >= 8 * 1048576;
+        return `<div class="list-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small${heavy ? ' class="warn-text"' : ''}>${esc(
+          [state, mb].filter(Boolean).join(' · '),
+        )}${heavy ? '，建议换新会话' : ''}</small></span><button type="button" class="secondary" data-fresh="${esc(a)}"${s.has || s.busy ? '' : ' disabled'}>换新会话</button></div>`;
+      })
+      .join('');
+  } catch (err) {
+    box.innerHTML = `<div class="list-row"><span class="row-text"><small class="error">${esc(err.message)}</small></span></div>`;
+  }
+}
+
 // DeepSeek 的 API Key：服务那边先试一下能不能用，能用才存
 async function saveDeepseekKey() {
   const input = $('#ds-key');
@@ -1602,6 +1656,11 @@ function openDialog(room, preset = null) {
   del.textContent = solo ? '删除聊天' : '删除群聊';
   for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
   $('#perm-win-hint').hidden = !IS_WIN;
+  $('#session-fields').hidden = !room;
+  if (room) {
+    $('#session-list').innerHTML = '<div class="list-row"><span class="row-text"><small>读取中…</small></span></div>';
+    loadSessions(room);
+  }
   formField('name').value = d.name || '';
   formField('cwd').value = d.cwd || '';
   formField('cwd').placeholder = room ? '' : `留空就自动新建：${S.projectsDir}/名字`;
@@ -1743,6 +1802,8 @@ function bind() {
     if (reply) startReply(Number(reply.dataset.reply));
     const jump = e.target.closest('[data-jump]');
     if (jump) jumpTo(Number(jump.dataset.jump));
+    const fresh = e.target.closest('[data-fresh]');
+    if (fresh) freshAgent(fresh.dataset.fresh, fresh, $('#dlg-room').open ? S.editing : currentConv()?.roomId);
   });
   $('#btn-reply-cancel').onclick = cancelReply;
   $('#lightbox').onclick = closeLightbox;
@@ -1833,9 +1894,22 @@ function bind() {
     const conv = currentConv();
     if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent, only: b.dataset.only }).catch((err) => toast(err.message));
     const fresh = e.target.closest('.live-fresh');
-    if (fresh && conv) {
-      fresh.disabled = true;
-      api('POST', `/api/rooms/${conv.roomId}/fresh`, { agent: fresh.dataset.agent }).catch((err) => toast(err.message));
+    if (fresh) freshAgent(fresh.dataset.agent, fresh);
+    // 气泡上方的「换新会话」：会结束手上这一轮，点第一下先变成「确定换？」，3 秒内再点才算
+    const mini = e.target.closest('.live-fresh-mini');
+    if (mini) {
+      if (S.freshArmed !== mini.dataset.key) {
+        S.freshArmed = mini.dataset.key;
+        renderLive();
+        clearTimeout(S.freshTimer);
+        S.freshTimer = setTimeout(() => {
+          S.freshArmed = null;
+          renderLive();
+        }, 3000);
+        return;
+      }
+      S.freshArmed = null;
+      freshAgent(mini.dataset.agent, mini);
     }
   });
   document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention)));

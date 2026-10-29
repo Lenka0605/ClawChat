@@ -159,6 +159,15 @@ if ($linked) {
   }
 }
 
+# DeepSeek 的官方头像：从 DeepSeek 官方 GitHub 账号下载一份（不放进代码仓库）；下载不到就用内置的简笔头像
+$dsIcon = Join-Path $Root 'public\icons\deepseek.png'
+if (-not (Test-Path -LiteralPath $dsIcon)) {
+  try {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dsIcon) | Out-Null
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri 'https://avatars.githubusercontent.com/u/148330874?s=256' -OutFile $dsIcon
+  } catch { Remove-Item -LiteralPath $dsIcon -ErrorAction SilentlyContinue }
+}
+
 # 记下 node.exe 的位置，桌面快捷方式用它启动（存成 UTF-16，路径里有中文也不怕）
 Set-Content -LiteralPath (Join-Path $PSScriptRoot 'node-path.txt') -Value $NodePath -Encoding Unicode
 

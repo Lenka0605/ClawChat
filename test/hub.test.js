@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.CLAWCHAT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-test-'));
+process.env.CODEX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-codex-')); // 别去翻本机真的 Codex 会话
 const { Store } = await import('../lib/store.js');
 const { Hub, parseMentions, isPass, buildTurn, buildIntro, splitReply } = await import('../lib/hub.js');
 const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox } = await import('../lib/agents.js');
@@ -555,7 +556,7 @@ test('卡住时「换新会话重来」：丢掉旧会话，带上最近记录�
   await tick();
   const retried = calls[2];
   assert.equal(retried.session, null);
-  assert.match(retried.prompt, /会话卡住不动了/);
+  assert.match(retried.prompt, /会话太重了/);
   assert.match(retried.prompt, /出一张海报/);
   assert.match(retried.prompt, /火星计划/);
   assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /换成了新会话/.test(m.text)));
@@ -570,4 +571,87 @@ test('GPT 知道看图前先缩小，免得会话越来越重', () => {
   assert.match(buildIntro({ name: 'r', members: ['claude', 'gpt'], cwd: '/p' }, 'gpt'), /先缩小/);
   assert.match(buildIntro({ name: 'r', members: ['gpt'], cwd: '/p' }, 'gpt'), /先缩小/);
   assert.doesNotMatch(buildIntro({ name: 'r', members: ['claude', 'gpt'], cwd: '/p' }, 'claude'), /先缩小/);
+});
+
+test('GPT 换新会话后，上一个给它派活的 Claude 先把情况重新交代一遍，GPT 再接着干', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@Claude 安排一下海报');
+  await tick();
+  calls[0].finish('@GPT 按 prompts.md 出中英两张海报，放 output/');
+  await tick();
+  const gpt = calls.at(-1);
+  assert.equal(gpt.agent, 'gpt');
+  // GPT 卡住，老板点「换新会话」
+  assert.equal(hub.resetAgent(room.id, 'gpt'), 'restarted');
+  await tick();
+  const brief = calls.at(-1);
+  assert.equal(brief.agent, 'claude'); // 先叫派活的 Claude
+  assert.match(brief.prompt, /老板给 GPT 换了一个新会话/);
+  assert.match(brief.prompt, /@GPT/);
+  assert.equal(hub.runs.has(hub.key(room.id, 'gpt')), false); // GPT 等交代完再干
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /先请 Claude 把前面的情况/.test(m.text)));
+  brief.finish('@GPT 情况是：海报要中英两张，提示词在 prompts.md，Logo 用官方 SVG，做完放 output/');
+  await tick();
+  const fresh = calls.at(-1);
+  assert.equal(fresh.agent, 'gpt');
+  assert.equal(fresh.session, null);
+  assert.match(fresh.prompt, /会话太重了/);
+  assert.match(fresh.prompt, /Claude\] @GPT 情况是：海报要中英两张/);
+  fresh.finish('收到，接着做');
+  await settle(hub);
+  assert.equal(calls.filter((c) => c.agent === 'gpt').length, 2); // 不会多跑一轮
+});
+
+test('空闲时手动换新会话：有派活的 AI 就请它交代；没有就下次叫它时带上记录；本来没会话就什么都不做', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt) => (agent === 'claude' && /重新交代/.test(prompt) ? '@GPT 接着把第二版做完' : '好的'));
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  assert.equal(hub.resetAgent(room.id, 'gpt'), 'none');
+  hub.postUserMessage(room.id, '@GPT 先做第一版');
+  await settle(hub);
+  assert.equal(hub.resetAgent(room.id, 'gpt'), 'reset'); // 是老板自己派的活，没有 AI 要交代
+  hub.postUserMessage(room.id, '@GPT 继续');
+  await settle(hub);
+  assert.equal(calls.at(-1).session, null);
+  assert.match(calls.at(-1).prompt, /会话太重了/);
+  // Claude 派过活之后再换：请 Claude 交代
+  hub.postUserMessage(room.id, '@Claude 让 GPT 做第二版');
+  await settle(hub);
+  const before = calls.length;
+  hub.postUserMessage(room.id, '@Claude 你看着办');
+  await settle(hub);
+  store.appendMessage(room.id, { from: 'claude', text: '@GPT 第二版要加上时间' });
+  assert.equal(hub.resetAgent(room.id, 'gpt'), 'briefing');
+  await settle(hub);
+  const after = calls.slice(before + 1).map((c) => c.agent);
+  assert.deepEqual(after, ['claude', 'gpt']);
+});
+
+test('GPT 会话里的图片太多时提醒换新会话，带按钮；同一级别只提醒一次', async () => {
+  const store = new Store();
+  let images = 9 * 1024 * 1024;
+  const { run } = fakeRunner(() => '做好了');
+  const hub = new Hub(store, { run, imageBytes: async () => images });
+  const room = newRoom(store);
+  const warnings = () => store.getMessages(room.id).filter((m) => m.action?.type === 'fresh');
+  hub.postUserMessage(room.id, '@GPT 做海报');
+  await settle(hub);
+  await tick();
+  assert.equal(warnings().length, 1);
+  assert.match(warnings()[0].text, /约 9MB 的图片/);
+  assert.equal(warnings()[0].action.agent, 'gpt');
+  hub.postUserMessage(room.id, '@GPT 再改改');
+  await settle(hub);
+  await tick();
+  assert.equal(warnings().length, 1); // 同一级别不重复提醒
+  images = 14 * 1024 * 1024;
+  hub.postUserMessage(room.id, '@GPT 再改改');
+  await settle(hub);
+  await tick();
+  assert.equal(warnings().length, 2);
+  assert.match(warnings()[1].text, /马上|现在就/);
 });

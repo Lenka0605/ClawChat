@@ -19,6 +19,11 @@ swiftc -O -swift-version 5 -o "$BUILD/ClawChat" "$ROOT/mac/main.swift" -framewor
 
 echo "→ 取 Claude / ChatGPT 官方图标（来自本机装的官方应用，不放进仓库）"
 swift "$ROOT/mac/extract-icons.swift" "$ROOT/public/icons" || echo "  没取到官方图标，界面会用内置的简笔头像"
+if [ ! -f "$ROOT/public/icons/deepseek.png" ]; then
+  echo "→ 下载 DeepSeek 官方头像（来自 DeepSeek 的官方 GitHub 账号）"
+  curl -fsSL --max-time 20 -o "$ROOT/public/icons/deepseek.png" "https://avatars.githubusercontent.com/u/148330874?s=256" \
+    || { rm -f "$ROOT/public/icons/deepseek.png"; echo "  没下载到，界面会用内置的简笔头像"; }
+fi
 
 echo "→ 生成图标"
 rm -rf "$BUILD/ClawChat.iconset"

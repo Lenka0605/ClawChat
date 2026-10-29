@@ -179,6 +179,11 @@
               <span class="model-pair"><select name="modelDeepseek" data-pair="deepseek"></select><span class="pair-sep">思考</span><select name="effortDeepseek"></select></span></div>
           </div>
         </section>
+        <section class="form-section" id="session-fields" hidden>
+          <h3>会话（记忆） <small>GPT 做图做多了要换</small></h3>
+          <div class="group-box" id="session-list"></div>
+          <p class="hint">让 GPT 做图时要留意：它每看一张图（包括它自己做出来的图），都会把整张图存进会话，之后每一轮都要整个重新发一遍。图片攒到 15MB 左右（大约看过 4～6 张大海报），它就会慢到像卡住一样。ClawChat 会帮你盯着：到 8MB 会在群里提醒，并附上「换新会话」按钮。换了以后，上一个给它派活的 AI（比如 Claude）会先把情况重新交代给它，再让它接着干；项目文件夹里的图和文件都还在。一批图做完、开始下一批之前，主动换一次最省心。</p>
+        </section>
       </div>
       <footer class="sheet-foot">
         <p id="form-error" class="error" hidden></p>
