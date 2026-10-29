@@ -511,7 +511,7 @@ function inline(s) {
         ? seg
         : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, (_, pre, name) => {
             const who = MENTION_WHO[name.toLowerCase()];
-            return `${pre}<span class="mention${who ? ' has-icon' : ''}">${who ? avatarHtml(who) : '@'}${name}</span>`;
+            return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? avatarHtml(who) : '@'}${name}</span>`;
           }),
     )
     .join('');
@@ -905,6 +905,7 @@ function renderShell() {
   $('#default-target').value = room.defaultTarget;
   const hint = $('#dm-hint');
   hint.hidden = !dm;
+  $('#chat').classList.toggle('can-mention', !dm && room.members.length > 1); // 群里点消息里的 @ 能填进输入框
   hint.firstElementChild.textContent = dm
     ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。别的 AI 私下找它的对话也显示在这里；它主动找别人的，在对方的私聊里。`
     : '';
@@ -3147,6 +3148,17 @@ function bind() {
       e.stopPropagation();
       cancelEdit();
     }
+  });
+  // 点消息里的 @Claude 这类标签：在输入框里也 @ 它（只在群里；输入框没在打字时接在最后面）
+  $('#scroller').addEventListener('click', (e) => {
+    const tag = e.target.closest('.mention[data-who]');
+    const conv = currentConv();
+    if (!tag || !conv || conv.dm || conv.room.members.length < 2 || getSelection().toString()) return;
+    const who = tag.dataset.who;
+    if (who !== 'all' && !conv.room.members.includes(who)) return;
+    const el = $('#input');
+    if (document.activeElement !== el) el.setSelectionRange(el.value.length, el.value.length);
+    insertMention(who === 'all' ? '所有人' : agentName(who));
   });
   // 文件路径：悬停看缩略图、点一下在访达里显示。挂在 #scroller 上，「正在干活」气泡（#live）里的过程也算
   $('#scroller').addEventListener('mouseover', (e) => {

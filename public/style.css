@@ -453,8 +453,12 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 /* 消息里的 @：和输入框里一样的小标签，@ 某一位时前面是它的图标 */
 .mention { color: var(--accent); font-weight: 600; background: var(--accent-soft); border-radius: 6px; padding: 1px 5px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .mention.has-icon { padding-left: 3px; }
-.mention .avatar { display: inline-block; width: 1.05em; height: 1.05em; border-radius: 4px; margin-right: 0.22em; vertical-align: -0.17em; }
+.mention .avatar { display: inline-block; width: 1.05em; height: 1.05em; border-radius: 4px; margin-right: 0.22em; vertical-align: -0.12em; }
 .msg.user .mention { color: #fff; background: rgba(255, 255, 255, 0.2); }
+/* 群里点一下消息里的 @，输入框里也 @ 它 */
+#chat.can-mention .mention { cursor: pointer; transition: background-color 0.15s ease; }
+#chat.can-mention .mention:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+#chat.can-mention .msg.user .mention:hover { background: rgba(255, 255, 255, 0.32); }
 
 .msg-images { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .msg.user .msg-images { justify-content: flex-end; }
