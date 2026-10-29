@@ -125,10 +125,60 @@ function trackChrome() {
 
 // ---------------- 文件路径：悬停看缩略图，点击在访达中显示 ----------------
 
+// 同一条消息（或同一段过程）里提到的其他路径：AI 常常先说「图片都在 xx 文件夹里」，后面只写文件名，服务端会先到这些地方找
+function nearPaths(el) {
+  const box = el.closest('.bubble, .live-steps, .steps, .msg-body') || el.parentElement;
+  const out = [];
+  for (const r of box?.querySelectorAll('.file-ref') || []) if (r !== el && r.dataset.path && !out.includes(r.dataset.path)) out.push(r.dataset.path);
+  return out.slice(0, 20);
+}
+
+// 消息里提到的文件，在项目里找不到的就不显示成能点的样子（免得一点就是「找不到这个文件」）。
+// 渲染完统一问一次服务端；找得到的记住，找不到的 20 秒后再问（可能是 AI 待会儿才生成的）
+const fileChecks = new Map(); // `${roomId}\n${path}\n${near}` -> { ok, at }
+function checkFileRefs() {
+  clearTimeout(checkFileRefs.timer);
+  checkFileRefs.timer = setTimeout(async () => {
+    const conv = currentConv();
+    if (!conv) return;
+    const pending = new Map(); // key -> { item, els }
+    for (const el of document.querySelectorAll('#chat .file-ref:not([data-checked])')) {
+      const near = nearPaths(el);
+      const key = `${conv.roomId}\n${el.dataset.path}\n${near.join('\n')}`;
+      const known = fileChecks.get(key);
+      if (known && (known.ok || Date.now() - known.at < 20000)) {
+        markFileRef(el, known.ok);
+        continue;
+      }
+      if (!pending.has(key)) pending.set(key, { item: { path: el.dataset.path, near }, els: [] });
+      pending.get(key).els.push(el);
+    }
+    if (!pending.size) return;
+    const list = [...pending.entries()].slice(0, 400);
+    try {
+      const { found } = await api('POST', `/api/rooms/${conv.roomId}/exists`, { items: list.map(([, v]) => v.item) });
+      list.forEach(([key, v], i) => {
+        fileChecks.set(key, { ok: !!found[i], at: Date.now() });
+        for (const el of v.els) markFileRef(el, !!found[i]);
+      });
+    } catch {}
+  }, 120);
+}
+
+// 能不能点：确定找不到的不能点；说不准是不是路径的，要确认过找得到才能点
+const fileRefLive = (el) => !el.classList.contains('missing') && (!el.classList.contains('maybe') || el.dataset.checked === '1');
+
+function markFileRef(el, ok) {
+  el.dataset.checked = '1';
+  el.classList.toggle('missing', !ok);
+  if (ok && el.classList.contains('maybe')) el.title = `在${IS_WIN ? '资源管理器' : '访达'}中显示`;
+  else if (!ok && !el.classList.contains('maybe')) el.title = '项目文件夹里找不到这个文件';
+}
+
 function showFilePreview(el) {
   const conv = currentConv();
   const file = el.dataset.path;
-  if (!conv || !IMAGE_EXT_RE.test(file)) return;
+  if (!conv || !fileRefLive(el) || !IMAGE_EXT_RE.test(file)) return;
   clearTimeout(showFilePreview.timer);
   showFilePreview.timer = setTimeout(() => {
     const box = $('#file-preview');
@@ -137,9 +187,12 @@ function showFilePreview(el) {
     box.dataset.for = file;
     img.onload = () => {
       if (box.dataset.for !== file) return;
+      // 「正在干活」气泡每来一步就重画一次，悬停的那个元素可能已经被换掉了：找现在画着的同一个路径
+      const at = el.isConnected ? el : [...document.querySelectorAll('#scroller .file-ref')].find((r) => r.dataset.path === file);
+      if (!at) return hideFilePreview();
       box.hidden = false;
       // 放在路径下面；下面放不下就放上面，左右不超出窗口
-      const r = el.getBoundingClientRect();
+      const r = at.getBoundingClientRect();
       const w = box.offsetWidth;
       const h = box.offsetHeight;
       const below = r.bottom + 8 + h < window.innerHeight - 8;
@@ -147,7 +200,7 @@ function showFilePreview(el) {
       box.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - h - 8)}px`;
     };
     img.onerror = () => hideFilePreview();
-    img.src = `/api/rooms/${conv.roomId}/preview?path=${encodeURIComponent(file)}`;
+    img.src = `/api/rooms/${conv.roomId}/preview?path=${encodeURIComponent(file)}${nearPaths(el).map((p) => `&near=${encodeURIComponent(p)}`).join('')}`;
   }, 150);
 }
 
@@ -158,11 +211,11 @@ function hideFilePreview() {
   delete box.dataset.for;
 }
 
-async function revealFile(file) {
+async function revealFile(file, near = []) {
   const conv = currentConv();
   if (!conv) return;
   try {
-    await api('POST', `/api/rooms/${conv.roomId}/reveal`, { path: file });
+    await api('POST', `/api/rooms/${conv.roomId}/reveal`, { path: file, near });
   } catch (err) {
     toast(err.message);
   }
@@ -212,6 +265,11 @@ function replay(el, cls) {
 
 function toast(text, ms = 2600) {
   const t = $('#toast');
+  // 放在聊天区上方、顶栏下面，按聊天区居中（不算侧栏）
+  const main = $('#main').getBoundingClientRect();
+  const head = $('#chat').hidden ? 0 : $('#room-head').offsetHeight;
+  t.style.left = `${main.left + main.width / 2}px`;
+  t.style.top = `${main.top + head + 12}px`;
   t.textContent = text;
   t.classList.remove('leaving');
   t.hidden = false;
@@ -419,41 +477,45 @@ function looksLikeFile(s) {
   return (FILE_RE.test(s) && (s.includes('/') || KNOWN_EXT_RE.test(s))) || ABS_PATH_RE.test(s) || REL_DIR_RE.test(s);
 }
 
+// 说不准是不是路径的：带 / 但没有扩展名（design-requests/dark-mode-art，也可能是分支名 fix/xxx），或者带中文的名字（现有图片(白底)）。
+// 先按普通代码显示，问过服务端、项目里真有才变成能点的
+const MAYBE_PATH_RE = /^[^\s`<>|*?"]{1,200}$/;
+function codeHtml(code) {
+  const c = code.trim();
+  if (looksLikeFile(c)) return `<code class="file-ref" data-path="${esc(c)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(code)}</code>`;
+  if (MAYBE_PATH_RE.test(c) && (c.includes('/') || /[^\x00-\x7f]/.test(c)) && !/^[a-z]+:/i.test(c)) return `<code class="file-ref maybe" data-path="${esc(c)}">${esc(code)}</code>`;
+  return `<code>${esc(code)}</code>`;
+}
+
 function inline(s) {
-  return String(s)
-    .split(/(`[^`\n]+`)/g)
-    .map((part, idx) => {
-      if (idx % 2 === 1) {
-        const code = part.slice(1, -1);
-        return looksLikeFile(code) ? `<code class="file-ref" data-path="${esc(code.trim())}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示">${esc(code)}</code>` : `<code>${esc(code)}</code>`;
-      }
-      let h = esc(part);
-      // 指向本机文件的链接，比如 [中文版](/Users/…/海报.png)：显示成文件链接，点一下在访达中显示，图片悬停看缩略图
-      // （h 已经转义过：先还原成原文再解开 %20 这类编码，最后重新转义，免得 %22 解出来的引号跑进属性里）
-      h = h.replace(/\[([^\]\n]+)\]\((?:file:\/\/)?((?:~|\.{1,2})?\/[^\s)]+|[^\s:/)]+\/[^\s)]+)\)/g, (_, text, p) => {
-        let file = p.replace(/&(amp|lt|gt|quot|#39);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[e]);
-        try {
-          file = decodeURI(file);
-        } catch {}
-        return `<span class="file-ref" data-path="${esc(file)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示：${esc(file)}">${text}</span>`;
-      });
-      h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）]*[^\s<>()（）.,;:!?。，；：！？'"])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
-      h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-      // 只在标签外面高亮 @，免得改坏链接地址。@ 某一位：和输入框里一样，换成它的图标 + 名字；@所有人 照旧
-      return h
-        .split(/(<[^>]+>)/g)
-        .map((seg, j) =>
-          j % 2 === 1
-            ? seg
-            : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, (_, pre, name) => {
-                const who = MENTION_WHO[name.toLowerCase()];
-                return `${pre}<span class="mention${who ? ' has-icon' : ''}">${who ? avatarHtml(who) : '@'}${name}</span>`;
-              }),
-        )
-        .join('');
-    })
+  // 行内代码先换成占位符，处理完别的再放回去：这样 **`文件名`** 这种粗体包着代码的也能认出来
+  const codes = [];
+  let h = esc(String(s).replace(/`[^`\n]+`/g, (m) => `\uE000${codes.push(m.slice(1, -1)) - 1}\uE001`));
+  // 指向本机文件的链接，比如 [中文版](/Users/…/海报.png)：显示成文件链接，点一下在访达中显示，图片悬停看缩略图
+  // （h 已经转义过：先还原成原文再解开 %20 这类编码，最后重新转义，免得 %22 解出来的引号跑进属性里）
+  h = h.replace(/\[([^\]\n]+)\]\((?:file:\/\/)?((?:~|\.{1,2})?\/[^\s)\uE000]+|[^\s:/)\uE000]+\/[^\s)\uE000]+)\)/g, (_, text, p) => {
+    let file = p.replace(/&(amp|lt|gt|quot|#39);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[e]);
+    try {
+      file = decodeURI(file);
+    } catch {}
+    return `<span class="file-ref" data-path="${esc(file)}" title="在${IS_WIN ? '资源管理器' : '访达'}中显示：${esc(file)}">${text}</span>`;
+  });
+  h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)\uE000]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）\uE000]*[^\s<>()（）.,;:!?。，；：！？'"\uE000])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // 只在标签外面高亮 @，免得改坏链接地址。@ 某一位：和输入框里一样，换成它的图标 + 名字；@所有人 照旧
+  h = h
+    .split(/(<[^>]+>)/g)
+    .map((seg, j) =>
+      j % 2 === 1
+        ? seg
+        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, (_, pre, name) => {
+            const who = MENTION_WHO[name.toLowerCase()];
+            return `${pre}<span class="mention${who ? ' has-icon' : ''}">${who ? avatarHtml(who) : '@'}${name}</span>`;
+          }),
+    )
     .join('');
+  return h.replace(/\uE000(\d+)\uE001/g, (_, i) => codeHtml(codes[i]));
 }
 
 function md(src) {
@@ -3086,22 +3148,24 @@ function bind() {
       cancelEdit();
     }
   });
-  $('#messages').addEventListener('mouseover', (e) => {
+  // 文件路径：悬停看缩略图、点一下在访达里显示。挂在 #scroller 上，「正在干活」气泡（#live）里的过程也算
+  $('#scroller').addEventListener('mouseover', (e) => {
     const ref = e.target.closest('.file-ref');
     if (ref && !ref.contains(e.relatedTarget)) showFilePreview(ref);
   });
-  $('#messages').addEventListener('mouseout', (e) => {
+  $('#scroller').addEventListener('mouseout', (e) => {
     const ref = e.target.closest('.file-ref');
     if (ref && !ref.contains(e.relatedTarget)) hideFilePreview();
   });
-  $('#messages').addEventListener('click', (e) => {
+  $('#scroller').addEventListener('click', (e) => {
     const ref = e.target.closest('.file-ref');
-    if (!ref || getSelection().toString()) return; // 在选字的时候别打断
+    if (!ref || !fileRefLive(ref) || getSelection().toString()) return; // 在选字的时候别打断
     e.preventDefault();
     hideFilePreview();
-    revealFile(ref.dataset.path);
+    revealFile(ref.dataset.path, nearPaths(ref));
   });
   $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
+  new MutationObserver(checkFileRefs).observe($('#chat'), { childList: true, subtree: true });
   // 往上翻快到顶了：接上更早的一段；也可以点最上面的「更早的 N 条消息」
   $('#scroller').addEventListener('scroll', () => S.rendered?.from && $('#scroller').scrollTop < 400 && !$('#scrollbar').dragging?.() && loadEarlier(), { passive: true });
   $('#messages').addEventListener('click', (e) => e.target.closest('[data-earlier]') && loadEarlier());

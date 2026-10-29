@@ -749,7 +749,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 }
 
 #toast {
-  position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: rgba(40, 40, 40, 0.86); color: #fff;
+  position: fixed; left: 50%; top: 64px; transform: translateX(-50%); background: rgba(40, 40, 40, 0.86); color: #fff;
   padding: 7px 14px; border-radius: 10px; font-size: 12px; max-width: 80vw; z-index: 30;
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
@@ -908,6 +908,7 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 /* 文件路径：点一下在访达中显示；图片悬停时弹出缩略图 */
 .file-ref { cursor: pointer; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
 .file-ref:hover { color: var(--accent); text-decoration-color: var(--accent); }
+.file-ref.missing, .file-ref.missing:hover, .file-ref.maybe:not([data-checked]), .file-ref.maybe:not([data-checked]):hover { cursor: text; color: inherit; text-decoration: none; }
 .file-preview {
   position: fixed; z-index: 45; padding: 6px; border-radius: 12px; pointer-events: none; display: grid; gap: 5px; max-width: 340px;
   background: var(--menu-bg); box-shadow: var(--glass-edge), var(--shadow);
@@ -1119,8 +1120,8 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 .mention-menu:not([hidden]) { animation: popIn 0.18s var(--spring); transform-origin: 10% 100%; }
 
 /* 提示框、看大图、拖图片进来时的覆盖层 */
-@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0); } }
-@keyframes toastOut { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, 6px); } }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -10px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastOut { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -6px); } }
 #toast:not([hidden]) { animation: toastIn 0.26s var(--spring); }
 #toast.leaving { animation: toastOut 0.2s var(--ease) forwards; }
 #lightbox:not([hidden]) { animation: fadeIn 0.2s ease; }

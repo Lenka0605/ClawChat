@@ -359,12 +359,93 @@ function revealPath(p) {
   else execFile('open', ['-R', p], () => {});
 }
 
-// 消息、过程里提到的文件：相对路径按项目文件夹算，~ 开头的按家目录；不存在返回 null
-function roomFile(room, p) {
+// 消息、过程里提到的文件：相对路径按项目文件夹算，~ 开头的按家目录；不存在返回 null。
+// AI 常常只写文件名，或者写的是相对某个子文件夹的路径（比如前面说了「图片都在 design-requests/dark-mode-art 里」，
+// 后面只写「图片对比.html」）：项目根目录下找不到时，先到同一条消息里提到的文件夹下找，再在整个项目文件夹里找同名的
+async function roomFile(room, p, near = []) {
   p = String(p || '').trim();
   if (!p || p.length > 1000) return null;
   const abs = path.resolve(room.cwd, expandHome(p));
-  return fs.existsSync(abs) ? abs : null;
+  if (fs.existsSync(abs)) return abs;
+  if (path.isAbsolute(expandHome(p)) || !room.cwd) return null;
+  for (const h of near.slice(0, 20)) {
+    const dir = path.resolve(room.cwd, expandHome(String(h || '').trim()));
+    const base = isDir(dir) ? dir : path.dirname(dir);
+    const file = path.join(base, p);
+    if (base !== room.cwd && fs.existsSync(file)) return file;
+  }
+  return findInProject(room.cwd, p);
+}
+
+function isDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// 项目文件夹里所有文件和文件夹的索引（按名字分组），用来按名字找文件。跳过依赖和构建产物；建一次管 30 秒
+const SKIP_DIRS = new Set(['node_modules', 'build', 'dist', 'Pods', 'DerivedData', 'target', '__pycache__', 'venv']);
+const projectIndex = new Map(); // 项目文件夹 -> { at, byName, building }
+
+async function indexProject(root) {
+  const byName = new Map();
+  const queue = [[root, 0]];
+  let seen = 0;
+  while (queue.length && seen < 60000) {
+    const [dir, depth] = queue.shift();
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      seen++;
+      if (e.name.startsWith('.')) continue;
+      const name = e.name.normalize('NFC');
+      const full = path.join(dir, e.name);
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(full);
+      if (e.isDirectory() && depth < 10 && !SKIP_DIRS.has(e.name)) queue.push([full, depth + 1]);
+    }
+  }
+  return byName;
+}
+
+async function projectNames(root, fresh = false) {
+  const hit = projectIndex.get(root);
+  if (hit && !fresh && Date.now() - hit.at < 30000) return hit.building || hit.byName;
+  if (hit?.building) return hit.building;
+  const building = indexProject(root).then((byName) => {
+    projectIndex.set(root, { at: Date.now(), byName });
+    return byName;
+  });
+  projectIndex.set(root, { ...hit, at: hit?.at || 0, building });
+  return building;
+}
+
+// 按名字找：路径的最后几级要对得上；找到好几个就取最近改过的。索引是旧的、又没找到，就重建一次再找（可能是刚生成的文件）
+async function findInProject(root, rel) {
+  const want = path.normalize(rel.normalize('NFC')).replace(/^(\.\/)+/, '').replace(/[\\/]+$/, '');
+  if (!want || want.startsWith('..')) return null;
+  const base = path.basename(want);
+  const pick = (byName) => {
+    const hits = (byName.get(base) || []).filter((f) => f.normalize('NFC').endsWith(path.sep + want));
+    const mtime = (f) => {
+      try {
+        return fs.statSync(f).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    return hits.sort((a, b) => mtime(b) - mtime(a))[0] || null;
+  };
+  const found = pick(await projectNames(root));
+  if (found) return found;
+  const age = Date.now() - (projectIndex.get(root)?.at || 0);
+  return age > 3000 ? pick(await projectNames(root, true)) : null;
 }
 
 // 鼠标移到文件名上时显示的缩略图：只给这几种浏览器能直接显示的图片
@@ -623,8 +704,17 @@ async function api(req, res, url) {
       if (!hub.forwardToGroup(room.id, Number(seq))) return send(res, 400, { error: '这条消息转不了' });
       return send(res, 200, { ok: true });
     }
+    // 消息里提到的文件哪些找得到：找不到的，界面上就不显示成能点的样子
+    if (sub === 'exists' && method === 'POST') {
+      const { items } = await readBody(req);
+      const list = Array.isArray(items) ? items.slice(0, 400) : [];
+      const found = [];
+      for (const it of list) found.push(!!(await roomFile(room, it?.path, Array.isArray(it?.near) ? it.near : [])));
+      return send(res, 200, { found });
+    }
     if (sub === 'reveal' && method === 'POST') {
-      const file = roomFile(room, (await readBody(req)).path);
+      const body = await readBody(req);
+      const file = await roomFile(room, body.path, Array.isArray(body.near) ? body.near : []);
       if (!file) return send(res, 404, { error: '找不到这个文件，可能已经被移走或删掉了' });
       if (fs.statSync(file).isDirectory()) openPath(file); // 文件夹直接打开，进到里面
       else revealPath(file);
@@ -634,7 +724,7 @@ async function api(req, res, url) {
     if (sub === 'preview' && method === 'GET') {
       const site = req.headers['sec-fetch-site'];
       if (site && !['same-origin', 'none'].includes(site)) return send(res, 403, { error: 'forbidden' });
-      const file = roomFile(room, url.searchParams.get('path'));
+      const file = await roomFile(room, url.searchParams.get('path'), url.searchParams.getAll('near'));
       const type = file && PREVIEW_MIME[path.extname(file).toLowerCase()];
       if (!type) return send(res, 404, { error: 'not found' });
       const stat = fs.statSync(file);
