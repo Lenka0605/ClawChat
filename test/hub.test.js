@@ -13,10 +13,12 @@ const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox, codexArgs } = awai
 test('parseMentions 识别点名', () => {
   assert.deepEqual(parseMentions('@Claude 你来'), ['claude']);
   assert.deepEqual(parseMentions('@gpt 和 @claude'), ['gpt', 'claude']);
-  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt', 'deepseek']);
+  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt', 'deepseek', 'glm', 'gemini']);
   assert.deepEqual(parseMentions('@DeepSeek 你来审一下'), ['deepseek']);
   assert.deepEqual(parseMentions('@深度求索 和 @gpt'), ['deepseek', 'gpt']);
   assert.deepEqual(parseMentions('@Codex 写页面'), ['gpt']);
+  assert.deepEqual(parseMentions('@GLM 你来'), ['glm']);
+  assert.deepEqual(parseMentions('@智谱 和 @glm 看一下'), ['glm']);
   assert.deepEqual(parseMentions('邮箱 me@gpt.com 不算'), []);
   assert.deepEqual(parseMentions('代码里的 `@claude` 不算'), []);
   assert.deepEqual(parseMentions('```\n@gpt\n```'), []);
@@ -97,6 +99,10 @@ test('splitReply 拆出私聊和群聊', () => {
   // 私下找另一位 AI
   assert.deepEqual(splitReply('群里说一句。<私聊 DeepSeek>你那边的接口先别动</私聊>', false), { group: '群里说一句。', dm: '', pms: [{ to: 'deepseek', text: '你那边的接口先别动' }] });
   assert.deepEqual(splitReply('<私聊ChatGPT>只跟你说</私聊 ChatGPT>', false), { group: '', dm: '', pms: [{ to: 'gpt', text: '只跟你说' }] });
+  // 新加的两位：私聊标签不能被当成群聊正文
+  assert.deepEqual(splitReply('收到。<私聊 GLM>你的接口先别动</私聊>', false), { group: '收到。', dm: '', pms: [{ to: 'glm', text: '你的接口先别动' }] });
+  assert.deepEqual(splitReply('<私聊Gemini>看一下这个</私聊 Gemini>', false), { group: '', dm: '', pms: [{ to: 'gemini', text: '看一下这个' }] });
+  assert.deepEqual(splitReply('<私聊 智谱>一起看</私聊>', false), { group: '', dm: '', pms: [{ to: 'glm', text: '一起看' }] });
   // 被另一位私下找来的回合：默认私下回它，<群聊> 发群里，<私聊老板> 给老板
   assert.deepEqual(splitReply('好的，我改。<群聊>@ChatGPT 接口改好了</群聊><私聊老板>Claude 让我改接口</私聊老板>', false, 'claude'), {
     group: '@ChatGPT 接口改好了',

@@ -7,7 +7,8 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, sessionUsage } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage } from './lib/agents.js';
+import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -111,7 +112,7 @@ function validModel(engine, id) {
   return !id || !models?.length || models.some((m) => m.id === id);
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek' };
+const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
 const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
 
 // 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex、DeepSeek 看模型目录（「默认」就看默认模型）
@@ -554,19 +555,28 @@ async function api(req, res, url) {
     await refreshEngines();
     return send(res, 200, { ...result, engines });
   }
-  // DeepSeek 的 API Key：先用它读一次模型目录，Key 不对就不存；空的就是删掉。Key 只存在本机，不会再发回界面
-  if (method === 'POST' && parts[0] === 'deepseek' && parts[1] === 'key') {
+  // 借外部接口那几位的 API Key（DeepSeek、GLM）：先用它读一次模型目录，Key 不对就不存；空的就是删掉。Key 只存在本机，不会再发回界面
+  if (method === 'POST' && PROVIDERS[parts[0]] && parts[1] === 'key') {
+    const p = PROVIDERS[parts[0]];
     const key = String((await readBody(req)).key || '').trim();
-    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: '这不像 DeepSeek 的 API Key（一般是 sk- 开头的一串字母数字）' });
+    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: `这不像 ${p.name} 的 API Key（一般是一串字母数字）` });
     let warning = '';
     if (key) {
-      const check = await deepseekModels(key);
-      if (check.badKey) return send(res, 400, { error: 'DeepSeek 说这个 API Key 不对，请检查一下有没有复制完整' });
+      const check = await providerModelsFor(p.id, key);
+      if (check.badKey) return send(res, 400, { error: `${p.name} 说这个 API Key 不对，请检查一下有没有复制完整` });
       if (check.error) warning = `已保存，但现在${check.error}，等网络好了会自动用上`;
     }
-    saveConfig({ deepseekKey: key });
+    saveConfig({ [p.keyField]: key });
     await refreshEngines(true);
     return send(res, 200, { ok: true, warning, engines });
+  }
+  // Gemini 也可以不填 Key（用 Google 账号登录），所以这里只存不校验
+  if (method === 'POST' && parts[0] === 'gemini' && parts[1] === 'key') {
+    const key = String((await readBody(req)).key || '').trim();
+    if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: '这不像 Gemini 的 API Key（一般是一串字母数字）' });
+    saveConfig({ geminiKey: key });
+    await refreshEngines(true);
+    return send(res, 200, { ok: true, warning: '', engines });
   }
   if (method === 'POST' && parts[0] === 'models' && parts[1] === 'check') {
     const { agent, id } = await readBody(req);

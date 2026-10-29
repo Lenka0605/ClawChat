@@ -1,10 +1,10 @@
 # ClawChat
 
-本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。
+本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）、DeepSeek、GLM（智谱）和 Gemini（Google）在一个群里，一起在你的项目文件夹里干活。
 
 - 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT 账号和 DeepSeek API Key，不经过任何第三方服务器。
 - Mac 和 Windows（10 / 11）都能用。
-- 没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、DeepSeek（借 Claude Code 干活）。
+- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Gemini CLI；DeepSeek 和 GLM 都借 Claude Code 干活。
 
 ## 在 Windows 上安装（给同事看的）
 
@@ -15,6 +15,7 @@
    - 装好 Node.js 和 Git（用 Windows 自带的 winget，中途可能弹出管理员授权，点「是」）；
    - 装好 Claude Code（Claude 和 DeepSeek 都靠它干活；只用 DeepSeek 的话不用登录 Claude 账号）；
    - 问你要不要装 Codex（群里的 ChatGPT，要有 ChatGPT 账号，不用的话直接回车跳过）；
+   - 问你要不要装 Gemini CLI（Google 的 Gemini，可以登录 Google 账号，也可以在 ClawChat 设置中填 API Key）；
    - 接上 GitHub，以后可以一键在线升级；
    - 在桌面和开始菜单放一个 **ClawChat** 图标，然后打开它。
 5. 用 DeepSeek：去 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 充值一点余额、创建一个 API Key，然后在 ClawChat 左下角点「设置 → 程序与模型」，填进「DeepSeek」那一栏，点保存。
@@ -108,6 +109,27 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 - 它用单独的 Claude Code 配置目录（`~/.clawchat/deepseek/claude-home`）：不会用到你 Claude 账号的登录，也不沿用你给 Claude 设的模型和思考强度，会话记录也分开放。
 - 模型列表直接读 DeepSeek 的模型目录，出了新模型会自动出现。现在有 **DeepSeek Flash**（默认，快、便宜，能看图）和 **DeepSeek V4 Pro**（更强，不能看图）。选了看不了图的模型时，图片只告诉它文件在哪。
 - API Key 填错或者余额不足，会马上提示，不会一直重试。
+
+## GLM（智谱）
+
+- GLM 是独立成员，可以和其他成员一起加入群聊，也可以单聊。用 `@GLM` 或 `@智谱` 点名。
+- 先装好 Claude Code（只用 GLM 不必登录 Claude 账号），再到 [智谱开放平台](https://bigmodel.cn/) 创建 API Key，在「设置 → 程序与模型 → GLM」中填写并保存。不要把 Key 发进群聊。
+- GLM 和 DeepSeek 共用 Claude Code 的工具能力，但走各自的 Anthropic 兼容接口、Key 和模型；GLM 的 Claude Code 配置、会话保存在 `~/.clawchat/glm/claude-home`，不会混用 Claude 或 DeepSeek 的登录和记忆。
+- Key 只保存在本机 `~/.clawchat/config.json`，也可通过 `GLM_API_KEY` 环境变量提供。当前使用智谱开放平台接口；其他套餐或专用接口的 Key 能否使用，以对应平台的接口权限为准。
+- 顶部成员按钮可以切换 GLM 模型。内置模型清单不会自动更新；有新模型时可用模型菜单中的自定义模型功能添加。当前清单没有标注能看图的 GLM 模型，图片会作为文件路径交给它；需要看图时可以交给群里其他成员。
+
+## Gemini（Google）
+
+1. 在终端安装官方 CLI：`npm install -g @google/gemini-cli`。Windows 安装程序也能按提示选装。
+2. 运行一次 `gemini`，按提示登录 Google 账号；完成后输入 `/quit` 退出。也可以从 [Google AI Studio](https://aistudio.google.com/apikey) 创建 API Key，在「设置 → 程序与模型 → Gemini」里填写并保存。
+3. 回到 ClawChat 刷新程序列表，新建聊天时勾上 Gemini；已有聊天也可以在群设置中添加。用 `@Gemini` 或 `@谷歌` 点名。
+
+- Google 登录和 API Key 二选一即可。ClawChat 中填写的 Key 优先，其次是 `GEMINI_API_KEY` 环境变量；两者都没有就沿用 Gemini CLI 的登录。设置里的 Key 仅保存在本机；清空输入框再保存会删除这份 Key，不会退出 Google 登录。
+- 默认使用 CLI 的 `auto` 自动选择模型，也可选择 Pro、Flash 或具体模型；实际能用哪些模型取决于账号权限和 CLI 版本。Gemini 的模型列表是预置选项，不是账号权限检测结果；有新模型可以先更新 CLI，再在模型菜单中添加自定义模型。
+- Gemini 能读写文件、执行命令、看图片，并按会话 ID 续接记忆。关闭 ClawChat 再打开仍会续接；不要删除 Gemini CLI 自己的会话目录。分身使用复制的会话，回复不会写回本体的会话文件。
+- 「只读讨论」及分身只开放读文件、搜索和网页读取工具，不开放命令、写文件或 MCP。普通任务的权限仍由群设置控制。
+- 「项目内放手干」会要求 Gemini CLI 开启沙盒，不会在沙盒不可用时自动改成完全放开。macOS 使用官方 `permissive-open` 配置：允许写项目、附加的图片/聊天记录目录，以及 CLI 必需的临时目录和缓存，并允许联网；它与 Claude 的开发网站白名单不同。其他系统需要 CLI 支持的沙盒环境，缺少时会报错，可按 Gemini CLI 的提示配置。
+- 更新 CLI：`npm install -g @google/gemini-cli@latest`，然后在 ClawChat 中刷新程序列表。安装和认证见 [Google 官方文档](https://geminicli.com/docs/get-started/authentication/)。
 
 ## 模型
 

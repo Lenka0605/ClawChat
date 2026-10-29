@@ -1,0 +1,51 @@
+#!/usr/bin/env node
+// 假 Gemini CLI：只在本地读写测试会话、输出官方 JSONL 协议，不连接任何模型。
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+if (process.argv.includes('--version')) {
+  process.stdout.write('0.0.0-fake\n');
+  process.exit(0);
+}
+const args = process.argv.slice(2);
+const value = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : '';
+const emit = (event) => process.stdout.write(`${JSON.stringify({ timestamp: new Date().toISOString(), ...event })}\n`);
+const home = process.env.GEMINI_CLI_HOME;
+if (!home || !process.env.CLAWCHAT_HOME || path.resolve(home) === path.resolve(process.env.HOME || '/')) {
+  emit({ type: 'result', status: 'error', error: { message: '假 Gemini 必须使用独立的 GEMINI_CLI_HOME 和 CLAWCHAT_HOME' } });
+  process.exit(1);
+}
+const projectHash = crypto.createHash('sha256').update(process.cwd()).digest('hex');
+const chats = path.join(home, '.gemini', 'tmp', projectHash, 'chats');
+fs.mkdirSync(chats, { recursive: true });
+let sessionId = value('--resume');
+let file;
+let record;
+if (sessionId) {
+  for (const name of fs.readdirSync(chats).filter((n) => n.endsWith('.json'))) {
+    const p = path.join(chats, name);
+    const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (r.sessionId === sessionId) { file = p; record = r; break; }
+  }
+  if (!record) {
+    emit({ type: 'result', status: 'error', error: { message: 'Gemini session not found' } });
+    process.exit(1);
+  }
+} else {
+  sessionId = crypto.randomUUID();
+  file = path.join(chats, `session-${new Date().toISOString().slice(0, 16).replaceAll(':', '-')}-${sessionId.slice(0, 8)}.json`);
+  record = { sessionId, projectHash, startTime: new Date().toISOString(), messages: [] };
+}
+const input = fs.readFileSync(0, 'utf8');
+const model = value('--model') || 'auto';
+emit({ type: 'init', session_id: sessionId, model });
+emit({ type: 'message', role: 'user', content: input });
+record.messages.push({ id: crypto.randomUUID(), type: 'user', content: input });
+fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
+await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
+const text = '（假的 Gemini）做完了';
+emit({ type: 'message', role: 'assistant', content: text, delta: true });
+record.messages.push({ id: crypto.randomUUID(), type: 'gemini', content: text, tokens: { input: 100, output: 10, cached: 0, total: 110 } });
+fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
+emit({ type: 'result', status: 'success', stats: { input_tokens: 100, output_tokens: 10, total_tokens: 110 } });

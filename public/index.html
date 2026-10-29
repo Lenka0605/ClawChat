@@ -145,6 +145,8 @@
             <label class="member"><input type="checkbox" name="memberClaude" checked><span class="avatar av-claude"></span><span class="member-name">Claude<small>Anthropic</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGpt" checked><span class="avatar av-gpt"></span><span class="member-name">ChatGPT<small>OpenAI Codex</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberDeepseek"><span class="avatar av-deepseek"></span><span class="member-name">DeepSeek<small>深度求索</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberGlm"><span class="avatar av-glm"></span><span class="member-name">GLM<small>智谱</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberGemini"><span class="avatar av-gemini"></span><span class="member-name">Gemini<small>Google</small></span><span class="check-mark"></span></label>
           </div>
           <p id="member-hint" class="hint warn-text" hidden></p>
         </section>
@@ -187,6 +189,10 @@
               <span class="model-pair"><select name="modelGpt" data-pair="gpt"></select><span class="pair-sep">思考</span><select name="effortGpt"></select></span></div>
             <div class="form-row" id="field-model-deepseek"><span class="with-icon"><span class="avatar av-deepseek"></span>DeepSeek</span>
               <span class="model-pair"><select name="modelDeepseek" data-pair="deepseek"></select><span class="pair-sep">思考</span><select name="effortDeepseek"></select></span></div>
+            <div class="form-row" id="field-model-glm"><span class="with-icon"><span class="avatar av-glm"></span>GLM</span>
+              <span class="model-pair"><select name="modelGlm" data-pair="glm"></select><span class="pair-sep">思考</span><select name="effortGlm"></select></span></div>
+            <div class="form-row" id="field-model-gemini"><span class="with-icon"><span class="avatar av-gemini"></span>Gemini</span>
+              <span class="model-pair"><select name="modelGemini" data-pair="gemini"></select><span class="pair-sep">思考</span><select name="effortGemini"></select></span></div>
           </div>
         </section>
         <section class="form-section" id="speed-fields" hidden>
@@ -307,11 +313,33 @@
             <div class="group-box">
               <div class="form-row">
                 <span>API Key</span>
-                <span class="row"><input id="ds-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false"><button id="btn-ds-save" class="secondary">保存</button></span>
+                <span class="row"><input id="deepseek-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false"><button id="btn-deepseek-save" class="secondary">保存</button></span>
               </div>
             </div>
-            <p class="hint" id="ds-status"></p>
+            <p class="hint" id="deepseek-status"></p>
             <p class="hint">在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> 创建 API Key（要先充值一点余额）。DeepSeek 借 Claude Code 干活，所以要装好 Claude Code，但不用登录 Claude 账号。Key 只存在这台电脑上。</p>
+          </section>
+          <section class="form-section">
+            <h3>GLM</h3>
+            <div class="group-box">
+              <div class="form-row">
+                <span>API Key</span>
+                <span class="row"><input id="glm-key" type="password" placeholder="智谱的 API Key" autocomplete="off" spellcheck="false"><button id="btn-glm-save" class="secondary">保存</button></span>
+              </div>
+            </div>
+            <p class="hint" id="glm-status"></p>
+            <p class="hint">在 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noopener">bigmodel.cn</a> 创建 API Key。GLM 借 Claude Code 干活，所以要装好 Claude Code，但不用登录 Claude 账号。Key 只存在这台电脑上。</p>
+          </section>
+          <section class="form-section">
+            <h3>Gemini</h3>
+            <div class="group-box">
+              <div class="form-row">
+                <span>API Key</span>
+                <span class="row"><input id="gemini-key" type="password" placeholder="可以不填，用 Google 登录" autocomplete="off" spellcheck="false"><button id="btn-gemini-save" class="secondary">保存</button></span>
+              </div>
+            </div>
+            <p class="hint" id="gemini-status"></p>
+            <p class="hint">先装 Gemini CLI（<code>npm install -g @google/gemini-cli</code>），运行 <code>gemini</code> 用 Google 账号登录；也可以在这里填 API Key。Key 只存在这台电脑上。</p>
           </section>
           <section class="form-section">
             <h3>现在能用的模型</h3>

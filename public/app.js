@@ -4,7 +4,7 @@ const $ = (s) => document.querySelector(s);
 const STEP_ICON = { run: '$', edit: '✎', read: '📄', search: '🔍', web: '🌐', say: '💬', think: '💭', todo: '☑', task: '🤖', tool: '🔧', compact: '🗜' };
 const PERM_LABEL = { project: '项目内放手干', full: '完全放开', readonly: '只读讨论' };
 const IS_WIN = document.documentElement.classList.contains('win');
-const AGENT_IDS = ['claude', 'gpt', 'deepseek'];
+const AGENT_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini'];
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
 // 会话：每个群/单聊是 g:<roomId>；群里和某位的私聊是 d:<roomId>:<agent>
@@ -97,7 +97,7 @@ function applyTheme(mode) {
 
 // 官方头像（打包时从本机官方应用里取的、启动时从 DeepSeek 官方 GitHub 下载的）在不在：
 // 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
-const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek' };
+const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
 function detectIcons(bust = '') {
   for (const a of AGENT_IDS) {
     const img = new Image();
@@ -350,8 +350,12 @@ function agentName(id) {
   return S.agents[id]?.name || id;
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek' };
-const DEFAULT_HINT = { claude: '跟随 Claude Code 的设置', gpt: '跟随 Codex 的设置', deepseek: '又快又便宜，能看图' };
+const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
+const DEFAULT_HINT = { claude: '跟随 Claude Code 的设置', gpt: '跟随 Codex 的设置', deepseek: '又快又便宜，能看图', glm: '智谱的 GLM', gemini: '跟随 Gemini CLI 的设置' };
+// 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
+const BYOK = { deepseek: true, glm: true };
+// 设置里要填 API Key 的几位（Gemini 也能用 Google 登录，Key 是可选的）
+const KEY_TARGETS = ['deepseek', 'glm', 'gemini'];
 
 // 某位可选的模型：第一项是「默认」（跟随 Claude Code / Codex 自己的设置；DeepSeek 默认用 Flash）
 function modelOptions(agent) {
@@ -730,11 +734,14 @@ const ENGINE_INFO = [
   { key: 'claude', name: 'Claude Code', agent: 'claude' },
   { key: 'codex', name: 'Codex', agent: 'gpt' },
   { key: 'deepseek', name: 'DeepSeek', agent: 'deepseek' },
+  { key: 'glm', name: 'GLM', agent: 'glm' },
+  { key: 'gemini', name: 'Gemini', agent: 'gemini' },
 ];
 
 function engineState(e, key) {
   if (!e) return '检测中…';
-  if (key === 'deepseek') return !e.path ? '要先装 Claude Code' : !e.hasKey ? '还没填 API Key' : e.ok ? `API Key 已填（${esc(e.keyHint)}）` : 'API Key 不对';
+  if (key === 'gemini') return !e.path ? '要先装 Gemini CLI' : e.ok ? `${esc(e.version || '已就绪')}${e.hasKey ? ` · API Key 已填（${esc(e.keyHint)}）` : ' · 用 Google 账号登录'}` : '没找到，请先安装';
+  if (BYOK[key]) return !e.path ? '要先装 Claude Code' : !e.hasKey ? '还没填 API Key' : e.ok ? `API Key 已填（${esc(e.keyHint)}）` : 'API Key 不对';
   return e.ok ? esc(e.version || '已就绪') : '没找到，请先安装并登录';
 }
 
@@ -751,24 +758,29 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${name}：${engineState(e, key)}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: '深度求索 · 借 Claude Code 干活' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: '深度求索 · 借 Claude Code 干活', glm: '智谱 · 借 Claude Code 干活', gemini: 'Google · Gemini CLI' };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    const bad = key === 'deepseek' ? (!e?.path ? '缺 Claude Code' : !e?.hasKey ? '没填 Key' : 'Key 不对') : '没找到';
+    const bad = BYOK[key] ? (!e?.path ? '缺 Claude Code' : !e?.hasKey ? '没填 Key' : 'Key 不对') : '没找到';
     const status = e ? (e.ok ? '<span class="status ok">已就绪</span>' : `<span class="status bad">${bad}</span>`) : '<span class="status">检测中…</span>';
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      e?.ok && key !== 'deepseek' ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
+      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">更新</button>` : ''
     }</div>`;
   }).join('');
-  const ds = S.engines.deepseek;
-  const dsStatus = $('#ds-status');
-  dsStatus.className = `hint${ds?.keyError && ds.hasKey ? ' error' : ''}`;
-  dsStatus.textContent = !ds
-    ? ''
-    : ds.hasKey
-      ? `已填：${ds.keyHint}${ds.keyError ? `（${ds.keyError}）` : ''}。要换就填新的再点保存；清空后保存就是删掉。`
-      : '还没填。填好后，新建聊天时勾上 DeepSeek 就能用了。';
+  for (const id of KEY_TARGETS) {
+    const e = S.engines[id];
+    const el = $(`#${id}-status`);
+    if (!el) continue;
+    el.className = `hint${e?.keyError && e.hasKey ? ' error' : ''}`;
+    el.textContent = !e
+      ? ''
+      : e.hasKey
+        ? `已填：${e.keyHint}${e.keyError ? `（${e.keyError}）` : ''}。要换就填新的再点保存；清空后保存就是删掉。`
+        : id === 'gemini'
+          ? '没填 Key 也能用：用 Google 账号登录 Gemini CLI 就行；填了 Key 就按 Key 走。'
+          : `还没填。填好后，新建聊天时勾上 ${agentName(id)} 就能用了。`;
+  }
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {
     const opts = modelOptions(agent).filter((o) => o.id); // 「默认」单独说明，这里只列模型
     const def = modelOptions(agent)[0].name.replace(/^默认 · /, '');
@@ -904,7 +916,7 @@ function renderShell() {
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek' }[b.dataset.mention];
+    const id = { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   renderTargets(room, dm);
@@ -1232,7 +1244,7 @@ function toTagForm(text) {
   const conv = currentConv();
   const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
   if (!members.length) return text;
-  return text.replace(/(^|[^A-Za-z0-9_.])@(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索)( ?)/gi, (all, pre, name, sp) =>
+  return text.replace(/(^|[^A-Za-z0-9_.])@(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌)( ?)/gi, (all, pre, name, sp) =>
     members.includes(MENTION_WHO[name.toLowerCase()]) ? `${pre}@${MENTION_GAP}${name}${sp ? MENTION_SEP : ''}` : all,
   );
 }
@@ -1955,8 +1967,8 @@ const MENTION_GAP = '\u2002';
 const MENTION_SEP = '\u2003';
 // 发出去、复制出去的文字换回普通的写法：@Claude 后面一个普通空格
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
-const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)/gi;
-const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek' };
+const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌|所有人|全体成员|全体|大家|all|everyone)/gi;
+const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek', glm: 'glm', 智谱: 'glm', gemini: 'gemini', 谷歌: 'gemini' };
 // 输入框里会显示成标签的 @成员：[{ start, end, who, gap, name }]（画标签、管光标都用这一份，判断一致）
 function mentionTokens(text) {
   const conv = currentConv();
@@ -2041,6 +2053,8 @@ const MENTION_ITEMS = [
   { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
   { id: 'gpt', label: 'ChatGPT', sub: 'OpenAI Codex', insert: 'ChatGPT', keys: ['chatgpt', 'gpt', 'codex', 'openai'] },
   { id: 'deepseek', label: 'DeepSeek', sub: '深度求索', insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
+  { id: 'glm', label: 'GLM', sub: '智谱', insert: 'GLM', keys: ['glm', '智谱', 'zhipu', 'bigmodel'] },
+  { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
   { id: 'all', label: '所有人', sub: '大家一起', insert: '所有人', keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 
@@ -2218,7 +2232,7 @@ function snapToMentions(from) {
 
 // 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
 // 认的写法和 lib/hub.js 的 MENTION_RE 一样；返回 true 表示这个按键被用掉了
-const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)[ \u2003]?)$/i;
+const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌|所有人|全体成员|全体|大家|all|everyone)[ \u2003]?)$/i;
 function selectMentionOnBackspace(e) {
   const el = e.target;
   if (e.key !== 'Backspace' || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
@@ -2972,17 +2986,18 @@ async function loadSessions(room) {
   }
 }
 
-// DeepSeek 的 API Key：服务那边先试一下能不能用，能用才存
-async function saveDeepseekKey() {
-  const input = $('#ds-key');
-  const btn = $('#btn-ds-save');
+// 借外部接口那几位的 API Key（DeepSeek、GLM）：服务那边先试一下能不能用，能用才存
+async function saveProviderKey(id) {
+  const input = $(`#${id}-key`);
+  const btn = $(`#btn-${id}-save`);
+  const name = agentName(id);
   btn.disabled = true;
   btn.textContent = '检查中…';
   try {
-    const res = await api('POST', '/api/deepseek/key', { key: input.value.trim() });
+    const res = await api('POST', `/api/${id}/key`, { key: input.value.trim() });
     S.engines = res.engines || S.engines;
     input.value = '';
-    toast(res.warning || (S.engines.deepseek?.hasKey ? 'DeepSeek 的 API Key 已保存，可以用了' : '已删掉 DeepSeek 的 API Key'), 4000);
+    toast(res.warning || (S.engines[id]?.hasKey ? `${name} 的 API Key 已保存，可以用了` : `已删掉 ${name} 的 API Key`), 4000);
   } catch (err) {
     toast(err.message, 5000);
   } finally {
@@ -3339,9 +3354,11 @@ function bind() {
   $('#btn-check-update').onclick = () => checkForUpdate(true);
   $('#btn-do-update').onclick = doUpdate;
   $('#btn-open-data').onclick = () => api('POST', '/api/app/open-data').catch((err) => toast(err.message));
-  $('#btn-ds-save').onclick = saveDeepseekKey;
+  for (const id of KEY_TARGETS) {
+    $(`#btn-${id}-save`).onclick = () => saveProviderKey(id);
+  }
   $('#ds-key').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.isComposing) saveDeepseekKey();
+    if (e.key === 'Enter' && !e.isComposing) saveProviderKey(e.target.id.replace(/-key$/, ''));
   });
   $('#btn-quit').onclick = quitApp;
   document.addEventListener('keydown', (e) => {

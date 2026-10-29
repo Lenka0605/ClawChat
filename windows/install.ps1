@@ -1,5 +1,5 @@
 ﻿# ClawChat 的 Windows 安装脚本（由 ClawChat 文件夹里的 Install-Windows.cmd 启动，可以重复运行，相当于「修复」）：
-# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）
+# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）和 Gemini CLI（Google 的 Gemini）
 # 2. 接上 GitHub，以后可以在 设置 → 软件更新 里一键升级
 # 3. 在桌面和开始菜单放一个 ClawChat 快捷方式，然后打开 ClawChat
 # 这个文件要存成带 BOM 的 UTF-8，Windows PowerShell 才能认出中文。
@@ -108,6 +108,17 @@ if (-not (Has 'codex')) {
 }
 if (Has 'codex') { Ok (codex --version) } else { Say '   没装 Codex，群里就先不拉 ChatGPT。以后想用，再运行一次这个安装程序。' }
 
+# ---------- Gemini CLI（可选） ----------
+Step '检查 Gemini CLI（Google 的 Gemini，可以不装）'
+if (-not (Has 'gemini')) {
+  if (Ask '要装 Gemini CLI 吗？可以用 Google 账号登录，也可以在 ClawChat 设置中填 API Key' $false) {
+    & npm.cmd install -g @google/gemini-cli
+    RefreshPath
+    if ((Has 'gemini.cmd') -and (Ask '现在登录 Google 账号吗？会打开 Gemini CLI，按提示选择 Google 登录，登录后输入 /quit 返回安装程序' $true)) { & gemini.cmd }
+  }
+}
+if (Has 'gemini.cmd') { Ok (& gemini.cmd --version) } else { Say '   没装 Gemini CLI，群里就先不拉 Gemini。以后想用，再运行一次这个安装程序。' }
+
 # ---------- 接上 GitHub（在线升级） ----------
 Step '接上 GitHub（以后在 设置 → 软件更新 里一键升级）'
 $pkg = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Root 'package.json') | ConvertFrom-Json
@@ -202,6 +213,7 @@ Say '装好了！' 'Green'
 Say '  · 用 DeepSeek：在 ClawChat 左下角点「设置」→「程序与模型」，填上 DeepSeek 的 API Key'
 Say '    （在 https://platform.deepseek.com/api_keys 创建，需要先充值一点余额）。'
 Say '  · 用 Claude：在开始菜单打开「命令提示符」，运行一次 claude，按提示登录 Claude 账号。'
+Say '  · 用 Gemini：运行一次 gemini 登录 Google 账号，或在「设置 → 程序与模型」里填写 Gemini API Key。'
 Say '  · 以后双击桌面上的 ClawChat 就能打开。关掉窗口它会在后台接着干活；'
 Say '    要彻底退出，在「设置 → 通用」里点「退出 ClawChat」。'
 Done 0
