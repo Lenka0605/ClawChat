@@ -3,7 +3,7 @@
 ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex）+ DeepSeek（借 Claude Code 跑）。
 这个仓库常常是在 ClawChat 里由群里的 AI 自己开发的：**改坏了会把正在用的群聊弄坏**，所以下面的规矩要守。
 
-> 如果仓库根目录有 `AGENTS.local.md`（只在本机、不进仓库：正式版路径、分工、用户偏好等），**先读它，它优先**。
+> 本机如果有本地须知文件 `AGENTS.local.md`（不进仓库），先读它，它优先。
 
 ## 协作
 
@@ -25,7 +25,7 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 
 ## 发版
 
-- 改 `package.json` 的 `version`，提交并推到 main。**这一版改了什么写在提交说明里**：中文、大白话，结尾括号里写版本号（参考 `git log`）。
+- 推之前先 `git pull --rebase origin main`。**只有功能和界面改动才升版本号**（改 `package.json` 的 `version`），纯文档、测试脚本不升；前后脚都要推时，后推的在最新 main 上再升一位，别撞版本号。**这一版改了什么写在提交说明里**：中文、大白话，结尾括号里写版本号（参考 `git log`）。
 - README 没有更新日志，但它是给用户和同事看的使用说明，功能的用法变了，要跟着改「怎么用」那几段。
 - 仓库是公开的，同事（包括 Windows 用户）直接从 GitHub 下载和在线升级。
 
