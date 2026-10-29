@@ -522,6 +522,57 @@ test('老板编辑了自己的消息：作为新消息发出，大家看得到�
   assert.equal(store.getMessages(room.id).at(-2).editOf.seq, orig.seq);
 });
 
+test('空闲时私聊它，它还没看过群里别人的新消息：照样按私聊回，回复留在私聊里，群里的话只当背景', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.postUserMessage(room.id, '@DeepSeek 你好');
+  await tick();
+  calls[0].finish('老板好');
+  await settle(hub);
+  // Claude 和 ChatGPT 在群里聊（提到 DeepSeek 但没 @ 它），DeepSeek 没被叫醒
+  store.appendMessage(room.id, { from: 'claude', text: 'DeepSeek 刚才在手机上测过了，我建议合进 main。' });
+  store.appendMessage(room.id, { from: 'gpt', text: '复核通过，等老板说合再合。' });
+  hub.postUserMessage(room.id, '看下你还有多少余额？帮我打开充值页面', [], 'deepseek');
+  await tick();
+  const call = calls.at(-1);
+  assert.equal(call.agent, 'deepseek');
+  assert.match(call.prompt, /我建议合进 main/); // 群里的新消息也给它看
+  assert.match(call.prompt, /只是让你知道群里的进展/);
+  assert.match(call.prompt, /老板在私聊你/);
+  assert.deepEqual(hub.status().map((r) => [r.agent, r.dm]), [['deepseek', true]]); // 「正在干活」显示在私聊里
+  call.finish('充值页面已经打开了');
+  await settle(hub);
+  const reply = store.getMessages(room.id).at(-1);
+  assert.equal(reply.from, 'deepseek');
+  assert.equal(reply.dm, 'deepseek');
+});
+
+test('群里 @ 了它、老板又私聊了它：按群聊回合跑，私聊里也显示它在干活；没 @ 它的老板消息不算叫它', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'], defaultTarget: 'claude', collab: true });
+  hub.postUserMessage(room.id, '@DeepSeek 你好');
+  await tick();
+  calls[0].finish('老板好');
+  await settle(hub);
+  // 老板在群里没 @ 人（默认只找 Claude），不算叫 DeepSeek
+  store.appendMessage(room.id, { from: 'user', text: '大家辛苦了' });
+  hub.postUserMessage(room.id, '你那边怎么样', [], 'deepseek');
+  await tick();
+  assert.deepEqual(hub.status().map((r) => [r.agent, r.dm, r.withDm]), [['deepseek', true, false]]);
+  calls.at(-1).finish('都好');
+  await settle(hub);
+  // Claude 在群里 @ 了它（它当时没被叫醒，比如接力到了上限），老板又私聊它：群聊回合，私聊里也有「正在干活」
+  store.appendMessage(room.id, { from: 'claude', text: '@DeepSeek 帮我核一下包' });
+  hub.postUserMessage(room.id, '顺便看下余额', [], 'deepseek');
+  await tick();
+  assert.deepEqual(hub.status().map((r) => [r.agent, r.dm, r.withDm]), [['deepseek', false, true]]);
+  assert.match(calls.at(-1).prompt, /<私聊老板>/);
+});
+
 test('本体在群里忙时私聊它：分身马上回；本体干完后看到分身聊了什么', async () => {
   const store = new Store();
   const { run, calls } = heldRunner();

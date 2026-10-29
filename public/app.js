@@ -1224,7 +1224,7 @@ function liveKey(r) {
 function runInConv(r, conv) {
   if (r.roomId !== (conv.roomId ?? conv.room?.id)) return false; // 侧栏的会话只记了 room
   if (r.peer) return !!conv.dm && (conv.dm === r.agent || conv.dm === r.peer);
-  return conv.dm ? r.dm && r.agent === conv.dm : !r.dm;
+  return conv.dm ? (r.dm || r.withDm) && r.agent === conv.dm : !r.dm;
 }
 
 function convRuns(conv) {
