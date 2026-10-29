@@ -416,6 +416,17 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2
   max-height: 240px; min-height: 32px; line-height: 20px; overflow-y: hidden; font-size: 14px;
 }
 #input::placeholder { color: var(--faint); }
+/* 输入框里的 @成员：输入框只能显示纯文字，所以在它底下垫一层逐字对齐的文字，@ 的位置换成成员头像
+   （app.js 的 renderInputMirror）。有 @ 时输入框自己的字变透明，只留光标和选中的底色 */
+.input-mirror {
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  padding: 6px 14px; line-height: 20px; font-size: 14px; white-space: pre-wrap; overflow-wrap: break-word;
+}
+.input-wrap.mirrored #input { color: transparent; caret-color: var(--text); }
+.input-wrap.mirrored #input::selection { background: rgba(0, 122, 255, 0.3); }
+.mention-tok { color: var(--accent); background: var(--accent-soft); border-radius: 4px; box-shadow: 0 0 0 2px var(--accent-soft); }
+.mention-at { position: relative; color: transparent; }
+.mention-at .avatar { position: absolute; left: 50%; top: 50%; width: 15px; height: 15px; transform: translate(-50%, -50%); }
 .send-btn {
   width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
   display: grid; place-items: center; flex: none; transition: opacity 0.15s, transform 0.1s;

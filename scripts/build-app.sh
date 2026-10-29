@@ -63,6 +63,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+echo "→ 签名（用本机固定的证书，升级后系统还认得是同一个应用，不用重新授权）"
+bash "$ROOT/scripts/sign-app.sh" "$APP"
 touch "$APP"
 echo "✓ 已生成 $APP"

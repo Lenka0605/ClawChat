@@ -622,6 +622,7 @@ function renderShell() {
     ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。`
     : '';
   $('#input').placeholder = dm ? `私聊 ${agentName(dm)}` : `发送给 ${room.name}`;
+  renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
   syncToolsRow();
   fitHead();
   requestAnimationFrame(reportDragRegions);
@@ -1082,7 +1083,37 @@ function autoGrow() {
   const full = el.scrollHeight + 2; // scrollHeight 不含上下边框
   el.style.height = `${Math.min(full, 240)}px`;
   el.style.overflowY = full > 240 ? 'auto' : 'hidden';
+  renderInputMirror();
   updateSendButton();
+}
+
+// 输入框里 @ 了群里的成员时，底下的垫层把 @ 换成它的头像（写法和 lib/hub.js 的 MENTION_RE 一样）
+const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)/gi;
+const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek' };
+function renderInputMirror() {
+  const el = $('#input');
+  const mirror = $('#input-mirror');
+  const conv = currentConv();
+  const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
+  const text = el.value;
+  let html = '';
+  let last = 0;
+  for (const m of members.length ? text.matchAll(MENTION_SHOW_RE) : []) {
+    if (m.index > 0 && /[A-Za-z0-9_.]/.test(text[m.index - 1])) continue; // me@all 这种不算
+    const who = MENTION_WHO[m[2].toLowerCase()] || 'all';
+    if (who !== 'all' && !members.includes(who)) continue;
+    const at = who === 'all' ? '@' : `<span class="mention-at">@${avatarHtml(who)}</span>`;
+    html += `${esc(text.slice(last, m.index))}<span class="mention-tok">${at}${esc(m[1] + m[2])}</span>`;
+    last = m.index + m[0].length;
+  }
+  const found = last > 0;
+  el.parentElement.classList.toggle('mirrored', found);
+  mirror.hidden = !found;
+  if (!found) return void (mirror.textContent = '');
+  // 最后是换行时补一个空格，不然垫层少一行
+  mirror.innerHTML = html + esc(text.slice(last)) + (text.endsWith('\n') ? ' ' : '');
+  mirror.style.overflowY = el.style.overflowY === 'auto' ? 'scroll' : 'hidden'; // Windows 的滚动条占宽度，两边要一样宽
+  mirror.scrollTop = el.scrollTop;
 }
 
 async function sendMessage() {
@@ -1185,6 +1216,21 @@ function mentionKeydown(e) {
     return false;
   }
   e.preventDefault();
+  return true;
+}
+
+// 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
+// 认的写法和 lib/hub.js 的 MENTION_RE 一样；返回 true 表示这个按键被用掉了
+const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@ ?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone) ?)$/i;
+function selectMentionOnBackspace(e) {
+  const el = e.target;
+  if (e.key !== 'Backspace' || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
+  if (el.selectionStart !== el.selectionEnd) return false;
+  const m = el.value.slice(0, el.selectionStart).match(MENTION_TAIL_RE);
+  if (!m) return false;
+  e.preventDefault();
+  el.setSelectionRange(el.selectionStart - m[1].length, el.selectionStart, 'backward');
+  hideMentionMenu();
   return true;
 }
 
@@ -1973,6 +2019,7 @@ function bind() {
   window.addEventListener('drop', (e) => e.preventDefault());
 
   input.addEventListener('input', autoGrow);
+  input.addEventListener('scroll', () => ($('#input-mirror').scrollTop = input.scrollTop));
   input.addEventListener('input', updateMentionMenu);
   input.addEventListener('click', updateMentionMenu);
   input.addEventListener('keyup', (e) => {
@@ -1994,7 +2041,7 @@ function bind() {
     pickMention(Number(item.dataset.mentionPick));
   });
   input.addEventListener('keydown', (e) => {
-    if (mentionKeydown(e)) return;
+    if (mentionKeydown(e) || selectMentionOnBackspace(e)) return;
     if (e.key === 'Escape' && S.replyTo && !e.isComposing) {
       e.preventDefault();
       cancelReply();
