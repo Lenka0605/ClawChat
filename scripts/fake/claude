@@ -12,4 +12,8 @@ if [ -f "$FAKE_COMPACT" ]; then
   echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":900000}}'
 fi
 sleep "${FAKE_SECS:-6}"
-echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"（假的 Claude）做完了\",\"session_id\":\"$SID\",\"modelUsage\":{\"claude-fake\":{\"contextWindow\":1000000}}}"
+# 想让它回指定的话（比如测 AI 之间私聊）：把内容写进 $CLAWCHAT_HOME/fake-replies/claude.txt，用一次就删掉
+REPLY_FILE="${CLAWCHAT_HOME:-/tmp}/fake-replies/claude.txt"
+if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; else TEXT="（假的 Claude）做完了"; fi
+RESULT="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$TEXT")"
+echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":$RESULT,\"session_id\":\"$SID\",\"modelUsage\":{\"claude-fake\":{\"contextWindow\":1000000}}}"

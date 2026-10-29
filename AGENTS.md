@@ -16,7 +16,8 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 
 - 单元测试：`npm test`（Node 自带的 test runner，假 AI 在 `test/hub.test.js` 里的 fakeRunner）。提交前必须全过。
 - **要看界面或走完整流程，用假 AI 实例**：`bash scripts/run-fake.sh [端口]`（默认 7399，数据在 `/tmp/clawchat-fake`，可以用 `CLAWCHAT_FAKE_HOME` 换）。它把 `scripts/fake/` 里假的 `claude`、`codex` 放在 PATH 最前面，不连任何真 AI。启动后先看 `/api/state` 里 `engines.claude.path` 和 `engines.codex.path` 是不是都指向 `scripts/fake/`。
-  - 局限：只有假 Claude 能正常「回话」。假 codex 除了查版本一律报错，所以只能测 ChatGPT 出错的流程；DeepSeek 的接口固定指向连不上的本地地址，真 Key 也被清掉了，同样只能测出错。不能拿它说「三位的正常收发都验证过了」。要测正常收发，用 `npm test` 里的 fakeRunner。
+  - 假 Claude、假 ChatGPT 都能正常回话（默认回「（假的 xx）做完了」）。要它回指定的内容（比如测 AI 之间私聊、接力），把内容写进 `$CLAWCHAT_FAKE_HOME/fake-replies/claude.txt` 或 `codex.txt`，用一次就删。`FAKE_SECS` 设每轮干多久，`FAKE_CODEX_SECS` 单独设 ChatGPT 的。
+  - 局限：DeepSeek / GLM 的接口固定指向连不上的本地地址、真 Key 被清掉，只能测出错；Gemini 用 `scripts/fake/gemini`。
 - **普通测试实例（`CLAWCHAT_PORT=7318 CLAWCHAT_HOME=/tmp/xxx node server.js`）用的是本机真实的 Claude / Codex 登录**，在里面发消息会叫起真 AI、花用户的额度。以前犯过两次：测输入框时按了 Enter，把消息发了出去。在这种实例里只测界面，不要真的发送；自动化脚本里不要在 `#input` 上按 Enter。万一发出去了，马上调 `/api/rooms/<id>/stop`，然后如实告诉用户。
 - 新数据目录里没有 `config.json`，DeepSeek 会显示没填 Key。要测 DeepSeek 的话，用 `CLAWCHAT_DEEPSEEK_API` 指向本地的假接口，不要拿真 Key。
 - 自己写脚本调接口时：**所有写接口（POST 等）都要带请求头 `X-ClawChat: 1`**，否则一律 403。

@@ -3,7 +3,8 @@
 # 用法：bash scripts/run-fake.sh [端口，默认 7399]
 # 数据放在 /tmp/clawchat-fake（不碰 ~/.clawchat）；FAKE_SECS 控制假 AI 每轮「干活」多少秒；
 # touch /tmp/clawchat-fake/compact.on 可以让假 Claude 每轮模拟一次自动压缩记忆。
-# 局限：假 codex 除了查版本一律报错，只能测 ChatGPT 出错的流程；DeepSeek 接口指向连不上的本地地址，也只能测出错。
+# 假 Claude、假 ChatGPT 都会回话；要它们回指定内容，写进 $CLAWCHAT_FAKE_HOME/fake-replies/claude.txt 或 codex.txt（用一次就删）。
+# 局限：DeepSeek / GLM 接口指向连不上的本地地址，只能测出错。
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAKE="$ROOT/scripts/fake"
 HOME_DIR="${CLAWCHAT_FAKE_HOME:-/tmp/clawchat-fake}"
