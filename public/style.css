@@ -444,8 +444,11 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 .time-sep { text-align: center; font-size: 11px; color: var(--muted); margin: 8px 0 12px; font-weight: 500; }
 .notice { text-align: center; margin: 0 0 12px; }
 .notice span { display: inline-block; font-size: 11px; color: var(--muted); max-width: 80%; overflow-wrap: anywhere; line-height: 1.5; }
-.mention { color: var(--accent); font-weight: 600; }
-.msg.user .mention { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+/* 消息里的 @：和输入框里一样的小标签，@ 某一位时前面是它的图标 */
+.mention { color: var(--accent); font-weight: 600; background: var(--accent-soft); border-radius: 6px; padding: 1px 5px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mention.has-icon { padding-left: 3px; }
+.mention .avatar { display: inline-block; width: 1.05em; height: 1.05em; border-radius: 4px; margin-right: 0.22em; vertical-align: -0.17em; }
+.msg.user .mention { color: #fff; background: rgba(255, 255, 255, 0.2); }
 
 .msg-images { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .msg.user .msg-images { justify-content: flex-end; }

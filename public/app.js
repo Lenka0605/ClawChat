@@ -440,10 +440,17 @@ function inline(s) {
       h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
       h = h.replace(/(^|[\s(（：:])(https?:\/\/[^\s<>()（）]*[^\s<>()（）.,;:!?。，；：！？'"])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
       h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-      // 只在标签外面高亮 @，免得改坏链接地址
+      // 只在标签外面高亮 @，免得改坏链接地址。@ 某一位：和输入框里一样，换成它的图标 + 名字；@所有人 照旧
       return h
         .split(/(<[^>]+>)/g)
-        .map((seg, j) => (j % 2 === 1 ? seg : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, '$1<span class="mention">@$2</span>')))
+        .map((seg, j) =>
+          j % 2 === 1
+            ? seg
+            : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家)/gi, (_, pre, name) => {
+                const who = MENTION_WHO[name.toLowerCase()];
+                return `${pre}<span class="mention${who ? ' has-icon' : ''}">${who ? avatarHtml(who) : '@'}${name}</span>`;
+              }),
+        )
         .join('');
     })
     .join('');
