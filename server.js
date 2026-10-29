@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig } from './lib/store.js';
-import { Hub } from './lib/hub.js';
+import { Hub, dmRoom } from './lib/hub.js';
 import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, sessionImageBytes } from './lib/agents.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 
@@ -263,6 +263,39 @@ function normalizeRoom(body, creating, room = null) {
     }
     out.fast = fast;
   }
+  // 私聊里单独的设置：{ dmSettings: { gpt: { effort: 'low' } } } 只改这几项，{ gpt: null } 恢复成跟着群里
+  if (body.dmSettings !== undefined) {
+    const next = { ...room?.dmSettings };
+    const custom = Array.isArray(body.custom) ? body.custom : [];
+    const groupModels = out.models || room?.models || {};
+    for (const [a, v] of Object.entries(body.dmSettings || {})) {
+      if (!AGENTS[a]) continue;
+      if (!v) {
+        delete next[a];
+        continue;
+      }
+      const cur = { ...next[a] };
+      if (v.model !== undefined) {
+        const m = String(v.model || '').trim().slice(0, 80);
+        if (!custom.includes(a) && m !== cur.model && !validModel(AGENT_ENGINE[a], m)) throw httpError(400, `${AGENTS[a].name} 用不了 ${m} 这个模型，请从列表里选一个`);
+        cur.model = m;
+      }
+      const model = cur.model ?? groupModels[a];
+      if (v.effort !== undefined) cur.effort = String(v.effort || '').trim();
+      const allowed = effortsFor(a, model);
+      if (cur.effort && allowed.length && !allowed.includes(cur.effort)) {
+        if (v.effort !== undefined) throw httpError(400, `${AGENTS[a].name} 现在的模型不支持「${EFFORT_LABEL[cur.effort] || cur.effort}」`);
+        cur.effort = ''; // 换了模型、新模型不支持原来的强度：退回默认
+      }
+      if (v.fast !== undefined) cur.fast = !!v.fast;
+      if (cur.fast && !fastFor(a, model)) {
+        if (v.fast) throw httpError(400, `${AGENTS[a].name} 现在的模型没有快速模式`);
+        cur.fast = false;
+      }
+      next[a] = cur;
+    }
+    out.dmSettings = next;
+  }
   return out;
 }
 
@@ -452,6 +485,14 @@ async function api(req, res, url) {
       const effortSwitched = patch.efforts
         ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.efforts[a] || '') !== (room.efforts?.[a] || ''))
         : [];
+      // 私聊里的设置：改之前每位实际用的是什么，改完对比，提示只发在私聊里
+      // （复制一份：保存时房间对象会被原地改掉）
+      const dmBefore = Object.fromEntries(
+        room.members.map((a) => {
+          const r = dmRoom(room, a);
+          return [a, { models: { ...r.models }, efforts: { ...r.efforts }, fast: { ...r.fast }, own: !!room.dmSettings?.[a] }];
+        }),
+      );
       const fastSwitched = patch.fast
         ? Object.keys(ROOM_DEFAULTS.fast).filter((a) => (patch.members || room.members).includes(a) && !!patch.fast[a] !== !!room.fast?.[a])
         : [];
@@ -460,6 +501,19 @@ async function api(req, res, url) {
       for (const a of switched) hub.notice(room.id, `${AGENTS[a].name} 换成了 ${modelName(a, patch.models[a])}${when(a)}开始生效`);
       for (const a of effortSwitched) hub.notice(room.id, `${AGENTS[a].name} 的思考强度换成了「${effortName(a, patch.efforts[a])}」${when(a)}开始生效`);
       for (const a of fastSwitched) hub.notice(room.id, `${AGENTS[a].name} 换成了${fastName(a, room.fast[a], room.models?.[a])}${when(a)}开始生效`);
+      if (patch.dmSettings && room.members.length > 1) {
+        for (const a of room.members) {
+          const was = dmBefore[a];
+          const now = dmRoom(room, a);
+          const tail = `${when(a)}开始生效（只改私聊，群里不变）`;
+          if (!room.dmSettings[a] && was.own) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 恢复成和群里一样的设置${when(a)}开始生效`, a);
+          else {
+            if ((now.models[a] || '') !== (was.models[a] || '')) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 换成了 ${modelName(a, now.models[a])}${tail}`, a);
+            if ((now.efforts[a] || '') !== (was.efforts[a] || '')) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 的思考强度换成了「${effortName(a, now.efforts[a])}」${tail}`, a);
+            if (!!now.fast?.[a] !== !!was.fast?.[a]) hub.notice(room.id, `私聊里的 ${AGENTS[a].name} 换成了${fastName(a, now.fast[a], now.models[a])}${tail}`, a);
+          }
+        }
+      }
       if (cwdChanged) {
         hub.resetSessions(room.id);
         hub.notice(room.id, `项目文件夹改成了：${patch.cwd}`);

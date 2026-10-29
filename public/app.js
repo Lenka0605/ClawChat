@@ -748,7 +748,7 @@ function renderShell() {
   // 顶部的模型按钮：群里显示所有成员，私聊只显示对方
   if (!$('#model-menu').hidden && !conv.room.members.includes($('#model-menu').dataset.agent)) closeModelMenu();
   $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
-  setHtml($('#model-switch'), (dm ? [dm] : room.members).map((a) => modelChipHtml(a, room)).join(''));
+  setHtml($('#model-switch'), (dm ? [dm] : room.members).map((a) => modelChipHtml(a, dm ? dmView(room, a) : room)).join(''));
   const entry = $('#dm-entry');
   entry.hidden = dm || !group;
   entry.innerHTML = group && !dm ? `<span class="muted">私聊</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="私聊 ${esc(agentLabel(a))}">${avatarHtml(a)}</button>`).join('')}` : '';
@@ -1631,13 +1631,50 @@ async function pickFolder() {
   return path;
 }
 
+// 私聊里单独的设置（和 lib/hub.js 的 dmRoom 一样）：没单独设置的跟着群里
+function dmView(room, agent) {
+  const o = room.dmSettings?.[agent];
+  if (!o) return room;
+  const pick = (map, v) => (v === undefined ? map : { ...map, [agent]: v });
+  return { ...room, models: pick(room.models, o.model), efforts: pick(room.efforts, o.effort), fast: pick(room.fast, o.fast) };
+}
+
+// 当前会话里这一位实际用的设置：私聊里看私聊的，群里看群的
+const convRoom = (conv, agent) => (conv.dm ? dmView(conv.room, agent) : conv.room);
+
+// 改设置：在私聊里只改私聊那份（群里不变），在群里改群的
+function settingsPatch(conv, agent, field, value) {
+  if (conv.dm) return { dmSettings: { [agent]: { [field]: value } } };
+  const key = { model: 'models', effort: 'efforts', fast: 'fast' }[field];
+  return { [key]: { ...conv.room[key], [agent]: value } };
+}
+
+async function patchSettings(conv, body) {
+  const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, body);
+  S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+}
+
+const scopeText = (conv) => (conv.dm ? '（只改私聊，群里不变）' : '');
+
+async function resetDmSettings(agent) {
+  const conv = currentConv();
+  if (!conv?.dm) return;
+  try {
+    await patchSettings(conv, { dmSettings: { [agent]: null } });
+    toast(`私聊里的 ${agentName(agent)} 恢复成和群里一样的设置`);
+  } catch (err) {
+    toast(err.message);
+  }
+  $('#model-switch')._html = null;
+  renderShell();
+}
+
 async function switchEffort(agent, id) {
   const conv = currentConv();
   if (!conv) return;
   try {
-    const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { efforts: { ...conv.room.efforts, [agent]: id } });
-    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
-    toast(`${agentName(agent)} 的思考强度换成了「${id ? EFFORT_LABEL[id] || id : '默认'}」，下一轮生效`);
+    await patchSettings(conv, settingsPatch(conv, agent, 'effort', id));
+    toast(`${agentName(agent)} 的思考强度换成了「${id ? EFFORT_LABEL[id] || id : '默认'}」，下一轮生效${scopeText(conv)}`);
   } catch (err) {
     toast(err.message);
   }
@@ -1650,6 +1687,7 @@ async function switchEffort(agent, id) {
 
 const FOLDER_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.8 4.2c0-.8.6-1.4 1.4-1.4h3l1.4 1.5h5.2c.8 0 1.4.6 1.4 1.4v6.1c0 .8-.6 1.4-1.4 1.4H3.2c-.8 0-1.4-.6-1.4-1.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
 const CHEVRON_SVG = '<svg class="chip-chevron" viewBox="0 0 10 10" width="8" height="8" aria-hidden="true"><path d="M2 3.6 5 6.6l3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SCOPE_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h16v10H9l-5 4z"/></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2.2 6.4 4.8 9 9.8 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // 现在实际用的模型、思考强度的名字（「默认」就显示默认对应的那个）
@@ -1685,11 +1723,16 @@ const hasCjk = (s) => /[\u4e00-\u9fff]/.test(s || ''); // Codex 自带的模型�
 function openModelMenu(agent, chip) {
   const conv = currentConv();
   if (!conv) return;
-  const { room } = conv;
+  const room = convRoom(conv, agent);
   const cur = room.models?.[agent] || '';
   const opts = modelOptions(agent);
   if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: `${cur}（自定义）` });
-  let html = '<div class="menu-section">模型</div>';
+  let html = '';
+  if (conv.dm) {
+    html += `<div class="menu-note">${SCOPE_ICON}在这里切换只改私聊，群里的设置不变</div>`;
+    if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', '恢复成和群聊一样', '', false) + '<div class="menu-sep"></div>';
+  }
+  html += '<div class="menu-section">模型</div>';
   html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, esc(o.name), hasCjk(o.description) ? o.description : '', o.id === cur)).join('');
   html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, '自定义模型…', '', false);
   const efforts = effortsFor(agent, cur);
@@ -1734,20 +1777,21 @@ function pickFromMenu(item) {
   closeModelMenu();
   if (item.dataset.pickModel !== undefined) switchModel(agent, item.dataset.pickModel);
   else if (item.dataset.pickEffort !== undefined) switchEffort(agent, item.dataset.pickEffort);
+  else if (item.dataset.pickReset !== undefined) resetDmSettings(agent);
   else if (item.dataset.pickFast !== undefined) {
     const on = item.dataset.pickFast === '1';
-    if (on !== !!currentConv()?.room.fast?.[agent]) switchFast(agent, on);
+    const conv = currentConv();
+    if (conv && on !== !!convRoom(conv, agent).fast?.[agent]) switchFast(agent, on);
   }
 }
 
 async function switchFast(agent, on) {
   const conv = currentConv();
   if (!conv) return;
-  if (on && !(await confirmFast(fastSpeed(agent, conv.room.models?.[agent])))) return;
+  if (on && !(await confirmFast(fastSpeed(agent, convRoom(conv, agent).models?.[agent])))) return;
   try {
-    const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { fast: { ...conv.room.fast, [agent]: on } });
-    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
-    toast(on ? `${agentName(agent)} 换成了快速模式，下一轮生效` : `${agentName(agent)} 换回了标准速度，下一轮生效`);
+    await patchSettings(conv, settingsPatch(conv, agent, 'fast', on));
+    toast(`${agentName(agent)} ${on ? '换成了快速模式' : '换回了标准速度'}，下一轮生效${scopeText(conv)}`);
   } catch (err) {
     toast(err.message);
   }
@@ -2166,12 +2210,10 @@ async function switchModel(agent, id, custom = false) {
     openCustomModel(agent);
     return;
   }
-  const models = { ...conv.room.models, [agent]: id };
   try {
-    const { room } = await api('PATCH', `/api/rooms/${conv.roomId}`, { models, custom: custom ? [agent] : [] });
-    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+    await patchSettings(conv, { ...settingsPatch(conv, agent, 'model', id), custom: custom ? [agent] : [] });
     const name = modelOptions(agent).find((o) => o.id === id)?.name || id;
-    toast(`${agentName(agent)} 已切换到 ${name}，下一轮生效`);
+    toast(`${agentName(agent)} 已切换到 ${name}，下一轮生效${scopeText(conv)}`);
   } catch (err) {
     toast(err.message);
   }

@@ -100,7 +100,7 @@ test('splitReply 拆出私聊和群聊', () => {
 function fakeRunner(script) {
   const calls = [];
   const run = (agent, opts) => {
-    calls.push({ agent, prompt: opts.prompt, session: opts.session, images: opts.images });
+    calls.push({ agent, prompt: opts.prompt, session: opts.session, images: opts.images, room: opts.room });
     const reply = script(agent, opts.prompt, calls.length);
     return { done: new Promise((r) => setTimeout(() => r({ ok: true, text: reply, steps: [], session: `${agent}-session` }), 5)), kill() {} };
   };
@@ -387,6 +387,26 @@ test('回复 GPT 的消息：只有 GPT 回答，而且知道是在回它哪句�
   await settle(hub);
   assert.deepEqual(calls.slice(mid).map((c) => c.agent), ['claude']);
   assert.match(calls.at(-1).prompt, /回复ChatGPT的「gpt 收到」/);
+});
+
+test('私聊里单独换的模型、强度只用在私聊那一轮，群里照旧', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => `${agent} 收到`);
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { models: { claude: 'opus', gpt: '' }, efforts: { claude: 'high', gpt: '' } });
+  store.updateRoom(room.id, { dmSettings: { claude: { effort: 'low' } } });
+  hub.postUserMessage(room.id, '私聊问一下', [], 'claude');
+  await settle(hub);
+  const dmCall = calls.at(-1);
+  assert.equal(dmCall.agent, 'claude');
+  assert.equal(dmCall.room.efforts.claude, 'low'); // 私聊用私聊的强度
+  assert.equal(dmCall.room.models.claude, 'opus'); // 没单独换的模型跟着群里
+  hub.postUserMessage(room.id, '@Claude 群里干活');
+  await settle(hub);
+  const groupCall = calls.at(-1);
+  assert.equal(groupCall.agent, 'claude');
+  assert.equal(groupCall.room.efforts.claude, 'high'); // 群里还是群里的
+  assert.equal(store.getRoom(room.id).efforts.claude, 'high');
 });
 
 test('老板编辑了自己的消息：作为新消息发出，大家看得到改的是哪条、以新的为准', async () => {

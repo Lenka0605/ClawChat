@@ -346,6 +346,7 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
   animation: menu-in 0.14s var(--ease);
 }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+.menu-note { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); padding: 5px 10px 6px; border-bottom: 0.5px solid var(--line); margin: 0 4px 4px; }
 .menu-section { font-size: 11px; font-weight: 600; color: var(--muted); padding: 5px 10px 3px 26px; }
 .menu-sep { height: 0.5px; background: var(--line); margin: 5px 8px; }
 .menu-item {
