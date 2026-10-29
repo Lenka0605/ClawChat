@@ -475,11 +475,12 @@ test('本体忙时，分身在私聊里写的 <群聊> 会发到群里，并叫�
   }
 });
 
-test('AI 私下找另一位 AI：对方被叫醒、默认私下回；第三位看不到；老板在两位的私聊里都能看到', async () => {
+test('AI 私下找另一位 AI：对方被叫醒、默认私下回；第三位看不到；整段对话只放在被找的那一位的私聊里', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner((agent, prompt, n) => {
     if (agent === 'claude' && n === 1) return '大家好。<私聊 DeepSeek>你那边的接口先别动，等我改完</私聊>';
-    if (agent === 'deepseek') return '好的，等你。';
+    if (agent === 'claude' && /好的，等你/.test(prompt)) return '行，我改完叫你。';
+    if (agent === 'deepseek' && !/改完叫你/.test(prompt)) return '好的，等你。';
     return '[PASS]';
   });
   const hub = new Hub(store, { run });
@@ -487,24 +488,63 @@ test('AI 私下找另一位 AI：对方被叫醒、默认私下回；第三位�
   hub.postUserMessage(room.id, '@Claude 开工');
   await settle(hub);
   const msgs = store.getMessages(room.id);
-  const pm = msgs.find((m) => m.pm === 'deepseek');
-  assert.equal(pm.from, 'claude');
-  assert.equal(pm.text, '你那边的接口先别动，等我改完');
+  const pms = msgs.filter((m) => m.pm);
+  assert.deepEqual(
+    pms.map((m) => [m.from, m.pm, m.pmIn, m.text]),
+    [
+      ['claude', 'deepseek', 'deepseek', '你那边的接口先别动，等我改完'], // Claude 找 DeepSeek：放在 DeepSeek 的私聊里
+      ['deepseek', 'claude', 'deepseek', '好的，等你。'], // DeepSeek 回 Claude：还是那段对话，也在 DeepSeek 的私聊里
+      ['claude', 'deepseek', 'deepseek', '行，我改完叫你。'], // Claude 接着说：同上
+    ],
+  );
   // DeepSeek 被叫醒，知道是 Claude 私下找它，回复默认私下回 Claude
   const dsCall = calls.find((c) => c.agent === 'deepseek');
   assert.match(dsCall.prompt, /Claude（私下发给你，别人看不到）\] 你那边的接口先别动/);
   assert.match(dsCall.prompt, /Claude 私下找你/);
-  const reply = msgs.find((m) => m.from === 'deepseek');
-  assert.equal(reply.pm, 'claude');
-  assert.equal(reply.text, '好的，等你。');
-  // ChatGPT 看不到这两条
+  // ChatGPT 看不到这几条
   hub.postUserMessage(room.id, '@ChatGPT 你看看进度');
   await settle(hub);
   const gptCall = calls.filter((c) => c.agent === 'gpt').at(-1);
-  assert.doesNotMatch(gptCall.prompt, /接口先别动|好的，等你/);
-  // 侧栏：两位各自的私聊里都有最新一条
-  assert.equal(store.getRoom(room.id).dmLast.claude.pm, 'claude');
-  assert.equal(store.getRoom(room.id).dmLast.deepseek.text, '好的，等你。');
+  assert.doesNotMatch(gptCall.prompt, /接口先别动|好的，等你|改完叫你/);
+  // 侧栏：只有 DeepSeek 的私聊有这段对话，Claude 的私聊里没有
+  assert.equal(store.getRoom(room.id).dmLast.claude, undefined);
+  assert.equal(store.getRoom(room.id).dmLast.deepseek.text, '行，我改完叫你。');
+  // 之后 DeepSeek 主动找 Claude，是另一段对话：放在 Claude 的私聊里
+  hub.deliver(room.id, 'deepseek', '<私聊 Claude>接口我这边也有个问题想问你</私聊>', false, {});
+  assert.equal(store.getMessages(room.id).filter((m) => m.pm).at(-1).pmIn, 'claude');
+  await settle(hub);
+});
+
+test('被别的 AI 私下找来的这一轮，「正在干活」只显示在那段对话所在的私聊里', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.deliver(room.id, 'deepseek', '<私聊 Claude>问你几个问题</私聊>', false, {});
+  await tick();
+  assert.deepEqual(hub.status().map((r) => [r.agent, r.peer, r.pmIn]), [['claude', 'deepseek', 'claude']]);
+  calls.at(-1).finish('好，你问。');
+  await tick();
+  // Claude 的回复把 DeepSeek 叫醒：DeepSeek 这一轮也显示在 Claude 的私聊里
+  assert.deepEqual(hub.status().map((r) => [r.agent, r.peer, r.pmIn]), [['deepseek', 'claude', 'claude']]);
+  calls.at(-1).finish('[PASS]');
+  await settle(hub);
+});
+
+test('0.6.1 以前的 AI 私聊：按「谁找谁」补上放在谁的私聊里，侧栏的最后一条也重算', async () => {
+  const store = new Store();
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  store.appendMessage(room.id, { from: 'deepseek', pm: 'claude', text: '问你个事' });
+  store.appendMessage(room.id, { from: 'claude', pm: 'deepseek', text: '你说' });
+  store.appendMessage(room.id, { from: 'deepseek', pm: 'claude', text: '签名在谁手里' });
+  store.appendMessage(room.id, { from: 'user', dm: 'deepseek', text: '你好' });
+  // 以前的侧栏记录：两位的私聊都记了 AI 私聊
+  store.getRoom(room.id).dmLast = { deepseek: { from: 'deepseek', text: '签名在谁手里', pm: 'claude' }, claude: { from: 'deepseek', text: '签名在谁手里', pm: 'claude' } };
+  store.saveRooms();
+  const again = new Store();
+  assert.deepEqual(again.getMessages(room.id).filter((m) => m.pm).map((m) => m.pmIn), ['claude', 'claude', 'claude']);
+  assert.equal(again.getRoom(room.id).dmLast.claude.text, '签名在谁手里');
+  assert.equal(again.getRoom(room.id).dmLast.deepseek.text, '你好');
 });
 
 test('老板编辑了自己的消息：作为新消息发出，大家看得到改的是哪条、以新的为准', async () => {

@@ -537,9 +537,19 @@ function parseKey(key) {
   return null;
 }
 
-// 一条消息的「主场」（未读数、通知、搜索结果都记在这里）：AI 之间的私聊记在收到的那一位的私聊里
+// AI 之间的私聊放在谁的私聊里：A 主动找 B 的整段对话（含 B 的回复）都在 B 的私聊里
+function pmHome(m) {
+  return m.pmIn || m.pm;
+}
+
+// 一条消息的「主场」（未读数、通知、搜索结果都记在这里）
 function convOf(roomId, m) {
-  return m.dm ? `d:${roomId}:${m.dm}` : m.pm ? `d:${roomId}:${m.pm}` : `g:${roomId}`;
+  return m.dm ? `d:${roomId}:${m.dm}` : m.pm ? `d:${roomId}:${pmHome(m)}` : `g:${roomId}`;
+}
+
+// 「Claude 私下找 DeepSeek」/ 被找的那位回话时是「DeepSeek 私下回 Claude」
+function pmVerb(m) {
+  return pmHome(m) === m.pm ? '私下找' : '私下回';
 }
 
 function currentConv() {
@@ -550,9 +560,9 @@ function currentConv() {
   return { ...c, room };
 }
 
-// 这条消息显示在不在这个会话里：AI 之间的私聊，在两位各自和老板的私聊里都显示
+// 这条消息显示在不在这个会话里：AI 之间的私聊只显示在被找的那一位的私聊里
 function inConv(conv, m) {
-  if (m.pm) return !!conv.dm && (m.pm === conv.dm || m.from === conv.dm);
+  if (m.pm) return !!conv.dm && pmHome(m) === conv.dm;
   return conv.dm ? m.dm === conv.dm : !m.dm;
 }
 
@@ -748,7 +758,7 @@ function searchHitsHtml(q, hasConvs) {
   const items = res.hits.map((h) => {
     const room = roomById(h.roomId);
     if (!room) return '';
-    const where = h.pm ? `${room.name} · ${agentName(h.from)} 私下找 ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
+    const where = h.pm ? `${room.name} · ${agentName(h.from)} ${pmVerb(h)} ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · 私聊 ${agentName(h.dm)}` : room.name;
     const who = h.from === 'user' ? '我' : agentName(h.from);
     const text = `${h.cut ? '…' : ''}${String(h.text).replace(/\*\*|`/g, '').replace(/\s+/g, ' ')}`;
     const parts = text.split(re);
@@ -826,7 +836,7 @@ function renderShell() {
   const hint = $('#dm-hint');
   hint.hidden = !dm;
   hint.firstElementChild.textContent = dm
-    ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。它和其他 AI 之间的私聊也会显示在这里。`
+    ? `这里是你和 ${agentName(dm)} 的私聊，${room.members.filter((a) => a !== dm).map(agentName).join('、')} 看不到。${agentName(dm)} 记得群里的所有事。别的 AI 私下找它的对话也显示在这里；它主动找别人的，在对方的私聊里。`
     : '';
   $('#input').placeholder = dm ? `私聊 ${agentName(dm)}` : `发送给 ${room.name}`;
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
@@ -1223,7 +1233,7 @@ function liveKey(r) {
 // 这个会话里该显示哪些「正在干活」：被另一位 AI 私下找来的那一轮，显示在它俩的私聊里，不在群里
 function runInConv(r, conv) {
   if (r.roomId !== (conv.roomId ?? conv.room?.id)) return false; // 侧栏的会话只记了 room
-  if (r.peer) return !!conv.dm && (conv.dm === r.agent || conv.dm === r.peer);
+  if (r.peer) return !!conv.dm && conv.dm === (r.pmIn || r.agent); // 被别的 AI 私下找来的这一轮：显示在那段对话所在的私聊里
   return conv.dm ? (r.dm || r.withDm) && r.agent === conv.dm : !r.dm;
 }
 
@@ -1540,7 +1550,7 @@ function notifyReply(roomId, m, key) {
   const title = m.from === 'system'
     ? `ClawChat · ${room.name}`
     : m.pm
-      ? `${agentName(m.from)} 私下找 ${agentName(m.pm)} · ${room.name}`
+      ? `${agentName(m.from)} ${pmVerb(m)} ${agentName(m.pm)} · ${room.name}`
       : `${agentName(m.from)}${m.dm && !solo ? '（私聊）' : solo ? '' : ` · ${room.name}`}`;
   const body = plainSnippet(m.text, 140) || (m.images?.length ? '[图片]' : '');
   if (hasNative()) return native({ type: 'notify', title, body, key });
