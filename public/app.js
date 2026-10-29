@@ -3357,9 +3357,11 @@ function bind() {
   for (const id of KEY_TARGETS) {
     $(`#btn-${id}-save`).onclick = () => saveProviderKey(id);
   }
-  $('#ds-key').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.isComposing) saveProviderKey(e.target.id.replace(/-key$/, ''));
-  });
+  for (const id of KEY_TARGETS) {
+    $(`#${id}-key`)?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) saveProviderKey(id);
+    });
+  }
   $('#btn-quit').onclick = quitApp;
   document.addEventListener('keydown', (e) => {
     if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
