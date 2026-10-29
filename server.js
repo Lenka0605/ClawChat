@@ -685,11 +685,18 @@ async function api(req, res, url) {
       hub.stop(room.id, AGENTS[agent] ? agent : undefined, ['side', 'main'].includes(only) ? only : null);
       return send(res, 200, { ok: true });
     }
-    // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。有 AI 给它派过活的，会先请那位重新交代情况
+    // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。by 是老板选的谁来交代情况（某位 AI、self 它自己看记录、boss 老板自己来）
     if (sub === 'fresh' && method === 'POST') {
-      const { agent } = await readBody(req);
+      const { agent, by } = await readBody(req);
       if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
-      return send(res, 200, { ok: true, result: hub.resetAgent(room.id, agent) });
+      const pick = ['self', 'boss'].includes(by) || (room.members.includes(by) && by !== agent) ? by : undefined;
+      return send(res, 200, { ok: true, result: hub.resetAgent(room.id, agent, pick) });
+    }
+    // 「换新会话」弹窗打开时问一下：默认请谁来交代
+    if (sub === 'fresh' && method === 'GET') {
+      const agent = url.searchParams.get('agent');
+      if (!AGENTS[agent] || !room.members.includes(agent)) return send(res, 400, { error: '群里没有这位' });
+      return send(res, 200, { briefer: hub.suggestBriefer(room.id, agent) });
     }
     // 每位现在的会话：有没有、在不在干活、记了多少（上下文用了多少、上限多少，ChatGPT 还有存着的图片），群设置里显示，方便判断要不要换新会话
     if (sub === 'sessions' && method === 'GET') {

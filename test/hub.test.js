@@ -855,6 +855,67 @@ test('空闲时手动换新会话：有派活的 AI 就请它交代；没有就�
   assert.deepEqual(after, ['claude', 'gpt']);
 });
 
+test('换新会话时老板选谁来交代：选了别的 AI 就请它；选「不用交代」就谁也不叫；选「我自己来」就停下等老板', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.postUserMessage(room.id, '@Claude 安排一下海报');
+  await tick();
+  calls[0].finish('@GPT 按 prompts.md 出两张海报');
+  await tick();
+  calls.at(-1).finish('第一张好了');
+  await settle(hub);
+  assert.equal(hub.suggestBriefer(room.id, 'gpt'), 'claude'); // 弹窗里默认选上一次派活的
+  // 空着时选 DeepSeek 来交代：叫的是 DeepSeek，不是派活的 Claude
+  assert.equal(hub.resetAgent(room.id, 'gpt', 'deepseek'), 'briefing');
+  await tick();
+  const brief = calls.at(-1);
+  assert.equal(brief.agent, 'deepseek');
+  assert.match(brief.prompt, /老板给 ChatGPT 换了一个新会话/);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /先请 DeepSeek 把前面的情况/.test(m.text)));
+  brief.finish('@GPT 情况是：两张海报，第一张已经好了');
+  await tick();
+  assert.equal(calls.at(-1).agent, 'gpt');
+  assert.equal(calls.at(-1).session, null);
+  calls.at(-1).finish('收到');
+  await settle(hub);
+  // 选「不用交代」：派活的 Claude 也不叫，下次叫它时自己看记录
+  const n = calls.length;
+  assert.equal(hub.resetAgent(room.id, 'gpt', 'self'), 'reset');
+  await settle(hub);
+  assert.equal(calls.length, n);
+  hub.postUserMessage(room.id, '@GPT 做第二张');
+  await tick();
+  assert.equal(calls.at(-1).session, null);
+  assert.match(calls.at(-1).prompt, /做第二张/);
+  // 干活时选「我自己来」：这一轮停下，不重来、不叫别人；老板一说话它就带着没做完的消息开新会话
+  const busy = calls.length;
+  assert.equal(hub.resetAgent(room.id, 'gpt', 'boss'), 'restarted');
+  await settle(hub);
+  assert.equal(calls.length, busy);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /等你把情况交代给它/.test(m.text)));
+  assert.equal(store.getState(room.id).sessions.gpt, null);
+  hub.postUserMessage(room.id, '@GPT 第二张要竖版，字放大');
+  await tick();
+  const resumed = calls.at(-1);
+  assert.equal(resumed.agent, 'gpt');
+  assert.equal(resumed.session, null);
+  assert.match(resumed.prompt, /会话太重了/);
+  assert.match(resumed.prompt, /做第二张[\s\S]*竖版/);
+  // 干活时选 DeepSeek 来交代：停下这一轮，先叫 DeepSeek，交代完 GPT 接着干
+  assert.equal(hub.resetAgent(room.id, 'gpt', 'deepseek'), 'restarted');
+  await tick();
+  assert.equal(calls.at(-1).agent, 'deepseek');
+  assert.match(calls.at(-1).prompt, /老板给 ChatGPT 换了一个新会话/);
+  calls.at(-1).finish('@GPT 竖版、字放大，其它照旧');
+  await tick();
+  assert.equal(calls.at(-1).agent, 'gpt');
+  assert.equal(calls.at(-1).session, null);
+  calls.at(-1).finish('好');
+  await settle(hub);
+});
+
 test('GPT 会话里的图片太多时提醒换新会话，带按钮；同一级别只提醒一次', async () => {
   const store = new Store();
   let images = 9 * 1024 * 1024;

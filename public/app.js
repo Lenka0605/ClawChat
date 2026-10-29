@@ -1404,7 +1404,7 @@ function renderLive() {
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? '正在回复你' : compacting(key) ? '正在整理记忆' : '正在干活'} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
-          r.side ? '' : `<button class="live-fresh-mini${S.freshArmed === key ? ' armed' : ''}" data-agent="${esc(r.agent)}" data-key="${esc(key)}" title="会话太重、卡住时用：结束这一轮，换个新会话重来">${S.freshArmed === key ? '确定换？' : '换新会话'}</button>`
+          r.side ? '' : `<button class="live-fresh-mini" data-agent="${esc(r.agent)}" title="会话太重、卡住时用：结束这一轮，换个新会话重来">换新会话</button>`
         }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">停止</button></div>
         <div class="live-idle" data-idle="${esc(key)}"${idleText(r, key) ? '' : ' hidden'}><span>${esc(idleText(r, key))}</span>${
           r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">换新会话重来</button>`
@@ -2405,7 +2405,7 @@ function openModelMenu(agent, chip) {
   const imgs = sessionImages(conv.roomId, agent);
   if (heavyLevel(imgs)) {
     html += `<div class="menu-note warn${heavyLevel(imgs) > 1 ? ' bad' : ''}">会话里存了约 ${(imgs / 1048576).toFixed(1)}MB 图片：它看过的每张图都存在里面，每轮都要重发，到 15MB 左右就会慢到像卡住。这批活做完就换个新会话。</div>`;
-    html += menuItemHtml('data-pick-fresh', '换新会话', '上一个给它派活的 AI 会把情况重新交代给它', false) + '<div class="menu-sep"></div>';
+    html += menuItemHtml('data-pick-fresh', '换新会话…', '可以选一位同事把情况重新交代给它', false) + '<div class="menu-sep"></div>';
   }
   if (conv.dm) {
     html += `<div class="menu-note">${SCOPE_ICON}在这里切换只改私聊，群里的设置不变</div>`;
@@ -2804,28 +2804,100 @@ function showRestarting() {
   }, 1500);
 }
 
-// 给某位换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。有 AI 给它派过活的，会先请那位重新交代情况
+// 换新会话前先问老板：谁来给它交代情况。可以选群里另一位 AI（默认是上一个给它派活的）、不用交代（它自己看记录），或者老板自己来
+const NOTE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4M10 12.5h5M10 16h5"/></svg>`;
+
+async function askFresh(agent, roomId) {
+  const room = roomById(roomId);
+  if (!room) return null;
+  let suggested = null;
+  try {
+    ({ briefer: suggested } = await api('GET', `/api/rooms/${roomId}/fresh?agent=${encodeURIComponent(agent)}`));
+  } catch {}
+  const name = agentName(agent);
+  const busy = S.runs.some((r) => r.roomId === roomId && r.agent === agent && !r.side);
+  const conv = currentConv();
+  const inDm = conv?.roomId === roomId && conv.dm === agent;
+  const peers = room.members.filter((a) => a !== agent);
+  const option = (value, icon, label, sub, tag = '') =>
+    `<label class="radio fresh-opt"><input type="radio" name="fresh-by" value="${esc(value)}"${value === (suggested || 'self') ? ' checked' : ''}>${icon}<span><b>${esc(label)}</b>${
+      tag ? `<em class="tag-rec">${esc(tag)}</em>` : ''}${sub ? `<small>${esc(sub)}</small>` : ''}</span></label>`;
+  $('#fresh-title').textContent = `给 ${name} 换新会话`;
+  $('#fresh-text').textContent =
+    `换了以后，${name} 之前聊过的细节就不记得了，项目文件夹里的东西都还在。${busy ? '它手上这一轮会先停下。' : ''}\n谁来给它交代一下情况？`;
+  $('#fresh-options').innerHTML = [
+    ...peers.map((a) =>
+      option(
+        a,
+        avatarHtml(a),
+        `${agentName(a)} 来交代`,
+        S.runs.some((r) => r.roomId === roomId && r.agent === a && !r.side) ? '它正在干活，这一轮干完再来交代' : '在群里把情况讲给它，讲完它接着干',
+        a === suggested ? '上次给它派活' : '',
+      ),
+    ),
+    option('self', `<span class="avatar av-note">${NOTE_ICON}</span>`, '不用交代', `它自己翻最近的聊天和完整记录，${busy ? '马上接着干' : '下次叫它时生效'}`),
+    option('boss', avatarHtml('user'), '我自己来交代', inDm || room.members.length === 1 ? '换好后你直接跟它说' : `换好后输入框里会 @ 上 ${name}，你来说`),
+  ].join('');
+  const dlg = $('#dlg-fresh');
+  let answer = null;
+  $('#btn-fresh-ok').onclick = (e) => {
+    e.preventDefault();
+    answer = dlg.querySelector('input[name="fresh-by"]:checked')?.value || 'self';
+    closeDialog(dlg);
+  };
+  $('#btn-fresh-cancel').onclick = () => closeDialog(dlg);
+  dlg.showModal();
+  dlg.querySelector('input[name="fresh-by"]:checked')?.focus();
+  reportDragRegions();
+  return new Promise((resolve) =>
+    dlg.addEventListener('close', () => {
+      reportDragRegions();
+      resolve(answer);
+    }, { once: true }),
+  );
+}
+
+// 给某位换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。先问老板谁来交代情况
 async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
   if (!roomId) return;
+  const by = await askFresh(agent, roomId);
+  if (!by) return;
   if (btn) btn.disabled = true;
   try {
-    const { result } = await api('POST', `/api/rooms/${roomId}/fresh`, { agent });
+    const { result } = await api('POST', `/api/rooms/${roomId}/fresh`, { agent, by });
     const name = agentName(agent);
     toast(
-      {
-        restarted: `${name} 正在换新会话`,
-        briefing: `${name} 换成了新会话，先请上一个给它派活的同事把情况交代给它`,
-        reset: `${name} 换成了新会话，下次叫它时生效`,
-        none: `${name} 现在没有会话，下次叫它本来就是新开的`,
-      }[result] || '换好了',
+      result === 'none'
+        ? `${name} 现在没有会话，下次叫它本来就是新开的`
+        : by === 'boss'
+          ? `${name} 换成了新会话，跟它交代一下吧`
+          : S.agents[by]
+            ? `${name} 换成了新会话，先请 ${agentName(by)} 把情况交代给它`
+            : result === 'restarted'
+              ? `${name} 正在换新会话`
+              : `${name} 换成了新会话，下次叫它时生效`,
       3500,
     );
+    if (by === 'boss' && result !== 'none') briefYourself(agent, roomId);
   } catch (err) {
     toast(err.message);
     if (btn) btn.disabled = false;
   }
   if (S.editing === roomId && $('#dlg-room').open) setTimeout(() => loadSessions(roomById(roomId)), 600);
   setTimeout(() => refreshSessionImages(roomId), 600);
+}
+
+// 老板选了自己来交代：群里在输入框 @ 上它，私聊、单聊里直接说就行。群设置还开着的话，等关掉再填，免得抢焦点
+function briefYourself(agent, roomId) {
+  const settings = $('#dlg-room');
+  if (settings.open) return settings.addEventListener('close', () => setTimeout(() => briefYourself(agent, roomId), 200), { once: true });
+  const conv = currentConv();
+  if (conv?.roomId !== roomId) return;
+  const el = $('#input');
+  const tag = `@${MENTION_GAP}${agentName(agent)}${MENTION_SEP}`;
+  if (conv.dm || conv.room.members.length < 2 || el.value.includes(tag)) return el.focus();
+  el.setSelectionRange(el.value.length, el.value.length);
+  insertMention(agentName(agent), el);
 }
 
 // ---------------- ChatGPT 会话太重的常驻提醒 ----------------
@@ -3441,22 +3513,9 @@ function bind() {
     if (b && conv) api('POST', `/api/rooms/${conv.roomId}/stop`, { agent: b.dataset.agent, only: b.dataset.only }).catch((err) => toast(err.message));
     const fresh = e.target.closest('.live-fresh');
     if (fresh) freshAgent(fresh.dataset.agent, fresh);
-    // 气泡上方的「换新会话」：会结束手上这一轮，点第一下先变成「确定换？」，3 秒内再点才算
+    // 气泡上方的「换新会话」：会结束手上这一轮，弹窗里选好谁来交代、点了确定才换
     const mini = e.target.closest('.live-fresh-mini');
-    if (mini) {
-      if (S.freshArmed !== mini.dataset.key) {
-        S.freshArmed = mini.dataset.key;
-        renderLive();
-        clearTimeout(S.freshTimer);
-        S.freshTimer = setTimeout(() => {
-          S.freshArmed = null;
-          renderLive();
-        }, 3000);
-        return;
-      }
-      S.freshArmed = null;
-      freshAgent(mini.dataset.agent, mini);
-    }
+    if (mini) freshAgent(mini.dataset.agent, mini);
   });
   document.querySelectorAll('[data-mention]').forEach((b) => (b.onclick = () => insertMention(b.dataset.mention)));
 

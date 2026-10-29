@@ -989,6 +989,14 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 
 .confirm-text { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-line; max-width: 380px; }
 
+/* 换新会话：选谁来交代。单选框后面跟一个小头像 */
+#dlg-fresh .sheet-body { gap: 12px; }
+.fresh-opt { cursor: default; }
+.fresh-opt .avatar { width: 20px; height: 20px; font-size: 10px; border-radius: 6px; }
+.fresh-opt .av-user { border-radius: 50%; }
+.av-note { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
+.av-note svg { width: 13px; height: 13px; }
+
 /* ---------- 过程（干完的和正在干的共用） ---------- */
 .step { display: flex; gap: 6px; align-items: baseline; }
 .step-icon { flex: none; width: 14px; text-align: center; font-size: 11px; }
@@ -1170,7 +1178,6 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 .notice-action:disabled { opacity: 0.5; }
 .live-fresh-mini { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; margin-left: auto; }
 .live-fresh-mini:hover { color: var(--text); }
-.live-fresh-mini.armed { color: var(--warn); font-weight: 600; }
 .live-fresh-mini + .live-stop { margin-left: 10px; }
 .secondary:disabled { opacity: 0.45; }
 /* DeepSeek 的官方头像是白底的，加一圈细边，免得和白色背景混在一起（GPT 的官方图标自带这圈边） */

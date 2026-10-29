@@ -200,7 +200,7 @@
         <section class="form-section" id="session-fields" hidden>
           <h3>会话（记忆） <small>记了多少、什么时候该换</small></h3>
           <div class="group-box" id="session-list"></div>
-          <p class="hint">「记忆」是它这个会话里记着的全部内容，每一轮都要整个带上，所以越多越慢。换新会话以后，上一个给它派活的 AI 会先把情况重新交代给它，再让它接着干；项目文件夹里的文件都还在。ChatGPT 看过的每张图（包括它自己做的图）都会整张存进会话，图片到 8MB 时群里也会提醒你换。</p>
+          <p class="hint">「记忆」是它这个会话里记着的全部内容，每一轮都要整个带上，所以越多越慢。换新会话时可以选谁来把情况重新交代给它（默认是上一个给它派活的 AI，也可以让它自己看记录，或者你自己来说）；项目文件夹里的文件都还在。ChatGPT 看过的每张图（包括它自己做的图）都会整张存进会话，图片到 8MB 时群里也会提醒你换。</p>
         </section>
       </div>
       <footer class="sheet-foot">
@@ -391,6 +391,24 @@
           <button type="button" id="btn-confirm-cancel" class="secondary">取消</button>
           <button type="button" id="btn-confirm-alt" class="secondary" hidden></button>
           <button type="submit" id="btn-confirm-ok" class="primary"></button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 换新会话：选谁来给它交代情况 -->
+  <dialog id="dlg-fresh" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2 id="fresh-title"></h2></header>
+      <div class="sheet-body">
+        <p id="fresh-text" class="confirm-text"></p>
+        <div id="fresh-options" class="group-box" role="radiogroup"></div>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions">
+          <span class="spacer"></span>
+          <button type="button" id="btn-fresh-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-fresh-ok" class="primary">换新会话</button>
         </div>
       </footer>
     </form>
