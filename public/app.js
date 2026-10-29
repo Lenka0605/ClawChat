@@ -1662,22 +1662,32 @@ const MENTION_SEP = '\u2003';
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
 const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|所有人|全体成员|全体|大家|all|everyone)/gi;
 const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek' };
-function renderInputMirror() {
-  const el = $('#input');
-  const mirror = $('#input-mirror');
+// 输入框里会显示成标签的 @成员：[{ start, end, who, gap, name }]（画标签、管光标都用这一份，判断一致）
+function mentionTokens(text) {
   const conv = currentConv();
   const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
-  const text = el.value;
-  let html = '';
-  let last = 0;
-  for (const m of members.length ? text.matchAll(MENTION_SHOW_RE) : []) {
+  if (!members.length) return [];
+  const out = [];
+  for (const m of text.matchAll(MENTION_SHOW_RE)) {
     if (m.index > 0 && /[A-Za-z0-9_.]/.test(text[m.index - 1])) continue; // me@all 这种不算
     const who = MENTION_WHO[m[2].toLowerCase()] || 'all';
     if (who !== 'all' && !members.includes(who)) continue;
-    const icon = who !== 'all' && m[1] === MENTION_GAP;
-    const head = icon ? `<span class="mention-at">@${MENTION_GAP}${avatarHtml(who)}</span>` : esc(`@${m[1]}`);
-    html += `${esc(text.slice(last, m.index))}<span class="mention-tok">${head}${esc(m[2])}</span>`;
-    last = m.index + m[0].length;
+    out.push({ start: m.index, end: m.index + m[0].length, who, gap: m[1], name: m[2] });
+  }
+  return out;
+}
+
+function renderInputMirror() {
+  const el = $('#input');
+  const mirror = $('#input-mirror');
+  const text = el.value;
+  let html = '';
+  let last = 0;
+  for (const t of mentionTokens(text)) {
+    const icon = t.who !== 'all' && t.gap === MENTION_GAP;
+    const head = icon ? `<span class="mention-at">@${MENTION_GAP}${avatarHtml(t.who)}</span>` : esc(`@${t.gap}`);
+    html += `${esc(text.slice(last, t.start))}<span class="mention-tok">${head}${esc(t.name)}</span>`;
+    last = t.end;
   }
   const found = last > 0;
   el.parentElement.classList.toggle('mirrored', found);
@@ -1800,6 +1810,61 @@ function mentionKeydown(e) {
   }
   e.preventDefault();
   return true;
+}
+
+// ---------------- 输入框里的 @ 标签是一个整体 ----------------
+// 标签只是画出来的，底下还是一个个字：光标不能进到中间，不然能删掉其中一个字，把 @Claude 改成 @Clade
+
+// 左右方向键碰到标签：直接跳过整个标签
+function mentionArrow(e) {
+  if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return false;
+  const el = e.target;
+  if (el.selectionStart !== el.selectionEnd) return false;
+  const p = el.selectionStart;
+  const left = e.key === 'ArrowLeft';
+  const t = mentionTokens(el.value).find((t) => (left ? p > t.start && p <= t.end : p >= t.start && p < t.end));
+  if (!t) return false;
+  e.preventDefault();
+  const q = left ? t.start : t.end;
+  el.setSelectionRange(q, q);
+  return true;
+}
+
+// 向前删除（Delete）：光标在标签前面时，先选中整个标签，再按一次才删（和退格一样）
+function selectMentionOnDelete(e) {
+  if (e.key !== 'Delete' || e.isComposing || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
+  const el = e.target;
+  if (el.selectionStart !== el.selectionEnd) return false;
+  const t = mentionTokens(el.value).find((t) => t.start === el.selectionStart);
+  if (!t) return false;
+  e.preventDefault();
+  const end = el.value[t.end] === MENTION_SEP || el.value[t.end] === ' ' ? t.end + 1 : t.end;
+  el.setSelectionRange(t.start, end, 'forward');
+  return true;
+}
+
+// 鼠标点进标签中间、Option+方向键跳词、Shift 选到标签一半：光标贴到标签边上，选区扩成整个标签
+function snapToMentions() {
+  const el = $('#input');
+  const tokens = mentionTokens(el.value);
+  if (!tokens.length) return;
+  const s = el.selectionStart;
+  const e = el.selectionEnd;
+  if (s === e) {
+    const t = tokens.find((t) => s > t.start && s < t.end);
+    if (t) {
+      const p = s - t.start < t.end - s ? t.start : t.end;
+      el.setSelectionRange(p, p);
+    }
+    return;
+  }
+  let ns = s;
+  let ne = e;
+  for (const t of tokens) {
+    if (ns > t.start && ns < t.end) ns = t.start;
+    if (ne > t.start && ne < t.end) ne = t.end;
+  }
+  if (ns !== s || ne !== e) el.setSelectionRange(ns, ne, el.selectionDirection);
 }
 
 // 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
@@ -2972,8 +3037,11 @@ function bind() {
   input.addEventListener('input', updateMentionMenu);
   input.addEventListener('click', updateMentionMenu);
   input.addEventListener('keyup', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) || e.shiftKey) snapToMentions();
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu();
   });
+  input.addEventListener('mouseup', () => setTimeout(snapToMentions));
+  input.addEventListener('select', snapToMentions);
   input.addEventListener('blur', () => setTimeout(hideMentionMenu, 150));
   $('#mention-menu').addEventListener('mousemove', (e) => {
     const item = e.target.closest('[data-mention-pick]');
@@ -2990,7 +3058,7 @@ function bind() {
     pickMention(Number(item.dataset.mentionPick));
   });
   input.addEventListener('keydown', (e) => {
-    if (mentionKeydown(e) || selectMentionOnBackspace(e)) return;
+    if (mentionKeydown(e) || selectMentionOnBackspace(e) || selectMentionOnDelete(e) || mentionArrow(e)) return;
     if (e.key === 'Escape' && S.replyTo && !e.isComposing) {
       e.preventDefault();
       cancelReply();
