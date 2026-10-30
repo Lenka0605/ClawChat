@@ -18,6 +18,8 @@ const cloneInfo = (a) => {
   return m ? { base: m[1], n: Number(m[2]) } : null;
 };
 const baseOf = (a) => cloneInfo(a)?.base || a;
+// 在群设置里刚点出来、还没保存的多开成员（ChatGPT2 这类）：先当成成员显示，保存时服务端会开出来
+let PENDING_CLONES = new Set();
 const ALL_WORD = I18N.lang === 'zh' ? '所有人' : 'everyone'; // @所有人：英文界面插 @everyone（服务端两个都认）
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
@@ -855,8 +857,9 @@ function memberReady(a) {
 
 // 成员表变了（多开了一位、删了一位）：AGENT_IDS、@ 识别、@ 菜单、群设置里的勾选框和模型行跟着变
 function rebuildMembers() {
-  const clones = Object.keys(S.agents || {}).filter((a) => S.agents[a].base);
-  AGENT_IDS = BASE_IDS.flatMap((b) => [b, ...clones.filter((a) => S.agents[a].base === b).sort((x, y) => S.agents[x].n - S.agents[y].n)]);
+  // 已经开出来的（服务端成员表）加上还在等保存的（群设置里刚点出来的）
+  const clones = [...new Set([...Object.keys(S.agents || {}).filter((a) => S.agents[a].base), ...PENDING_CLONES])];
+  AGENT_IDS = BASE_IDS.flatMap((b) => [b, ...clones.filter((a) => baseOf(a) === b).sort((x, y) => (cloneInfo(x)?.n || 0) - (cloneInfo(y)?.n || 0))]);
   buildMentionRes();
   buildMentionItems();
   syncCloneFields();
@@ -866,73 +869,33 @@ function rebuildMembers() {
 function syncCloneFields() {
   const form = $('#room-form');
   if (!form) return;
-  form.querySelectorAll('[data-clone]').forEach((el) => !S.agents[el.dataset.clone] && el.remove());
-  document.querySelectorAll('.mention-chip[data-who]').forEach((el) => !S.agents[el.dataset.who] && el.remove());
+  // 已经开出来的、还有等保存的，都留着；其余（被清掉的多开成员）把卡片、模型行、@ 按钮拿掉
+  const keep = (id) => !!(S.agents[id] || PENDING_CLONES.has(id));
+  form.querySelectorAll('[data-clone]').forEach((el) => !keep(el.dataset.clone) && el.remove());
+  document.querySelectorAll('.mention-chip[data-who]').forEach((el) => !keep(el.dataset.who) && el.remove());
   for (const a of AGENT_IDS) {
-    const ag = S.agents[a];
-    if (!ag?.base) continue;
-    const sub = esc(tr('{name} 的 {n} 号', { name: agentName(ag.base), n: ag.n }));
+    const info = S.agents[a] || cloneInfo(a);
+    if (!info?.base) continue;
+    const name = agentName(a);
+    const sub = esc(tr('{name} 的 {n} 号', { name: agentName(info.base), n: info.n }));
     if (!formField(fieldName('member', a))) {
-      const after = [...form.querySelectorAll('.members .member')].filter((el) => baseOf(el.dataset.clone || el.querySelector('input').name.slice(6).toLowerCase()) === ag.base).at(-1);
-      after?.insertAdjacentHTML('afterend', `<label class="member" data-clone="${esc(a)}"><input type="checkbox" name="${fieldName('member', a)}">${avatarHtml(a)}<span class="member-name">${esc(ag.name)}<small>${sub}</small></span><span class="check-mark"></span></label>`);
+      const after = [...form.querySelectorAll('.members .member')].filter((el) => baseOf(el.dataset.clone || el.querySelector('input').name.slice(6).toLowerCase()) === info.base).at(-1);
+      after?.insertAdjacentHTML('afterend', `<label class="member" data-clone="${esc(a)}"><input type="checkbox" name="${fieldName('member', a)}">${avatarHtml(a)}<span class="member-name">${esc(name)}<small>${sub}</small></span><span class="check-mark"></span></label>`);
     }
     if (!$(`#field-model-${a}`)) {
-      const after = [...form.querySelectorAll('#model-fields .form-row')].filter((el) => baseOf(el.id.replace('field-model-', '')) === ag.base).at(-1);
+      const after = [...form.querySelectorAll('#model-fields .form-row')].filter((el) => baseOf(el.id.replace('field-model-', '')) === info.base).at(-1);
       after?.insertAdjacentHTML(
         'afterend',
-        `<div class="form-row" id="field-model-${esc(a)}" data-clone="${esc(a)}"><span class="with-icon">${avatarHtml(a)}${esc(ag.name)}</span><span class="model-pair"><select name="${fieldName('model', a)}" data-pair="${esc(a)}"></select><span class="pair-sep">${tr('思考')}</span><select name="${fieldName('effort', a)}"></select></span></div>`,
+        `<div class="form-row" id="field-model-${esc(a)}" data-clone="${esc(a)}"><span class="with-icon">${avatarHtml(a)}${esc(name)}</span><span class="model-pair"><select name="${fieldName('model', a)}" data-pair="${esc(a)}"></select><span class="pair-sep">${tr('思考')}</span><select name="${fieldName('effort', a)}"></select></span></div>`,
       );
     }
     if (!document.querySelector(`.mention-chip[data-who="${a}"]`)) {
-      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[el.dataset.mention]) === ag.base).at(-1);
-      after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(ag.name)}" data-who="${esc(a)}" title="@${esc(ag.name)}">${avatarHtml(a)}<span class="chip-name">@${esc(ag.name)}</span></button>`);
+      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[el.dataset.mention]) === info.base).at(-1);
+      after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(name)}" data-who="${esc(a)}" title="@${esc(name)}">${avatarHtml(a)}<span class="chip-name">@${esc(name)}</span></button>`);
       const chip = document.querySelector(`.mention-chip[data-who="${a}"]`);
-      if (chip) chip.onclick = () => insertMention(ag.name);
+      if (chip) chip.onclick = () => insertMention(name);
     }
   }
-}
-
-// 设置 → 程序与模型 → 多开成员：已经开了的（可以删），以及「再开一位」
-function renderClones() {
-  const box = $('#set-clones');
-  if (!box) return;
-  const clones = AGENT_IDS.filter((a) => S.agents[a]?.base);
-  const rows = clones.map(
-    (a) =>
-      `<div class="list-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small>${esc(tr('{name} 的 {n} 号：同一个程序和账号，自己的记忆和设置', { name: agentName(baseOf(a)), n: S.agents[a].n }))}</small></span><button class="secondary" data-clone-del="${esc(a)}">${tr('删除')}</button></div>`,
-  );
-  const bases = BASE_IDS.filter(memberReady);
-  rows.push(
-    `<div class="form-row"><span>${tr('再开一位')}</span><span class="row"><select id="clone-base">${(bases.length ? bases : BASE_IDS).map((b) => `<option value="${b}">${esc(agentName(b))}</option>`).join('')}</select><button class="secondary" id="btn-clone-add">${tr('开一个')}</button></span></div>`,
-  );
-  box.innerHTML = rows.join('');
-  $('#btn-clone-add').onclick = async () => {
-    try {
-      const { member } = await api('POST', '/api/members/extra', { base: $('#clone-base').value });
-      applyState(await api('GET', '/api/state'));
-      renderEngines();
-      renderShell();
-      toast(tr('开好了 {name}：建群或在群设置里勾上它，在群里用 @{name} 叫它', { name: member.name }), 5000);
-    } catch (err) {
-      toast(err.message);
-    }
-  };
-  box.querySelectorAll('[data-clone-del]').forEach(
-    (b) =>
-      (b.onclick = async () => {
-        const a = b.dataset.cloneDel;
-        const ok = await askConfirm({ title: tr('删除 {name}？', { name: agentName(a) }), text: tr('它会从所有群里退出，手上的活也会停下；聊天记录还在。'), ok: tr('删除') });
-        if (!ok) return;
-        try {
-          await api('DELETE', `/api/members/extra/${encodeURIComponent(a)}`);
-          applyState(await api('GET', '/api/state'));
-          renderEngines();
-          renderShell();
-        } catch (err) {
-          toast(err.message);
-        }
-      }),
-  );
 }
 
 function renderEngines() {
@@ -981,7 +944,6 @@ function renderEngines() {
     return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>${tr('默认用 {model}', { model: esc(def) })}</small>
       <span class="model-list">${opts.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('')}</span></span></div>`;
   }).join('');
-  renderClones();
   // 欢迎页「和 XX 单聊」：这台电脑上用不了的（没装、没登录、没填 Key）不出现
   document.querySelectorAll('[data-solo]').forEach((b) => (b.hidden = !memberReady(b.dataset.solo)));
 }
@@ -3633,19 +3595,71 @@ function defaultMembers() {
 
 // 成员勾选框：这台电脑上用不了的（比如没登录 Claude、没装 Codex）默认不出现；已经在群里的照常显示。
 // 想加还没装好的，点「显示全部」
-function applyMemberVisibility(showAll = false) {
-  const hidden = [];
+// 这位现在用不了的原因，写在小字里（没装 / 没登录 / 没填 Key）：卡片照样显示，只是默认不勾
+function memberIssue(a) {
+  const b = baseOf(a);
+  const E = S.engines;
+  if (!Object.keys(E).length) return '';
+  if (b === 'claude') return !E.claude?.path ? tr('没装') : E.claude.loggedIn === false ? tr('没登录') : '';
+  if (b === 'gpt') return !E.codex?.path ? tr('没装') : E.codex.loggedIn === false ? tr('没登录') : '';
+  if (b === 'gemini') return E.gemini?.ok ? '' : E.gemini?.path ? tr('还没配好') : tr('没装');
+  const e = E[b];
+  if (!e?.hasKey) return tr('还没填 API Key');
+  if (!E.claude?.path) return tr('没装 Claude Code');
+  return e.ok ? '' : tr('API Key 不对');
+}
+
+// 成员卡片：用不了的也全部列出来，副标题换成原因（原来的说明先记在 data-sub 里，能用了再换回来）
+function updateMemberStates() {
   for (const a of AGENT_IDS) {
     const box = formField(fieldName('member', a));
-    if (!box) continue;
-    const hide = !showAll && !box.checked && !memberReady(a);
-    box.closest('.member').hidden = hide;
-    if (hide) hidden.push(agentName(a));
+    const el = box?.closest('.member');
+    if (!el) continue;
+    const small = el.querySelector('.member-name small');
+    if (!el.dataset.sub) el.dataset.sub = small.textContent;
+    const issue = memberIssue(a);
+    small.textContent = issue || el.dataset.sub;
+    el.classList.toggle('unready', !!issue);
+    el.title = issue ? tr('{name} 现在用不了：{reason}。可以先勾上建群，装好、登录或填上 Key 之后就能用。', { name: agentName(a), reason: issue }) : '';
   }
-  const more = $('#members-more');
-  more.hidden = !hidden.length;
-  more.textContent = tr('还有 {names} 没装好或没登录，显示出来', { names: hidden.join(LIST_SEP) });
-  more.onclick = () => applyMemberVisibility(true);
+}
+
+// 「＋ 多开一位」：在这个群里再加一位同账号的 AI。先选是谁，选完在成员格子里多一张 2 号卡片并勾上；
+// 保存时服务端才真正开出来（编号取这个群还没用的最小号）
+function renderClonePicker() {
+  const box = $('#clone-picker');
+  box.innerHTML = BASE_IDS.map((b) => `<button type="button" class="clone-pick" data-clone-base="${esc(b)}">${avatarHtml(b)}<span>${esc(agentName(b))}</span></button>`).join('');
+  box.querySelectorAll('[data-clone-base]').forEach((btn) => (btn.onclick = () => addCloneMember(btn.dataset.cloneBase)));
+}
+
+function addCloneMember(base) {
+  const checked = new Set(AGENT_IDS.filter((a) => baseOf(a) === base && formField(fieldName('member', a))?.checked));
+  let n = 2;
+  while (n <= 9 && checked.has(`${base}${n}`)) n++;
+  if (n > 9) return toast(tr('{name} 最多开到 9 号', { name: agentName(base) }));
+  const id = `${base}${n}`;
+  $('#clone-picker').hidden = true;
+  if (!S.agents[id]) PENDING_CLONES.add(id);
+  rebuildMembers();
+  const box = formField(fieldName('member', id));
+  if (!box) return;
+  box.checked = true;
+  fillModelRow(id);
+  syncMemberFields();
+  updateMemberStates();
+  box.closest('.member')?.scrollIntoView({ block: 'nearest' });
+}
+
+// 刚加的那张卡片的模型、思考强度下拉框里还没有选项：只补这一行
+function fillModelRow(a) {
+  const room = S.editing ? roomById(S.editing) : null;
+  const models = room?.models || S.defaults.models || {};
+  const efforts = room?.efforts || S.defaults.efforts || {};
+  const m = formField(fieldName('model', a));
+  const e = formField(fieldName('effort', a));
+  if (m) m.outerHTML = modelSelectHtml(a, models[a], `name="${fieldName('model', a)}" data-pair="${esc(a)}"`);
+  if (e) e.outerHTML = effortSelectHtml(a, models[a], efforts[a], `name="${fieldName('effort', a)}"`);
+  if (baseOf(a) === 'gpt') refreshSpeedField();
 }
 
 function openDialog(room, preset = null) {
@@ -3658,8 +3672,11 @@ function openDialog(room, preset = null) {
   del.hidden = !room;
   del.dataset.armed = '';
   del.textContent = solo ? tr('删除聊天') : tr('删除群聊');
+  PENDING_CLONES = new Set(); // 上一次没保存就关掉的话，别把那张卡带进来
+  $('#clone-picker').hidden = true;
+  rebuildMembers();
   for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
-  applyMemberVisibility();
+  updateMemberStates();
   $('#perm-win-hint').hidden = !IS_WIN;
   $('#session-fields').hidden = !room;
   if (room) {
@@ -3868,6 +3885,27 @@ function bind() {
     if (e.target.checked) askNotifyPermission();
   };
   $('#dlg-room').addEventListener('close', reportDragRegions);
+  $('#btn-clone-add-text').textContent = tr('多开一位');
+  $('#btn-clone-add').title = tr('在这个群里再多一位同账号的 AI，有自己的记忆和设置');
+  $('#btn-clone-add').onclick = () => {
+    const picker = $('#clone-picker');
+    if (!picker.hidden) return void (picker.hidden = true);
+    renderClonePicker();
+    picker.hidden = false;
+  };
+  // 群设置关掉：没保存的多开成员不要留着
+  $('#dlg-room').addEventListener('close', () => {
+    $('#clone-picker').hidden = true;
+    if (PENDING_CLONES.size) {
+      PENDING_CLONES = new Set();
+      rebuildMembers();
+    }
+  });
+  // 点到「多开一位」和选项之外，收起来
+  document.addEventListener('mousedown', (e) => {
+    const picker = $('#clone-picker');
+    if (!picker.hidden && !e.target.closest('#clone-picker, #btn-clone-add')) picker.hidden = true;
+  });
   // 窗口宽度变了、模型列表加载完下拉框变宽了，都要重新看看顶栏放不放得下
   const headObserver = new ResizeObserver(() => requestAnimationFrame(fitHead));
   headObserver.observe($('#room-head'));
