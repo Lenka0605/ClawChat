@@ -121,3 +121,36 @@ test('多开：正在干活的 ChatGPT2 被删掉，不抛异常；再开一个 
   calls.at(-1).finish('我是新来的');
   await tick();
 });
+
+test('多开：删掉正在干活的 2 号、马上重开一个 2 号，旧任务晚到的成功结果不会写进新 2 号', async () => {
+  if (!AGENTS.gpt2) addExtraMember('gpt');
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = store.createRoom({ name: 't', cwd: os.tmpdir(), members: ['gpt', 'gpt2'] });
+  hub.postUserMessage(room.id, '@ChatGPT2 干一件很久的活');
+  await tick();
+  const old = calls.at(-1);
+  // 删掉，马上又开一个 2 号拉回群里
+  hub.forgetMember('gpt2');
+  removeExtraMember('gpt2');
+  addExtraMember('gpt');
+  store.updateRoom(room.id, { members: ['gpt', 'gpt2'] });
+  // 新 2 号不用等旧任务，马上能开工
+  hub.postUserMessage(room.id, '@ChatGPT2 你是新来的');
+  await tick();
+  const fresh = calls.at(-1);
+  assert.notEqual(fresh, old);
+  assert.equal(fresh.agent, 'gpt2');
+  assert.equal(fresh.session, null);
+  // 旧任务这时才晚到地返回「成功」：丢掉，不写会话、不发消息，也不把新 2 号的任务从表里删掉
+  old.finish('旧任务的结果');
+  await tick();
+  assert.equal(store.getState(room.id).sessions.gpt2, undefined);
+  assert.ok(!store.getMessages(room.id).some((m) => m.text === '旧任务的结果'));
+  assert.ok(hub.runs.has(hub.key(room.id, 'gpt2')));
+  fresh.finish('我是新的 2 号');
+  await tick();
+  assert.equal(store.getState(room.id).sessions.gpt2, 'gpt2-s');
+  assert.ok(store.getMessages(room.id).some((m) => m.text === '我是新的 2 号'));
+});
