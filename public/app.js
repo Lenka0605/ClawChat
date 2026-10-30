@@ -1591,10 +1591,50 @@ function findMessage(seq) {
   return conv ? (S.messages.get(conv.roomId) || []).find((m) => m.seq === seq) : null;
 }
 
+// 复制出去的纯文字：去掉 Markdown 的记号（**加粗**、`代码`、# 标题、- 列表开头这些），像看到的那样干净；
+// 代码块里的内容原样保留。列表开头换成「•」，编号列表照旧
+function mdToPlain(text) {
+  const blocks = [];
+  let s = String(text).replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => `${blocks.push(code.replace(/\n$/, '')) - 1}`);
+  s = s
+    .split('\n')
+    .map((line) => {
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) return ''; // 分隔线
+      return line
+        .replace(/^(\s{0,3})#{1,6}\s+/, '$1') // 标题
+        .replace(/^(\s*)>\s?/, '$1') // 引用
+        .replace(/^(\s*)[-*+]\s+(\[[ xX]\]\s+)?/, '$1• '); // 列表
+    })
+    .join('\n');
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => `${codes.push(c) - 1}`); // 行内代码先藏起来，里面的 * _ 不动
+  s = s
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => (t === u ? u : `${t}（${u}）`))
+    .replace(/\[([^\]\n]+)\]\([^\s)]+\)/g, '$1') // 本机文件链接只留文字
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1$2')
+    .replace(/~~([^~\n]+)~~/g, '$1');
+  return s.replace(/(\d+)/g, (_, i) => codes[i]).replace(/(\d+)/g, (_, i) => blocks[i]);
+}
+
+// 复制一条消息：带格式的那份（粘到备忘录、飞书、Word 里是加粗、列表的样子）+ 去掉记号的纯文字
 async function copyMessage(seq, btn) {
-  const text = cleanMentions(findMessage(seq)?.text || '');
+  const raw = cleanMentions(findMessage(seq)?.text || '');
+  const text = mdToPlain(raw);
+  const bubble = document.querySelector(`#messages .msg[data-seq="${seq}"] .bubble`);
+  let html = '';
+  if (bubble) {
+    const box = bubble.cloneNode(true);
+    box.querySelectorAll('button, .avatar').forEach((el) => el.remove()); // 代码块上的按钮、@ 标签里的头像不要
+    html = box.innerHTML;
+  }
   try {
-    await navigator.clipboard.writeText(text);
+    if (html && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
+    } else {
+      await navigator.clipboard.writeText(text);
+    }
   } catch {
     // 老系统不让用剪贴板接口：退回到选中再复制
     const ta = document.createElement('textarea');
