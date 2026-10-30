@@ -271,13 +271,16 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0,
 /* 侧栏搜索结果：按聊天分组。组头是哪个群 / 私聊（点了在那个聊天里接着搜），下面每条是「前一条在聊什么 → 谁说的 → 命中的那段」 */
 .hit-conv {
   list-style: none; display: flex; align-items: center; gap: 7px; padding: 8px 10px 3px 12px; margin-top: 4px;
-  font-size: 12px; font-weight: 600; color: var(--text); cursor: default; border-radius: 7px;
+  font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; border-radius: 7px;
 }
 .hit-conv:hover .hit-conv-name { color: var(--accent); }
 .hit-conv .conv-avatar { zoom: 0.5; }
 .hit-conv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hit-conv-dm { font-weight: 400; color: var(--muted); }
-.hit-conv-dm::before { content: "·"; margin: 0 5px; color: var(--faint); }
+.hit-conv-name { flex: 0 1 auto; }
+.hit-conv-dm { flex: none; display: inline-flex; align-items: center; font-weight: 500; white-space: nowrap; }
+.hit-conv-dm::before { content: "·"; margin: 0 5px 0 0; color: var(--faint); font-weight: 400; }
+.hit-conv-dm .dm-tag { margin-left: 4px; }
+.hit-conv-count { margin-left: auto; padding-left: 6px; }
 .hit-conv-count { font-size: 11px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 .search-hit { list-style: none; padding: 6px 10px 7px 12px; margin-left: 20px; border-radius: 9px; }
 .search-hit:hover { background: var(--fill); }
@@ -295,7 +298,7 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0,
 .hit-line .time { font-size: 11px; color: var(--muted); flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 .hit-text { font-size: 12px; color: var(--muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .hit-text mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; }
-.hit-more { list-style: none; margin: 0 0 2px 20px; padding: 3px 12px 6px; font-size: 11px; color: var(--accent); cursor: default; }
+.hit-more { list-style: none; margin: 0 0 2px 20px; padding: 3px 12px 6px; font-size: 11px; color: var(--accent); cursor: pointer; }
 .hit-more:hover { text-decoration: underline; }
 
 /* 聊天里的搜索条：浮在顶栏下面右侧，像 Safari 的「查找」；下面是结果列表，跳到一条后收起来 */

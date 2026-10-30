@@ -1071,8 +1071,9 @@ function searchHitsHtml(q, hasConvs) {
     const c = parseKey(key);
     const room = roomById(c.roomId);
     const dm = c.dm && room.members.length > 1 ? c.dm : null;
-    const title = esc(room.name) + (dm ? `<span class="hit-conv-dm">${tr('私聊 {name}', { name: esc(agentName(dm)) })}</span>` : '');
-    out.push(`<li class="hit-conv" data-find-key="${esc(key)}" title="${tr('在这个聊天里逐条查看')}">${convAvatar({ room, dm })}<span class="hit-conv-name">${title}</span><span class="hit-conv-count">${hits.length}</span></li>`);
+    // 群名太长时只截群名；私聊对象和「私聊」小标签一直留着
+    const who = dm ? `<span class="hit-conv-dm">${esc(agentName(dm))}<span class="dm-tag">${tr('私聊')}</span></span>` : '';
+    out.push(`<li class="hit-conv" data-find-key="${esc(key)}" title="${tr('在这个聊天里逐条查看')}">${convAvatar({ room, dm })}<span class="hit-conv-name">${esc(room.name)}</span>${who}<span class="hit-conv-count">${hits.length}</span></li>`);
     for (const h of hits.slice(0, HITS_PER_CONV)) {
       const prev = h.prev ? `<div class="hit-ctx"><span class="hit-ctx-who">${esc(speakerOf(h.prev))}</span>${esc((h.prev.cut ? '…' : '') + plainText(h.prev.text))}</div>` : '';
       // 关键词前面只留一小段，免得关键词被挤到三行以外看不见
@@ -1341,6 +1342,7 @@ function renderMessages() {
   const typing = document.activeElement?.classList.contains('edit-input');
   $('#messages').innerHTML = earlierHtml(from) + list.slice(from).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
   restoreEditor(typing);
+  refreshFind();
 }
 
 const earlierHtml = (from) => (from > 0 ? `<button class="load-earlier" data-earlier>${tr('更早的 {n} 条消息', { n: from })}</button>` : '');
@@ -2561,7 +2563,8 @@ function jumpTo(seq) {
   return el;
 }
 
-// 在跳到的那条消息里把关键词标出来（只标正文；之前标过的先去掉）
+// 在跳到的那条消息里把关键词标出来（只标正文；之前标过的先去掉）。
+// 关键词可能被 Markdown 劈在几个文字片段里（比如「部**署**」），所以把正文的文字连起来找，再按片段分头标
 function markFound(el, q) {
   clearFoundMarks();
   const needle = q.trim().toLowerCase();
@@ -2569,19 +2572,33 @@ function markFound(el, q) {
   if (!needle || !body) return;
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   const nodes = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue.toLowerCase().includes(needle)) nodes.push(n);
-  for (const n of nodes) {
-    const frag = document.createDocumentFragment();
+  let all = '';
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    nodes.push({ n, from: all.length });
+    all += n.nodeValue;
+  }
+  const low = all.toLowerCase();
+  const cuts = new Map(); // 文字片段 → 要标的 [起, 止)
+  for (let at = low.indexOf(needle); at >= 0; at = low.indexOf(needle, at + needle.length)) {
+    const end = at + needle.length;
+    for (const { n, from } of nodes) {
+      const to = from + n.nodeValue.length;
+      if (to <= at || from >= end) continue;
+      if (!cuts.has(n)) cuts.set(n, []);
+      cuts.get(n).push([Math.max(at, from) - from, Math.min(end, to) - from]);
+    }
+  }
+  for (const [n, ranges] of cuts) {
     const text = n.nodeValue;
-    const low = text.toLowerCase();
+    const frag = document.createDocumentFragment();
     let i = 0;
-    for (let at = low.indexOf(needle); at >= 0; at = low.indexOf(needle, i)) {
-      frag.append(text.slice(i, at));
+    for (const [s0, e0] of ranges) {
+      frag.append(text.slice(i, s0));
       const m = document.createElement('mark');
       m.className = 'found';
-      m.textContent = text.slice(at, at + needle.length);
+      m.textContent = text.slice(s0, e0);
       frag.append(m);
-      i = at + needle.length;
+      i = e0;
     }
     frag.append(text.slice(i));
     n.replaceWith(frag);
@@ -2622,13 +2639,33 @@ function closeFind() {
   Object.assign(FIND, { q: '', hits: [], at: -1 });
 }
 
+// 这个聊天里命中的消息，最新的在前
+function findHits(conv, q) {
+  const needle = q.toLowerCase();
+  if (!conv || !needle) return [];
+  return convMessages(conv)
+    .filter((m) => m.from !== 'system' && m.text && m.text.toLowerCase().includes(needle))
+    .reverse();
+}
+
+// 消息整页重画以后（来了新消息、改了消息）：结果重新算，还停在原来那条上，那条里的标黄补回来
+function refreshFind() {
+  if ($('#find').hidden || !FIND.q) return;
+  const conv = currentConv();
+  const cur = FIND.hits[FIND.at]?.seq;
+  FIND.hits = findHits(conv, FIND.q);
+  FIND.at = cur === undefined ? -1 : FIND.hits.findIndex((m) => m.seq === cur);
+  renderFind(!$('#find-list').hidden);
+  const el = FIND.at >= 0 && document.querySelector(`#messages .msg[data-seq="${cur}"]`);
+  if (el) markFound(el, FIND.q);
+}
+
 function runFind(showList = false) {
   const conv = currentConv();
   const q = $('#find-input').value.trim();
   FIND.q = q;
   FIND.at = -1;
-  const needle = q.toLowerCase();
-  FIND.hits = !conv || !needle ? [] : convMessages(conv).filter((m) => m.from !== 'system' && m.text && m.text.toLowerCase().includes(needle)).reverse();
+  FIND.hits = findHits(conv, q);
   clearFoundMarks();
   renderFind(showList);
 }
