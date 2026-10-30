@@ -1,0 +1,7 @@
+{
+  "Codex 接口没有及时回应：{method}": "Codex did not respond in time: {method}",
+  "Codex 连接已关闭": "The Codex connection has closed",
+  "Codex 没有返回会话编号": "Codex did not return a thread ID",
+  "Codex 没有返回回合编号": "Codex did not return a turn ID",
+  "正在压缩记忆": "Compacting memory"
+}

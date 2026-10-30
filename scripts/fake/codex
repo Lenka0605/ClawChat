@@ -1,20 +1,3 @@
 #!/bin/bash
-# 假的 Codex：照 codex exec --json 的格式回一段话，只用来测 ClawChat 的界面和流程，不连任何 AI。
-# 想让它回指定的话（比如测 AI 之间私聊）：把内容写进 $CLAWCHAT_HOME/fake-replies/codex.txt，用一次就删掉。
-if [ "$1" = "--version" ]; then echo "codex-cli 0.0.0-fake"; exit 0; fi
-# 登录状态：FAKE_CODEX_LOGGED_OUT=1 时装作没登录
-if [ "$1" = "login" ]; then if [ -n "$FAKE_CODEX_LOGGED_OUT" ]; then echo "Not logged in" >&2; exit 1; else echo "Logged in using ChatGPT (fake)"; exit 0; fi; fi
-if [ "$1" != "exec" ]; then echo "fake codex：只支持 exec" >&2; exit 1; fi
-cat > /dev/null # 读掉标准输入里的提示词
-SID=""
-prev=""
-for a in "$@"; do [ "$prev" = "resume" ] && SID="$a"; prev="$a"; done
-[ -z "$SID" ] && SID="fake-codex-$(date +%s)-$$-$RANDOM" # 带上进程号和随机数：同一秒开好几个也不会撞号
-REPLY_FILE="${CLAWCHAT_HOME:-/tmp}/fake-replies/codex.txt"
-if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; else TEXT="（假的 ChatGPT）做完了"; fi
-json() { node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1"; }
-echo "{\"type\":\"thread.started\",\"thread_id\":\"$SID\"}"
-echo '{"type":"item.started","item":{"type":"command_execution","command":"echo 假的 ChatGPT 在干活"}}'
-sleep "${FAKE_CODEX_SECS:-${FAKE_SECS:-6}}"
-echo "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":$(json "$TEXT")}}"
-echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+# 假 Codex：使用跨平台的 Node 入口，既能测 exec，也能测 app-server；不连接任何 AI。
+exec node "$(dirname "$0")/codex-cli.mjs" "$@"
