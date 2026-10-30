@@ -14,5 +14,14 @@
   "多开成员": "Extra Members",
   "同一位可以再开一个独立的成员，比如没有 Claude 时多开一个 ChatGPT2：用同一个程序和账号，但有自己的记忆、模型设置和私聊，和本体分头干活。在群里用 @ChatGPT2 叫它。": "You can add another independent copy of a member — for example a ChatGPT2 if you don't have Claude. It uses the same app and account, but has its own memory, model settings, and private chats, and works separately from the original. Call it with @ChatGPT2 in a group.",
   "没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）": "Not signed in to Claude (DeepSeek and GLM can still use it)",
-  "没登录 ChatGPT 账号": "Not signed in to ChatGPT"
+  "没登录 ChatGPT 账号": "Not signed in to ChatGPT",
+  "已装好 Claude Code": "Claude Code Installed",
+  "正在安装 Claude Code…": "Installing Claude Code…",
+  "安装 Claude Code": "Install Claude Code",
+  "正在安装 Claude Code（Anthropic 官方的安装程序），大概要一两分钟…": "Installing Claude Code with Anthropic's official installer. This takes a minute or two…",
+  "Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。": "Claude Code is installed. DeepSeek and GLM can work now. To use Claude itself, run claude once in Terminal to sign in.",
+  "Claude Code 没装上：{output}": "Couldn't install Claude Code: {output}",
+  "这台电脑还没装 Claude Code": "Claude Code Isn't Installed",
+  "{names} 都要借 Claude Code 干活（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）。没装的话，它们在群里会直接报错。现在帮你装上吗？会用 Anthropic 官方的安装程序，装在你自己的用户目录里，不用管理员密码，大概一两分钟。": "{names} all work through Claude Code (DeepSeek and GLM only use its tools and don't need a Claude account). Without it, they'll fail in group chats. Install it now? It uses Anthropic's official installer, installs into your own user folder, needs no admin password, and takes a minute or two.",
+  "帮我安装": "Install"
 }

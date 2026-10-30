@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, installClaudeCode } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -574,6 +574,16 @@ async function api(req, res, url) {
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'refresh') {
     if (Date.now() - refreshedAt > 30 * 1000) await refreshEngines(); // 最多 30 秒查一次
     return send(res, 200, { engines });
+  }
+  // 帮用户装 Claude Code（界面上先问过用户）：装好后重新检测一遍程序
+  if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'install') {
+    const { engine } = await readBody(req);
+    if (engine !== 'claude') return send(res, 400, { error: tr('不认识这个程序') });
+    hub.emit('event', { type: 'installing', engine, on: true });
+    const result = await installClaudeCode();
+    hub.emit('event', { type: 'installing', engine, on: false });
+    await refreshEngines(true);
+    return send(res, 200, { ...result, engines });
   }
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
     // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code

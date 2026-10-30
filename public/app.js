@@ -786,6 +786,63 @@ function engineState(e, key) {
 }
 
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
+// ---------------- 没装 Claude Code：说明哪几位要借它干活，用户点了就帮他装 ----------------
+// Claude、DeepSeek、GLM 都要借 Claude Code（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）
+const NEEDS_CLAUDE_CODE = ['claude', 'deepseek', 'glm'];
+const needsClaudeCode = (a) => NEEDS_CLAUDE_CODE.includes(baseOf(a));
+const claudeMissing = () => !!S.engines.claude && !S.engines.claude.path;
+
+function installButtonHtml(cls) {
+  if (S.engines.claude?.path) return `<button class="${cls}" disabled>${tr('已装好 Claude Code')}</button>`;
+  return `<button class="${cls}" data-install="claude"${S.installing ? ' disabled' : ''}>${S.installing ? tr('正在安装 Claude Code…') : tr('安装 Claude Code')}</button>`;
+}
+
+function refreshInstallButtons() {
+  document.querySelectorAll('[data-install]').forEach((b) => (b.outerHTML = installButtonHtml(b.className)));
+}
+
+async function installClaudeCode() {
+  if (S.installing || !claudeMissing()) return;
+  S.installing = true;
+  refreshInstallButtons();
+  toast(tr('正在安装 Claude Code（Anthropic 官方的安装程序），大概要一两分钟…'), 8000);
+  try {
+    const res = await api('POST', '/api/engines/install', { engine: 'claude' });
+    S.engines = res.engines || S.engines;
+    toast(
+      res.ok
+        ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
+        : tr('Claude Code 没装上：{output}', { output: res.output || tr('未知错误') }),
+      res.ok ? 9000 : 12000,
+    );
+  } catch (err) {
+    toast(err.message, 8000);
+  } finally {
+    S.installing = false;
+    renderEngines();
+    renderShell();
+    refreshInstallButtons();
+  }
+}
+
+// 主动问一次要不要装：启动时检测到没装（问过一次、用户说以后再说就不再自动问）；
+// 填了 DeepSeek / GLM 的 Key、建了要借它的成员的群时，不管问没问过都再问一次
+async function offerClaudeCode(reason = 'start', who = []) {
+  if (!claudeMissing() || S.installing || S.offeringInstall) return;
+  if (reason === 'start' && storeGet('clawchat.claudeCodeAsked')) return;
+  if ($('dialog[open]')) return; // 别的窗口开着时先不打扰
+  S.offeringInstall = true;
+  storeSet('clawchat.claudeCodeAsked', '1');
+  const names = (who.length ? who : NEEDS_CLAUDE_CODE).map(agentName).join(LIST_SEP);
+  const ok = await askConfirm({
+    title: tr('这台电脑还没装 Claude Code'),
+    text: tr('{names} 都要借 Claude Code 干活（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）。没装的话，它们在群里会直接报错。现在帮你装上吗？会用 Anthropic 官方的安装程序，装在你自己的用户目录里，不用管理员密码，大概一两分钟。', { names }),
+    ok: tr('帮我安装'),
+  });
+  S.offeringInstall = false;
+  if (ok === true) installClaudeCode();
+}
+
 // 这台电脑上能用的成员：程序装好了、登录了（DeepSeek、GLM 要填 Key）。还在检测时都算能用
 function memberReady(a) {
   const b = baseOf(a);
@@ -897,7 +954,7 @@ function renderEngines() {
     const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : ''
+      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
     }</div>`;
   }).join('');
   for (const id of KEY_TARGETS) {
@@ -1178,7 +1235,9 @@ function messageHtml(roomId, m, prev, conv) {
         ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? tr('已发到群里') : tr('发到群里')}</button>`
         : m.action?.type === 'resume'
           ? resumeButton(roomId, m)
-          : '';
+          : m.action?.type === 'install'
+            ? installButtonHtml('notice-action')
+            : '';
     return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
   }
   const d = new Date(m.ts);
@@ -1951,6 +2010,12 @@ function handleEvent(ev) {
       S.engines = ev.engines || {};
       renderEngines();
       renderShell(); // 模型列表可能多了新模型
+      refreshInstallButtons();
+      offerClaudeCode('start');
+      break;
+    case 'installing':
+      S.installing = !!ev.on;
+      refreshInstallButtons();
       break;
     case 'restarting':
       showRestarting();
@@ -3181,6 +3246,7 @@ async function saveProviderKey(id) {
     S.engines = res.engines || S.engines;
     input.value = '';
     toast(res.warning || (S.engines[id]?.hasKey ? tr('{name} 的 API Key 已保存，可以用了', { name }) : tr('已删掉 {name} 的 API Key', { name })), 4000);
+    if (S.engines[id]?.hasKey && needsClaudeCode(id)) setTimeout(() => offerClaudeCode('key', [id]), 600); // Key 填好了，但借来干活的 Claude Code 还没装
   } catch (err) {
     toast(err.message, 5000);
   } finally {
@@ -3392,6 +3458,8 @@ async function submitDialog(e) {
       await openConv(`g:${room.id}`);
     }
     closeDialog($('#dlg-room'));
+    const who = (body.members || []).filter(needsClaudeCode);
+    if (who.length) setTimeout(() => offerClaudeCode('room', who), 400);
   } catch (err) {
     $('#form-error').textContent = err.message;
     $('#form-error').hidden = false;
@@ -3584,6 +3652,9 @@ function bind() {
   $('#set-engines').addEventListener('click', (e) => {
     const b = e.target.closest('.engine-update');
     if (b) updateEngine(b.dataset.engine, b);
+  });
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-install]:not([disabled])')) installClaudeCode();
   });
   $('#custom-model-form').addEventListener('submit', submitCustomModel);
   $('#btn-custom-cancel').onclick = () => closeDialog($('#dlg-model'));
@@ -3868,6 +3939,7 @@ async function init() {
     toast(tr('连不上 ClawChat 服务'), 6000);
   }
   renderEngines();
+  offerClaudeCode('start'); // 页面打开前程序已经检测完了的话，不会再收到 engines 事件
   let saved = storeGet('clawchat.current');
   if (saved && !saved.includes(':')) saved = `g:${saved}`; // 旧版本存的是群 id
   const list = conversations();
