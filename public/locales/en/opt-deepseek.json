@@ -1,0 +1,8 @@
+{
+  "加载更早的消息": "Load earlier messages",
+  "正在取过程…": "Loading steps…",
+  "{name}：{model}，下一轮生效": "{name}: {model} — takes effect next turn",
+  "成员和模型": "Members & Models",
+  "更新的消息": "Newer messages",
+  "升级到 {to} 后没能启动，已经自动退回 {from}": "The update to {to} could not start, so ClawChat went back to {from}"
+}
