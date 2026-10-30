@@ -4626,7 +4626,9 @@ function bind() {
   // 打完整段搬到真正的输入框。以前是按下字母再把焦点挪过去，拼音的第一下会变成一个裸字母
   const sink = $('#side-sink');
   const sidebar = $('#sidebar');
-  list.addEventListener('focusin', () => sink.focus()); // 点侧栏里任何地方，焦点都交给它
+  // 用鼠标点了侧栏（点完、拖完）才把焦点交给它；用 Tab 键路过侧栏不接管，不然 Tab 会被困在这里出不去
+  list.addEventListener('click', () => sink.focus());
+  list.addEventListener('dragend', () => sink.focus());
   sink.addEventListener('focus', () => {
     sidebar.classList.add('nav-on');
     markSideNav();
