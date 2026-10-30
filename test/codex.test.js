@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-codex-rpc-'));
 const fake = path.join(root, 'bin');
@@ -381,4 +384,282 @@ test('Codex 经 Hub：插话回执拒绝后，原消息只排到下一轮，不�
   assert.equal(starts.length, 2);
   assert.match(starts[1].params.input[0].text, /这条必须进下一轮/);
   assert.equal(store.getMessages(r.id).filter((m) => m.from === 'gpt').length, 2);
+});
+
+test('Codex 失败用量：首轮失败和停止不留无引用文件，续聊失败仍保留原会话的用量', async () => {
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'fail-turn';
+  const failed = await start().done;
+  const file = (sid) => path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${sid}.json`);
+  assert.equal(fs.existsSync(file(failed.session)), false);
+  delete process.env.FAKE_CODEX_RPC_SCENARIO;
+  const previous = await start().done;
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'fail-turn';
+  assert.equal((await start({ session: previous.session }).done).ok, false);
+  assert.equal(fs.existsSync(file(previous.session)), true);
+  delete process.env.FAKE_CODEX_RPC_SCENARIO;
+  const handle = start();
+  await until(() => handle.steps.some((s) => s.kind === 'run'));
+  handle.kill();
+  const stopped = await handle.done;
+  assert.equal(stopped.ok, false);
+  assert.equal(fs.existsSync(file(stopped.session)), false);
+});
+
+test('Codex 用量合并：密集通知只写一次，收尾保存最后用量；保存失败仍然成功并提示', async () => {
+  const { runCodexServer } = await import('../lib/codex.js');
+  for (const writeFails of [false, true]) {
+    const sid = writeFails ? 'usage-write-fails' : 'usage-batched';
+    const original = fs.writeFileSync;
+    let writes = 0;
+    fs.writeFileSync = (file, ...args) => {
+      if (String(file).includes(`${sid}.json`)) {
+        writes++;
+        if (writeFails) throw new Error('假的磁盘写入失败');
+      }
+      return original(file, ...args);
+    };
+    try {
+      const h = runCodexServer({ room, prompt: '密集用量', onStep() {} }, {
+        bin: '假的用量进程', args: [], unwrapShell: (x) => x,
+        spawnJsonl(_bin, _args, { onEvent }) {
+          let finish;
+          const done = new Promise((r) => { finish = r; });
+          return {
+            done, end() { finish({ code: 0 }); }, kill() { finish({ code: 0 }); },
+            write(line) {
+              const m = JSON.parse(line);
+              queueMicrotask(() => {
+                if (m.method === 'initialize') onEvent({ id: m.id, result: {} });
+                else if (m.method === 'thread/start') onEvent({ id: m.id, result: { thread: { id: sid } } });
+                else if (m.method === 'turn/start') {
+                  onEvent({ id: m.id, result: { turn: { id: 'batch-turn' } } });
+                  for (let i = 1; i <= 100; i++) onEvent({ method: 'thread/tokenUsage/updated', params: { threadId: sid, tokenUsage: { last: { totalTokens: i }, modelContextWindow: 65536 } } });
+                  onEvent({ method: 'turn/completed', params: { threadId: sid, turn: { id: 'batch-turn', status: 'completed' } } });
+                }
+              });
+              return true;
+            },
+          };
+        },
+      });
+      const res = await h.done;
+      assert.equal(res.ok, true);
+      assert.equal(writes, 1);
+      if (writeFails) assert.match(res.warning, /用量记录没能保存/);
+      else assert.deepEqual(await sessionUsage('gpt', sid), { images: 0, used: 100, window: 65536 });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(writes, 1, '收尾后没有晚到定时器再写一次');
+    } finally { fs.writeFileSync = original; }
+  }
+});
+
+function testBin(dir, name, code) {
+  fs.mkdirSync(dir, { recursive: true });
+  const script = path.join(dir, `${name}.mjs`);
+  fs.writeFileSync(script, code);
+  fs.writeFileSync(path.join(dir, name), `#!${process.execPath}\nimport(${JSON.stringify(pathToFileURL(script).href)});\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, `${name}.cmd`), `@echo off\r\n"%~dp0\\${name}.mjs" %*\r\n`);
+}
+
+test('运行进程隔离：本体崩溃后清掉脱离进程组且持有管道的子命令，不碰另一轮或正常完成的后台服务', async () => {
+  const dir = path.join(root, 'process-test-bin');
+  const oldPath = process.env.PATH;
+  const handles = [];
+  const pids = [];
+  testBin(dir, 'codex', `
+    import fs from 'node:fs'; import path from 'node:path'; import readline from 'node:readline'; import {spawn} from 'node:child_process';
+    const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+    const rl=readline.createInterface({input:process.stdin});
+    rl.on('line',line=>{const m=JSON.parse(line);
+      if(m.method==='initialize')send({id:m.id,result:{}});
+      if(m.method==='thread/start')send({id:m.id,result:{thread:{id:'process-'+process.pid}}});
+      if(m.method==='turn/start'){
+        const mode=m.params.input[0].text;
+        const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:mode==='crash'?['ignore',1,2]:'ignore'});
+        fs.writeFileSync(path.join(m.params.cwd,mode+'.pid'),String(c.pid));
+        if(mode==='crash')process.exit(2);
+        send({id:m.id,result:{turn:{id:'pt'}}});
+        send({method:'item/started',params:{item:{id:'cmd',type:'commandExecution',command:'假的后台命令'}}});
+        if(mode==='completed')send({method:'turn/completed',params:{turn:{id:'pt',status:'completed'}}});
+      }
+    });
+    rl.on('close',()=>process.exit(0));
+  `);
+  process.env.PATH = `${dir}${path.delimiter}${oldPath}`;
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const childPid = (mode) => { const pid = Number(fs.readFileSync(path.join(root, `${mode}.pid`), 'utf8')); pids.push(pid); return pid; };
+  try {
+    const running = start({ prompt: 'running' }); handles.push(running);
+    await until(() => running.steps.length > 0);
+    const runningPid = childPid('running');
+    const crash = start({ prompt: 'crash' }); handles.push(crash);
+    assert.equal((await crash.done).ok, false);
+    const crashedPid = childPid('crash');
+    await until(() => !alive(crashedPid));
+    assert.equal(alive(runningPid), true);
+    running.kill();
+    await running.done;
+    await until(() => !alive(runningPid));
+    const completed = start({ prompt: 'completed' }); handles.push(completed);
+    assert.equal((await completed.done).ok, true);
+    assert.equal(alive(childPid('completed')), true, '正常完成不杀用户有意启动的后台服务');
+  } finally {
+    process.env.PATH = oldPath;
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    for (const h of handles.slice(0, 2)) await h.kill();
+  }
+});
+
+test('Windows 进程清理：父进程先退出仍找回子进程，编号已复用时不误杀', async () => {
+  const { processGuard } = await import('../lib/processes.js');
+  for (const reused of [false, true]) {
+    const calls = [];
+    let killed = false;
+    const time = Date.now();
+    const guard = processGuard({ platform: 'win32', sleep: async () => {}, exec(cmd, args, _opts, cb) {
+      calls.push({ cmd, args });
+      if (cmd === 'taskkill') { killed = true; cb(null, ''); return; }
+      cb(null, JSON.stringify(killed ? [] : [
+        { pid: 501, ppid: 500, started: new Date(time + (reused ? 10000 : 0)).toISOString() },
+        { pid: 502, ppid: 1, started: new Date(time).toISOString() },
+        { pid: 503, ppid: 501, started: new Date(time + 10).toISOString() },
+      ]));
+    } });
+    const child = Object.assign(new EventEmitter(), { pid: 500, exitCode: 2 });
+    guard.attach(child);
+    child.emit('exit', 2, null);
+    assert.equal(await guard.kill(), true);
+    assert.deepEqual(calls.filter((c) => c.cmd === 'taskkill').map((c) => c.args), reused ? [] : [['/PID', '503', '/F'], ['/PID', '501', '/F']]);
+  }
+});
+
+test('Windows 进程清理：拒绝结束后代或进程查询失败时，不能声称全部停止', async () => {
+  const { processGuard } = await import('../lib/processes.js');
+  for (const scenario of ['denied', 'query-failed']) {
+    let clock = Date.now();
+    const started = new Date(clock).toISOString();
+    const guard = processGuard({ platform: 'win32', now: () => clock, sleep: async (ms) => { clock += ms; }, exec(cmd, _args, _opts, cb) {
+      if (scenario === 'query-failed' || cmd === 'taskkill') cb(new Error('假的权限拒绝'), '');
+      else cb(null, JSON.stringify([{ pid: 501, ppid: 500, started }]));
+    } });
+    const child = Object.assign(new EventEmitter(), { pid: 500, exitCode: 2 });
+    guard.attach(child);
+    child.emit('exit', 2, null);
+    assert.equal(await guard.kill(), false, scenario);
+  }
+});
+
+test('模型试用：用统一参数明确关闭快速档并保持只读，不沿用全局 priority', async () => {
+  const dir = path.join(root, 'probe-test-bin');
+  const argFile = path.join(root, 'probe-args.json');
+  const oldPath = process.env.PATH;
+  testBin(dir, 'codex', `import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(argFile)},JSON.stringify(process.argv.slice(2)));fs.readFileSync(0,'utf8');console.log(JSON.stringify({type:'turn.completed'}));`);
+  process.env.PATH = `${dir}${path.delimiter}${oldPath}`;
+  try {
+    const { probeModel } = await import('../lib/agents.js');
+    assert.equal((await probeModel('gpt', 'fake-custom')).ok, true);
+    const args = JSON.parse(fs.readFileSync(argFile, 'utf8'));
+    assert.ok(args.includes('features.fast_mode=false'));
+    assert.ok(args.includes('sandbox_mode="read-only"'));
+    assert.ok(args.includes('approval_policy="never"'));
+    assert.ok(args.includes('--ephemeral'));
+    if (process.platform === 'win32') assert.ok(args.includes('windows.sandbox="unelevated"'));
+    assert.equal(fs.readFileSync(path.join(process.env.CODEX_HOME, 'config.toml'), 'utf8'), 'service_tier = "priority"\n');
+  } finally { process.env.PATH = oldPath; }
+});
+
+test('Claude 模型缓存：同一路径的程序升级后重新读取模型名', async () => {
+  const dir = path.join(root, 'aliases-test-bin');
+  const oldPath = process.env.PATH;
+  const envKeys = ['DEEPSEEK_API_KEY', 'GLM_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'];
+  const oldEnv = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
+  for (const k of envKeys) delete process.env[k];
+  const write = (version) => {
+    testBin(dir, 'claude', `// latest_per_family:{opus:"claude-opus-${version}"}\nconsole.log(process.argv[2]==='--version'?'fake-'+${JSON.stringify(version)}:'{"loggedIn":true}');`);
+    fs.appendFileSync(path.join(dir, 'claude'), `// latest_per_family:{opus:"claude-opus-${version}"}\n`);
+  };
+  write('5-5');
+  // 只允许测试程序和系统工具，不能找到机器上真的 AI 命令。
+  process.env.PATH = [dir, fake, ...(process.platform === 'win32' ? [path.join(process.env.SystemRoot, 'System32')] : ['/usr/bin', '/bin'])].join(path.delimiter);
+  try {
+    const { detectEngines } = await import('../lib/agents.js');
+    assert.equal((await detectEngines()).claude.models.find((m) => m.id === 'opus').name, 'Opus 5.5');
+    write('6-0');
+    assert.equal((await detectEngines()).claude.models.find((m) => m.id === 'opus').name, 'Opus 6.0');
+  } finally {
+    process.env.PATH = oldPath;
+    for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
+test('Windows 重启保护：旧服务未退、无法停新服务、脏目录或错误提交时不自动覆盖', async () => {
+  const { restartServer } = await import('../windows/restart.js');
+  const from = 'a'.repeat(40), to = 'b'.repeat(40);
+  for (const scenario of ['old-alive', 'cannot-stop', 'dirty', 'wrong-head', 'invalid-record']) {
+    const dataDir = path.join(root, `restart-${scenario}`);
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'update-prev.json'), JSON.stringify({ from: scenario === 'invalid-record' ? '--help' : from, to }));
+    let clock = 0, starts = 0;
+    const commands = [], errors = [];
+    const result = await restartServer({
+      root, dataDir, healthTimeout: 30, exitTimeout: 20, now: () => clock, sleep: async (ms) => { clock += ms; },
+      alive: async () => scenario === 'old-alive',
+      startServer() { starts++; return { stop: async () => scenario !== 'cannot-stop' }; },
+      showError: (e) => errors.push(e),
+      async git(_root, args) {
+        commands.push(args);
+        return { ok: true, out: args[0] === 'rev-parse' ? (scenario === 'wrong-head' ? from : to) : args[0] === 'status' && scenario === 'dirty' ? ' M windows/launch.js' : '' };
+      },
+    });
+    assert.equal(result.ok, false, scenario);
+    assert.equal(starts, scenario === 'old-alive' ? 0 : 1, scenario);
+    assert.equal(errors.length, 1, scenario);
+    assert.equal(commands.some((a) => a[0] === 'reset'), false, scenario);
+    assert.equal(fs.existsSync(path.join(dataDir, 'update-prev.json')), true, scenario);
+  }
+});
+
+test('Windows 升级恢复：健康成功才清标记；失败时在隔离仓库真实退回并在旧服务启动前写提示', async () => {
+  const { restartServer } = await import('../windows/restart.js');
+  const repo = path.join(root, 'rollback-repo');
+  const dataDir = path.join(root, 'rollback-data');
+  fs.mkdirSync(repo); fs.mkdirSync(dataDir);
+  const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '-q');
+  const commit = (text) => {
+    fs.writeFileSync(path.join(repo, 'version.txt'), text);
+    git('add', 'version.txt');
+    git('-c', 'user.name=假测试', '-c', 'user.email=test@example.invalid', 'commit', '-qm', text);
+    return git('rev-parse', 'HEAD');
+  };
+  const from = commit('old'), to = commit('new');
+  const pending = path.join(dataDir, 'update-prev.json');
+  fs.writeFileSync(pending, JSON.stringify({ from, to, at: Date.now() }));
+  let clock = 0, starts = 0, stopped = 0;
+  const errors = [];
+  const runtime = {
+    root: repo, dataDir, healthTimeout: 30, exitTimeout: 20, now: () => clock, sleep: async (ms) => { clock += ms; },
+    alive: async () => starts === 2,
+    startServer() {
+      starts++;
+      if (starts === 2) {
+        assert.equal(stopped, 1);
+        assert.equal(fs.readFileSync(path.join(repo, 'version.txt'), 'utf8'), 'old');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'update-rollback.json'), 'utf8')).to, to);
+      }
+      return { stop: async () => { stopped++; return true; } };
+    },
+    showError: (e) => errors.push(e),
+  };
+  assert.deepEqual(await restartServer(runtime), { ok: true, rolledBack: true });
+  assert.equal(git('rev-parse', 'HEAD'), from);
+  assert.equal(fs.existsSync(pending), false);
+  assert.deepEqual(errors, []);
+  // 普通成功启动不需要读取或重置仓库，只在健康检查成功后清标记。
+  starts = 0;
+  fs.writeFileSync(pending, JSON.stringify({ from, to }));
+  const success = await restartServer({ ...runtime, alive: async () => starts > 0, startServer() { starts++; assert.equal(fs.existsSync(pending), true); return {}; } });
+  assert.equal(success.ok, true);
+  assert.equal(fs.existsSync(pending), false);
+  assert.equal(git('rev-parse', 'HEAD'), from);
 });
