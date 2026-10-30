@@ -3874,8 +3874,10 @@ async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
   const by = await askFresh(agent, roomId);
   if (!by) return;
   if (btn) btn.disabled = true;
+  let done = false;
   try {
     const { result } = await api('POST', `/api/rooms/${roomId}/fresh`, { agent, by });
+    done = true;
     const name = agentName(agent);
     toast(
       result === 'none'
@@ -3894,7 +3896,13 @@ async function freshAgent(agent, btn, roomId = currentConv()?.roomId) {
     toast(err.message);
     if (btn) btn.disabled = false;
   }
-  if (S.editing === roomId && $('#dlg-room').open) setTimeout(() => loadSessions(roomById(roomId)), 600);
+  // 从群设置（右上角「···」）里换的：换好了就把群设置也关掉，回到聊天看交代的过程；
+  // 群设置里还改了别的、没保存，就留着窗口，免得改的东西丢了，只刷新会话那一栏
+  const settings = $('#dlg-room');
+  if (S.editing === roomId && settings.open) {
+    if (done && roomFormSnapshot() === roomFormSnapshot.saved) closeDialog(settings);
+    else setTimeout(() => loadSessions(roomById(roomId)), 600);
+  }
   setTimeout(() => refreshSessionImages(roomId), 600);
 }
 
@@ -4239,9 +4247,15 @@ function openDialog(room, preset = null) {
   fillModelOptions(room);
   syncMemberFields();
   $('#form-error').hidden = true;
+  roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
   reportDragRegions();
   formField('name').focus();
+}
+
+// 群设置里填的东西（名字、成员、模型、收纳组……），用来看打开以后有没有改过
+function roomFormSnapshot() {
+  return JSON.stringify([...new FormData($('#room-form'))].concat([['folder', $('#set-folder').value]]));
 }
 
 async function submitDialog(e) {
