@@ -5,11 +5,11 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig } from './lib/store.js';
+import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
 import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installClaudeCode } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
-import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
+import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -509,7 +509,8 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1);
   const method = req.method;
 
-  if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
+  // commit：跑的是哪个版本（升级后的重启脚本用它确认起来的是新版本，不是还没退出的旧服务）
+  if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true, commit: await bootCommit });
   // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段，再带上同一个会话里的上一条（看得出是在聊什么）。
   // 可以按谁说的（from）、哪个群（room）筛；facets 是筛选前每个人、每个群各命中几条，给筛选菜单用
   if (method === 'GET' && parts[0] === 'search') {
@@ -565,6 +566,7 @@ async function api(req, res, url) {
       platform: process.platform,
       inApp: process.env.CLAWCHAT_APP === '1',
       restartPending: pendingRestart,
+      updateRollback, // 上次升级后新版本没能启动，已经退回原来的版本：{ from, to, fromVersion, toVersion }
     });
   }
   if (method === 'POST' && parts[0] === 'lang') {
@@ -695,18 +697,20 @@ async function api(req, res, url) {
       hub.emit('event', { type: 'folders', folders: store.listFolders() });
       hub.emitRooms();
     };
-    // 自定义头像：颜色是第几种（0-7）、上面写的字（最多两个字或一个表情）、或者一张小图片（界面上已经缩成 160×160）
-    const folderAvatar = (v) => {
-      if (!v) return null;
+    // 自定义头像：颜色是第几种（0-7）、上面写的字（最多两个字或一个表情）、或者一张小图片（界面上已经缩成 160×160）。
+    // 图片：image 传 data URL 是换新图；带上现在的 imageV 是留着原来那张；都不带就是去掉图片
+    const folderAvatar = (v, folder) => {
+      if (!v) return { avatar: null, image: null };
       const out = {};
       if (Number.isInteger(v.color) && v.color >= 0 && v.color < 8) out.color = v.color;
       const text = [...new Intl.Segmenter().segment(String(v.text || '').trim())].map((x) => x.segment).slice(0, 2).join(''); // 按字切，组合表情算一个
       if (text) out.text = text;
+      let image = null;
       if (v.image) {
         if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v.image) || v.image.length > 400000) throw httpError(400, tr('头像图片不对，换一张试试'));
-        out.image = v.image;
-      }
-      return Object.keys(out).length ? out : null;
+        image = v.image;
+      } else if (v.imageV && v.imageV === folder?.avatar?.imageV) image = 'keep';
+      return { avatar: out, image };
     };
     const folderName = (v) => {
       const name = String(v || '').trim().slice(0, 30);
@@ -722,10 +726,20 @@ async function api(req, res, url) {
     }
     const folder = store.getFolder(parts[1]);
     if (!folder) return send(res, 404, { error: tr('这个收纳组不存在了') });
+    // 头像图片：地址里带版本号，换了图地址就变，可以放心缓存
+    if (method === 'GET' && parts[2] === 'avatar') {
+      const hit = folder.avatar?.imageV && store.folderAvatarFile(folder.id, folder.avatar.imageV);
+      if (!hit) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'content-type': hit.type, 'cache-control': 'private, max-age=31536000, immutable' });
+      return fs.createReadStream(hit.file).pipe(res);
+    }
     if (method === 'PATCH' && !parts[2]) {
       const body = await readBody(req);
       if (body.name !== undefined) store.renameFolder(folder.id, folderName(body.name));
-      if (body.avatar !== undefined) store.setFolderAvatar(folder.id, folderAvatar(body.avatar));
+      if (body.avatar !== undefined) {
+        const { avatar, image } = folderAvatar(body.avatar, folder);
+        store.setFolderAvatar(folder.id, avatar, image);
+      }
       emitFolders();
       return send(res, 200, { folder });
     }
@@ -817,7 +831,41 @@ async function api(req, res, url) {
       hub.emitRooms();
       return send(res, 200, { ok: true });
     }
-    if (sub === 'messages' && method === 'GET') return send(res, 200, { messages: store.getMessages(room.id) });
+    // 某条回复的干活过程（分页取消息时不带，点开「过程」时再要）
+    if (sub === 'messages' && parts[4] === 'steps' && method === 'GET') {
+      const m = store.getMessages(room.id)[Number(parts[3])];
+      if (!m || m.lost) return send(res, 404, { error: tr('这条消息找不到了') });
+      return send(res, 200, { steps: m.steps || [] });
+    }
+    // 聊天记录。不带参数：全部（以前的界面用）。带 limit / before / around：只取一段，干活过程换成步数（stepCount），
+    // 大群打开时不用一次传几 MB。before：这条之前的；around：这条前后的（从搜索跳过去）
+    if (sub === 'messages' && !parts[3] && method === 'GET') {
+      const all = store.getMessages(room.id).filter((m) => !m.lost);
+      const q = url.searchParams;
+      if (!q.has('limit') && !q.has('before') && !q.has('around')) return send(res, 200, { messages: all });
+      const limit = Math.min(1000, Math.max(1, Math.round(Number(q.get('limit'))) || 150));
+      const at = (seq) => {
+        const i = all.findIndex((m) => m.seq >= seq);
+        return i < 0 ? all.length : i;
+      };
+      let start;
+      let end;
+      if (q.has('around')) {
+        const i = at(Number(q.get('around')));
+        start = Math.max(0, i - Math.floor(limit / 2));
+        end = Math.min(all.length, start + limit);
+        start = Math.max(0, end - limit);
+      } else {
+        end = q.has('before') ? at(Number(q.get('before'))) : all.length;
+        start = Math.max(0, end - limit);
+      }
+      const light = (m) => {
+        if (!m.steps) return m;
+        const { steps, ...rest } = m;
+        return { ...rest, stepCount: steps.length };
+      };
+      return send(res, 200, { messages: all.slice(start, end).map(light), hasEarlier: start > 0, hasLater: end < all.length });
+    }
     // 清空聊天记录（forget：连 AI 的记忆也清掉）
     if (sub === 'clear' && method === 'POST') {
       hub.clearRoom(room.id, !!(await readBody(req)).forget);
@@ -995,9 +1043,23 @@ function engineSummary() {
   return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini].join(' · ');
 }
 
+// 上次升级后新版本没能启动、重启脚本已经退回原来的版本：告诉界面（只说一次）
+const updateRollback = takeRollback();
+if (updateRollback) console.error(`[clawchat] 升级到 ${updateRollback.toVersion || updateRollback.to} 后没能启动，已经退回 ${updateRollback.fromVersion || updateRollback.from}`);
+for (const file of recovered) console.error(`[clawchat] 用备份恢复了 ${file}`);
+
 setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
+  // 传上来、最后没发出去的图片：启动一分钟后清一次（放了一天以上的）
+  setTimeout(() => {
+    try {
+      const n = store.pruneUploads();
+      if (n) console.log(`[clawchat] 清掉了 ${n} 张没发出去的图片`);
+    } catch (err) {
+      console.error('[clawchat] 清理图片失败', err);
+    }
+  }, 60 * 1000).unref();
   hub.noticeInterrupted();
   pruneExtraMembers(); // 以前在设置里开了、但哪个群都没用上的多开成员
   ensureIcons();
@@ -1072,3 +1134,32 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// 兜底：哪里漏接了的错误。服务的状态可能已经不对了，不硬撑着接着跑：记进日志，正在干的活记成「被打断」，
+// 然后重启（重启后自动接着做）。十分钟里连着出了三次就不再重启，免得一直重启
+let crashing = false;
+function fatal(kind, err) {
+  console.error(`[clawchat] ${kind}`, err);
+  if (crashing) return;
+  crashing = true;
+  const file = path.join(DATA_DIR, 'crashes.json');
+  let recent = [];
+  try {
+    recent = JSON.parse(fs.readFileSync(file, 'utf8')).filter((t) => Date.now() - t < 10 * 60 * 1000);
+  } catch {}
+  recent.push(Date.now());
+  try {
+    fs.writeFileSync(file, JSON.stringify(recent));
+  } catch {}
+  try {
+    if (recent.length > 3) {
+      console.error('[clawchat] 十分钟里连着出错，不再自动重启');
+      shutdown();
+    } else restartNow();
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+}
+process.on('uncaughtException', (err) => fatal('没接住的错误', err));
+process.on('unhandledRejection', (err) => fatal('没接住的 Promise 错误', err));

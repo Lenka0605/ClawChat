@@ -1573,3 +1573,200 @@ test('清空聊天记录的两个时序：清空后马上发消息，新消息�
   assert.deepEqual(state.cursors, {});
   assert.deepEqual(state.interrupted, {});
 });
+
+test('崩溃、断电这种来不及正常退出的：下次启动把读取进度退回开工前，按被打断提醒（带「让它接着做」）', async () => {
+  const store = new Store();
+  const { run } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 改一下首页');
+  await tick();
+  const before = store.getState(room.id);
+  assert.equal(before.running.claude, -1, '开工时记下开工前读到哪');
+  // 不调 shutdown，直接换一个新的存储：相当于进程被强制结束了
+  const store2 = new Store();
+  const r2 = fakeRunner(() => '改好了');
+  const hub2 = new Hub(store2, { run: r2.run });
+  hub2.noticeInterrupted();
+  await tick();
+  const state = store2.getState(room.id);
+  assert.equal(state.cursors.claude, -1, '读取进度退回开工前');
+  assert.deepEqual(state.running, {});
+  assert.equal(r2.calls.length, 0, '不是老板点的重启：不自动开工');
+  const notice = store2.getMessages(room.id).find((m) => m.action?.type === 'resume');
+  assert.deepEqual(notice.action.agents, ['claude']);
+  hub2.wake(room.id, 'claude');
+  await settle(hub2);
+  assert.match(r2.calls[0].prompt, /改一下首页/);
+  assert.deepEqual(store2.getState(room.id).running, {}, '正常做完，记号去掉');
+});
+
+test('一轮里出了意外的错误：只算这一轮出错（读取进度退回、提示出错），服务不挂，后面的照常', async () => {
+  const store = new Store();
+  let boom = true;
+  const calls = [];
+  const run = (agent, opts) => {
+    calls.push(agent);
+    if (boom) throw new Error('磁盘满了');
+    return { done: Promise.resolve({ ok: true, text: '好了', steps: [], session: 's' }), kill() {} };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 看看');
+  await tick();
+  assert.equal(hub.runs.size, 0);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /Claude 出错了：磁盘满了/.test(m.text)));
+  assert.equal(store.getState(room.id).cursors.claude, -1, '这一轮不算看过');
+  assert.deepEqual(store.getState(room.id).running, {});
+  boom = false;
+  hub.postUserMessage(room.id, '@Claude 再看看');
+  await settle(hub);
+  assert.equal(store.getMessages(room.id).at(-1).text, '好了');
+});
+
+test('按了停止、这一轮还没完全停下时老板又发来的：停下后马上开工，不用等下次有人叫它', async () => {
+  const store = new Store();
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, prompt: opts.prompt, finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }), kill: () => resolve({ ok: false, error: 'killed', steps: [], session: null }) };
+    calls.push(call);
+    return { done, kill: () => setTimeout(call.kill, 30) }; // 停下要一小会儿
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 做 A');
+  await tick();
+  hub.stop(room.id, 'claude');
+  hub.postUserMessage(room.id, '@Claude 别做 A 了，做 B');
+  await tick();
+  await tick();
+  await tick();
+  assert.equal(calls.length, 2, '停下后马上接着做新消息');
+  assert.match(calls[1].prompt, /做 B/);
+  calls[1].finish('好，做 B');
+  await settle(hub);
+});
+
+test('插话的过程提示只写真正叫它的人：一起塞进去、只是让它知道的（老板对别人说的）不算', async () => {
+  const store = new Store();
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, steered: [], finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }) };
+    calls.push(call);
+    return { done, kill: () => resolve({ ok: false, error: 'killed', steps: [] }), steer: (p) => (call.steered.push(p), true) };
+  };
+  const hub = new Hub(store, { run });
+  const steps = [];
+  hub.on('event', (ev) => ev.type === 'step' && ev.agent === 'gpt' && steps.push(ev.step.text));
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
+  hub.postUserMessage(room.id, '@ChatGPT 审查一下');
+  await tick();
+  const gpt = calls.find((c) => c.agent === 'gpt');
+  hub.postUserMessage(room.id, '@Claude 你也去做事'); // 对 Claude 说的
+  await tick();
+  calls.find((c) => c.agent === 'claude').finish('@ChatGPT 我这部分好了');
+  await tick();
+  await tick();
+  assert.equal(gpt.steered.length, 1);
+  assert.match(gpt.steered[0], /你也去做事/, '老板对别人说的也让它知道');
+  assert.deepEqual(steps, ['收到Claude的新消息，接着一起干']);
+  gpt.finish('[PASS]');
+  await settle(hub);
+});
+
+test('做完了却一个字都没回：提示一声，不然看起来像没回', async () => {
+  const store = new Store();
+  const { run } = fakeRunner(() => '   ');
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 看看');
+  await settle(hub);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /Claude 这一轮做完了，但没有回复内容/.test(m.text)));
+  const { run: run2 } = fakeRunner(() => '[PASS]');
+  const hub2 = new Hub(store, { run: run2 });
+  const n = store.getMessages(room.id).length;
+  hub2.postUserMessage(room.id, '@Claude 再看看');
+  await settle(hub2);
+  assert.equal(store.getMessages(room.id).length, n + 1, '[PASS] 照旧不提示');
+});
+
+test('聊天记录最后一行写到一半（断电）：下一条另起一行，坏掉的那行能救的救回来，救不回的占位，后面的编号不错位', () => {
+  const store = new Store();
+  const room = newRoom(store, { members: ['claude'] });
+  const file = path.join(store.roomDir(room.id), 'messages.jsonl');
+  const line = (seq, text) => JSON.stringify({ seq, ts: 1, from: 'user', text });
+  // 第 1 条坏了救不回；第 2 条写到一半时断电，第 3 条又接在了后面
+  fs.writeFileSync(file, `${line(0, '一')}\n{"seq":1,"ts":1,"fr\n${line(2, '二').slice(0, 20)}${line(3, '三')}\n${line(4, '四').slice(0, 25)}`);
+  const store2 = new Store();
+  const list = store2.getMessages(room.id);
+  assert.deepEqual(list.map((m) => m.seq), [0, 1, 2, 3]);
+  assert.ok(list[1].lost && list[2].lost);
+  assert.equal(list[3].text, '三', '接在半行后面的那条救回来了');
+  const m = store2.appendMessage(room.id, { from: 'user', text: '五' });
+  assert.equal(m.seq, 4);
+  const store3 = new Store();
+  assert.equal(store3.getMessages(room.id)[4].text, '五', '新的一条另起一行，读得出来');
+});
+
+test('群列表、记忆文件读不出来时用上一版的备份，不会被当成空的覆盖掉', () => {
+  const store = new Store();
+  const room = newRoom(store, { name: '备份测试' });
+  store.getState(room.id).sessions.claude = 'sess-1';
+  store.saveState(room.id);
+  store.saveState(room.id); // 第二次保存时，上一版留成 .bak
+  store.updateRoom(room.id, { collab: false });
+  const rooms = path.join(process.env.CLAWCHAT_HOME, 'rooms.json');
+  const state = path.join(store.roomDir(room.id), 'state.json');
+  fs.writeFileSync(rooms, '[{"id":');
+  fs.writeFileSync(state, '{"sess');
+  const store2 = new Store();
+  assert.ok(store2.getRoom(room.id), '群还在');
+  assert.equal(store2.getState(room.id).sessions.claude, 'sess-1', '记忆还在');
+  store2.saveRooms(); // 写回好的，别影响后面的测试
+  store2.saveState(room.id);
+});
+
+test('收纳组头像的图片存成单独的文件，列表里只带版本号；留着、换掉、去掉都对', () => {
+  const store = new Store();
+  const folder = store.createFolder('图');
+  const png = `data:image/png;base64,${Buffer.from('fake-png-1').toString('base64')}`;
+  store.setFolderAvatar(folder.id, { color: 2 }, png);
+  const v1 = store.getFolder(folder.id).avatar.imageV;
+  assert.ok(v1 && !store.getFolder(folder.id).avatar.image, '列表里不带图片本身');
+  assert.ok(store.folderAvatarFile(folder.id, v1));
+  store.setFolderAvatar(folder.id, { color: 3, text: 'A' }, 'keep');
+  assert.deepEqual(store.getFolder(folder.id).avatar, { color: 3, text: 'A', imageV: v1 });
+  store.setFolderAvatar(folder.id, { color: 3 }, `data:image/png;base64,${Buffer.from('fake-png-2').toString('base64')}`);
+  const v2 = store.getFolder(folder.id).avatar.imageV;
+  assert.notEqual(v2, v1);
+  assert.equal(store.folderAvatarFile(folder.id, v1), null, '旧图删掉');
+  store.setFolderAvatar(folder.id, { color: 3 }, null);
+  assert.equal(store.folderAvatarFile(folder.id, v2), null);
+  assert.deepEqual(store.getFolder(folder.id).avatar, { color: 3 });
+  // 旧版本把图片直接存在 folders.json 里：启动时搬出去
+  store.getFolder(folder.id).avatar = { color: 1, image: png };
+  store.saveFolders();
+  const store2 = new Store();
+  const a = store2.getFolder(folder.id).avatar;
+  assert.ok(a.imageV && !a.image && store2.folderAvatarFile(folder.id, a.imageV));
+  store2.deleteFolder(folder.id);
+  assert.equal(store2.folderAvatarFile(folder.id, a.imageV), null, '解散时图片一起删');
+});
+
+test('没发出去的图片：放了一天以上、没有消息用到的清掉，用到的和刚传的留着', () => {
+  const store = new Store();
+  const room = newRoom(store, { members: ['claude'] });
+  const dir = store.uploadsDir(room.id);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of ['aaaaaaaaaaaaaaaa.png', 'bbbbbbbbbbbbbbbb.png', 'cccccccccccccccc.png']) fs.writeFileSync(path.join(dir, f), 'x');
+  const old = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+  fs.utimesSync(path.join(dir, 'aaaaaaaaaaaaaaaa.png'), old, old);
+  fs.utimesSync(path.join(dir, 'bbbbbbbbbbbbbbbb.png'), old, old);
+  store.appendMessage(room.id, { from: 'user', text: '', images: [{ id: 'bbbbbbbbbbbbbbbb.png', type: 'image/png' }] });
+  store.pruneUploads();
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['bbbbbbbbbbbbbbbb.png', 'cccccccccccccccc.png']);
+});
