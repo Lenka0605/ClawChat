@@ -216,9 +216,9 @@ test('Codex 分页用量：继承旧 JSONL 图片，累加新附件和看图，�
   assert.equal((await sessionUsage('gpt', sid)).images, 12);
   process.env.FAKE_CODEX_RPC_SCENARIO = 'usage';
   assert.equal((await start({ session: sid, images: [{ path: image }] }).done).ok, true);
-  assert.deepEqual(await sessionUsage('gpt', sid), { images: 28, used: 42, window: 65536 });
+  assert.deepEqual(await sessionUsage('gpt', sid), { images: 20, used: 42, window: 65536 });
   const file = path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${sid}.json`);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { images: 28, used: 42, window: 65536 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { images: 20, used: 42, window: 65536 });
   process.env.FAKE_CODEX_RPC_SCENARIO = 'compact';
   assert.equal((await start({ session: sid }).done).ok, true);
   assert.deepEqual(await sessionUsage('gpt', sid), { images: 0, used: 42, window: 65536 });
@@ -229,6 +229,54 @@ test('Codex 结构化上下文错误：保留 contextWindowExceeded 标记，不
   const res = await start().done;
   assert.equal(res.ok, false);
   assert.match(res.error, /contextWindowExceeded/);
+});
+
+test('Codex 图片估算：附件和插话的 imageView 回报不重复算，同图再次发送仍计入新输入', async () => {
+  const image = path.join(root, 'repeated.png');
+  fs.writeFileSync(image, '123456');
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'usage';
+  const h = start({ images: [{ path: image }] });
+  await until(() => h.steps.some((s) => s.kind === 'run'));
+  assert.equal(await h.steer('同图再发一次', [{ path: image }]), true);
+  const res = await h.done;
+  assert.equal(res.ok, true);
+  assert.equal((await sessionUsage('gpt', res.session)).images, 16);
+  // 新一轮单独调用查看工具，没有新附件时仍应计数。
+  const toolImage = path.join(root, 'tool-view.png');
+  fs.writeFileSync(toolImage, '123');
+  const { runCodexServer } = await import('../lib/codex.js');
+  const handle = runCodexServer({ room, prompt: '看工具图片', onStep() {} }, {
+    bin: '假进程', args: [], unwrapShell: (x) => x,
+    spawnJsonl(_bin, _args, { onEvent }) {
+      let finish;
+      const done = new Promise((resolve) => { finish = resolve; });
+      return {
+        done, kill() { finish({ code: 0 }); }, end() { finish({ code: 0 }); },
+        write(line) {
+          const m = JSON.parse(line);
+          queueMicrotask(() => {
+            if (m.method === 'initialize') onEvent({ id: m.id, result: {} });
+            else if (m.method === 'thread/start') onEvent({ id: m.id, result: { thread: { id: 'tool-view-only' } } });
+            else if (m.method === 'turn/start') {
+              onEvent({ id: m.id, result: { turn: { id: 'view-turn' } } });
+              onEvent({ method: 'item/completed', params: { threadId: 'tool-view-only', item: { id: 'view', type: 'imageView', path: toolImage } } });
+              onEvent({ method: 'turn/completed', params: { threadId: 'tool-view-only', turn: { id: 'view-turn', status: 'completed' } } });
+            }
+          });
+          return true;
+        },
+      };
+    },
+  });
+  assert.equal((await handle.done).ok, true);
+  assert.equal((await sessionUsage('gpt', 'tool-view-only')).images, 4);
+});
+
+test('Codex 旧版本没有 app-server：明确提示升级，不伪装成普通进程失败', async () => {
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'old-cli';
+  const res = await start().done;
+  assert.equal(res.ok, false);
+  assert.match(res.error, /请先升级 Codex/);
 });
 
 test('Codex 经 Hub：结构化上下文超限会自动换会话恢复，不需要真的耗尽模型上下文', async () => {

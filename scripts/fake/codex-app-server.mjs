@@ -78,6 +78,10 @@ rl.on('line', (line) => {
     if (!turn || p.expectedTurnId !== turn) return reject(m.id, 'no active turn');
     if (scenario === 'reject-steer') return reject(m.id, 'no active turn');
     const accepted = turn;
+    if (scenario === 'usage') {
+      const img = p.input.find((x) => x.type === 'localImage');
+      if (img) event('item/completed', { item: { id: `steer-view-${m.id}`, type: 'imageView', path: img.path } });
+    }
     if (scenario === 'reject-after-complete') {
       clearTimeout(timer);
       finish();

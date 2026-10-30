@@ -9,9 +9,13 @@ if (args[0] === '--version') console.log('codex-cli 0.0.0-fake');
 else if (args[0] === 'login') {
   if (process.env.FAKE_CODEX_LOGGED_OUT) { console.error('Not logged in'); process.exitCode = 1; }
   else console.log('Logged in using ChatGPT (fake)');
-} else if (args[0] === 'app-server') await import('./codex-app-server.mjs');
+} else if (args[0] === 'app-server') {
+  if (process.env.FAKE_CODEX_RPC_SCENARIO === 'old-cli') { console.error("error: unrecognized subcommand 'app-server'"); process.exitCode = 2; }
+  else if (args.includes('--help')) console.log('codex app-server: 后台协议服务（假的）');
+  else await import('./codex-app-server.mjs');
+}
 else if (args[0] === 'exec') {
-  fs.readFileSync(0, 'utf8'); // exec 只收一次输入；分身继续测这条旧路径。
+  fs.readFileSync(0, 'utf8'); // exec 保留给旧协议兼容测试，本体和分身都走 app-server。
   const at = args.indexOf('resume');
   const sid = at >= 0 ? args[at + 1] : `fake-codex-${crypto.randomUUID()}`;
   const file = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'codex.txt');

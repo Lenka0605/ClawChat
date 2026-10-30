@@ -1,4 +1,5 @@
 {
+  "Codex 版本太旧，不支持后台会话，请先升级 Codex": "Your Codex version does not support background sessions. Please update Codex first",
   "Codex 接口没有及时回应：{method}": "Codex did not respond in time: {method}",
   "Codex 连接已关闭": "The Codex connection has closed",
   "Codex 没有返回会话编号": "Codex did not return a thread ID",
