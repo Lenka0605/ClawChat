@@ -1451,7 +1451,7 @@ test('中途插话的两个边界：前一批被拒、后一批还在排队时�
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude').length, 1, '只回了一条');
 });
 
-test('中途插话以后老板按停止：这一轮本身不重做，插进来的那条退回没看过，下次叫它会再交给它', async () => {
+test('按停止和 Claude Code 里按 Esc 一样：这一轮不重做，但下次轮到它时告诉它刚才在做什么（连同中途插进来的），别自动接着做', async () => {
   const store = new Store();
   const calls = [];
   const run = (agent, opts) => {
@@ -1471,22 +1471,29 @@ test('中途插话以后老板按停止：这一轮本身不重做，插进来�
   hub.postUserMessage(room.id, '@Claude 第一件事');
   await tick();
   const first = calls.at(-1);
-  const start = store.getState(room.id).cursors.claude;
   hub.postUserMessage(room.id, '@Claude 第二件事');
   await tick();
   assert.equal(first.steered.length, 1);
-  assert.ok(store.getState(room.id).cursors.claude > start, '插进去以后读取进度往前推了');
+  const at = store.getState(room.id).cursors.claude;
   hub.stop(room.id, 'claude');
   await tick();
   await tick();
-  assert.equal(store.getState(room.id).cursors.claude, start, '停止以后退回这一轮开始时');
+  assert.equal(store.getState(room.id).cursors.claude, at, '读取进度不退回：停掉的不重做');
   hub.postUserMessage(room.id, '@Claude 第三件事');
   await tick();
   const next = calls.at(-1);
   assert.notEqual(next, first);
-  assert.match(next.prompt, /第二件事/, '插进来的那条会再交给它');
+  assert.match(next.prompt, /做到一半被老板按了「停止」/);
+  assert.match(next.prompt, /第一件事/, '告诉它刚才在做的事');
+  assert.match(next.prompt, /第二件事/, '中途插进来的也在里面');
+  assert.match(next.prompt, /先别自动接着做/);
   assert.match(next.prompt, /第三件事/);
-  assert.doesNotMatch(next.prompt, /第一件事/, '被停掉的那一轮本身不重做');
-  next.finish('[PASS]');
+  next.finish('好的，先做第三件');
+  await tick();
+  // 只提一次
+  hub.postUserMessage(room.id, '@Claude 第四件事');
+  await tick();
+  assert.doesNotMatch(calls.at(-1).prompt, /被老板按了「停止」/);
+  calls.at(-1).finish('[PASS]');
   await tick();
 });
