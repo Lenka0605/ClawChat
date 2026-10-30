@@ -841,8 +841,11 @@ async function api(req, res, url) {
     // 聊天记录。不带参数：全部（以前的界面用）。带 limit / before / around：只取一段，干活过程换成步数（stepCount），
     // 大群打开时不用一次传几 MB。before：这条之前的；around：这条前后的（从搜索跳过去）
     if (sub === 'messages' && !parts[3] && method === 'GET') {
-      const all = store.getMessages(room.id).filter((m) => !m.lost);
       const q = url.searchParams;
+      // conv：只取某一个会话的（g 群里、d:<成员> 和它的私聊，算法和搜索里的 convOf 一样），私聊翻页不会被群消息挤掉
+      const conv = q.get('conv');
+      const convOf = (m) => (m.dm ? `d:${m.dm}` : m.pm ? `d:${m.pmIn || m.pm}` : 'g');
+      const all = store.getMessages(room.id).filter((m) => !m.lost && (!conv || convOf(m) === conv));
       if (!q.has('limit') && !q.has('before') && !q.has('around')) return send(res, 200, { messages: all });
       const limit = Math.min(1000, Math.max(1, Math.round(Number(q.get('limit'))) || 150));
       const at = (seq) => {
