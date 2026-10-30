@@ -1,0 +1,15 @@
+{
+  "聊天": "Chats",
+  "聊天记录 · {n} 个聊天里共 {count} 条": "Messages · {count} in {n} chats",
+  "在这个聊天里逐条查看": "Browse matches in this chat",
+  "还有 {n} 条，在这个聊天里查看": "{n} more, view in this chat",
+  "{n} 条": "{n} found",
+  "没有找到": "No matches",
+  "在这个聊天里搜（{key}）": "Search This Chat ({key})",
+  "在这个聊天里搜": "Search This Chat",
+  "更早的一条（回车）": "Earlier Match (Return)",
+  "更早的一条": "Earlier Match",
+  "更新的一条（Shift+回车）": "Later Match (Shift+Return)",
+  "更新的一条": "Later Match",
+  "关闭（Esc）": "Close (Esc)"
+}

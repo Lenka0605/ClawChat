@@ -76,10 +76,25 @@
           </div>
           <div id="model-switch" class="model-switch"></div>
           <div id="dm-entry" class="dm-entry" hidden></div>
+          <button id="btn-find" class="icon-btn" title="在这个聊天里搜" aria-label="在这个聊天里搜">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg>
+          </button>
           <button id="btn-settings" class="icon-btn" title="群设置" aria-label="群设置">
             <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
           </button>
         </header>
+
+        <div id="find" class="find" hidden>
+          <div class="find-bar">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="m10.5 10.5 3 3"/></svg>
+            <input id="find-input" type="search" placeholder="在这个聊天里搜" autocomplete="off" spellcheck="false">
+            <span id="find-count" class="find-count"></span>
+            <button id="find-prev" class="find-btn" title="更早的一条（回车）" aria-label="更早的一条"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10 4-4 4 4"/></svg></button>
+            <button id="find-next" class="find-btn" title="更新的一条（Shift+回车）" aria-label="更新的一条"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg></button>
+            <button id="find-close" class="find-btn" title="关闭（Esc）" aria-label="关闭"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+          </div>
+          <ul id="find-list" class="find-list" hidden></ul>
+        </div>
 
         <div id="scroller">
           <div id="dm-hint" class="notice" hidden><span></span></div>

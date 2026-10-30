@@ -1029,34 +1029,65 @@ function renderConvs() {
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
     if (open) for (const d of dmHits) html.push(convItemHtml(d));
   }
+  if (q && html.length) html.unshift(`<li class="search-head">${tr('聊天')}</li>`);
   if (q) html.push(searchHitsHtml(q, html.length > 0));
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
 }
 
 // ---------------- 搜聊天内容 ----------------
-// 侧栏搜索时，除了按名字找会话，也在所有聊天记录里找；点一条结果就打开那个会话、跳到那条消息
+// 侧栏搜索时，除了按名字找会话，也在所有聊天记录里找。结果按聊天分组：组头是哪个群 / 私聊，每条带上谁说的、
+// 前一条在聊什么；点一条就打开那个会话、跳到那条消息，点组头（或「还有 N 条」）就在那个聊天里接着逐条搜
+
+const HITS_PER_CONV = 3;
+const escRe = (q) => q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// 把文字里的关键词标出来（大小写不分）
+function highlight(text, q) {
+  const re = new RegExp(escRe(q), 'gi');
+  const parts = text.split(re);
+  const marks = text.match(re) || [];
+  return parts.map((p, i) => esc(p) + (marks[i] ? `<mark>${esc(marks[i])}</mark>` : '')).join('');
+}
+
+const plainText = (t) => String(t).replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim();
+
+// 「谁说的」：AI 之间的私聊写成「Claude → DeepSeek」
+const speakerOf = (m) => (m.from === 'user' ? tr('我') : m.pm ? `${agentName(m.from)} → ${agentName(m.pm)}` : agentName(m.from));
 
 function searchHitsHtml(q, hasConvs) {
   const res = S.searchHits;
   if (!res || res.q !== q) return `<li class="search-head">${tr('正在搜聊天记录…')}</li>`;
   if (!res.hits.length) return `<li class="search-head">${hasConvs ? tr('聊天记录里没有找到') : tr('没有找到相关的聊天和消息')}</li>`;
-  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  const items = res.hits.map((h) => {
-    const room = roomById(h.roomId);
-    if (!room) return '';
-    const where = h.pm ? `${room.name} · ${agentName(h.from)} ${pmVerb(h)} ${agentName(h.pm)}` : h.dm && room.members.length > 1 ? `${room.name} · ${tr('私聊 {name}', { name: agentName(h.dm) })}` : room.name;
-    const who = h.from === 'user' ? tr('我') : agentName(h.from);
-    const text = `${h.cut ? '…' : ''}${String(h.text).replace(/\*\*|`/g, '').replace(/\s+/g, ' ')}`;
-    const parts = text.split(re);
-    const marks = text.match(re) || [];
-    const shown = parts.map((p, i) => esc(p) + (marks[i] ? `<mark>${esc(marks[i])}</mark>` : '')).join('');
-    return `<li class="search-hit" data-hit-key="${esc(convOf(h.roomId, h))}" data-hit-seq="${h.seq}">
-      ${avatarHtml(h.from === 'user' ? 'user' : h.from)}
-      <div class="conv-meta"><div class="conv-line"><span class="name">${esc(who)}<small> · ${esc(where)}</small></span><span class="time">${fmtShort(h.ts)}</span></div>
-      <div class="hit-text">${shown}</div></div></li>`;
-  });
-  return `<li class="search-head">${tr('聊天记录 · {n} 条', { n: `${res.hits.length}${res.more ? '+' : ''}` })}</li>${items.join('')}`;
+  const groups = new Map(); // 会话 → 命中的消息（最新的在前）
+  for (const h of res.hits) {
+    if (!roomById(h.roomId)) continue;
+    const key = convOf(h.roomId, h);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(h);
+  }
+  const out = [`<li class="search-head">${tr('聊天记录 · {n} 个聊天里共 {count} 条', { n: groups.size, count: `${res.hits.length}${res.more ? '+' : ''}` })}</li>`];
+  for (const [key, hits] of groups) {
+    const c = parseKey(key);
+    const room = roomById(c.roomId);
+    const dm = c.dm && room.members.length > 1 ? c.dm : null;
+    const title = esc(room.name) + (dm ? `<span class="hit-conv-dm">${tr('私聊 {name}', { name: esc(agentName(dm)) })}</span>` : '');
+    out.push(`<li class="hit-conv" data-find-key="${esc(key)}" title="${tr('在这个聊天里逐条查看')}">${convAvatar({ room, dm })}<span class="hit-conv-name">${title}</span><span class="hit-conv-count">${hits.length}</span></li>`);
+    for (const h of hits.slice(0, HITS_PER_CONV)) {
+      const prev = h.prev ? `<div class="hit-ctx"><span class="hit-ctx-who">${esc(speakerOf(h.prev))}</span>${esc((h.prev.cut ? '…' : '') + plainText(h.prev.text))}</div>` : '';
+      // 关键词前面只留一小段，免得关键词被挤到三行以外看不见
+      let text = plainText(h.text);
+      const pos = text.toLowerCase().indexOf(q.toLowerCase());
+      const cut = h.cut || pos > 24;
+      if (pos > 24) text = text.slice(pos - 24);
+      text = `${cut ? '…' : ''}${text}${h.tail ? '…' : ''}`;
+      out.push(`<li class="search-hit" data-hit-key="${esc(key)}" data-hit-seq="${h.seq}">${prev}
+        <div class="hit-line">${avatarHtml(h.from === 'user' ? 'user' : h.from)}<span class="hit-who">${esc(speakerOf(h))}</span><span class="time">${fmtShort(h.ts)}</span></div>
+        <div class="hit-text">${highlight(text, q)}</div></li>`);
+    }
+    if (hits.length > HITS_PER_CONV) out.push(`<li class="hit-more" data-find-key="${esc(key)}">${tr('还有 {n} 条，在这个聊天里查看', { n: hits.length - HITS_PER_CONV })}</li>`);
+  }
+  return out.join('');
 }
 
 async function searchMessages(q) {
@@ -1071,8 +1102,10 @@ async function searchMessages(q) {
 }
 
 async function openSearchHit(li) {
+  const q = S.filter.trim();
   await openConv(li.dataset.hitKey);
-  jumpTo(Number(li.dataset.hitSeq));
+  const el = jumpTo(Number(li.dataset.hitSeq));
+  if (el) markFound(el, q);
 }
 
 // 内容没变就不动它，免得正在打开的下拉框被刷新关掉
@@ -1147,7 +1180,7 @@ function fitHead() {
   equalizeChips();
   const width = (el) => (el.hidden ? 0 : el.offsetWidth + 10); // 10 是顶栏各块之间的间距
   const chips = [...$('#model-switch').children].reduce((w, el) => w + el.offsetWidth + 6, 0);
-  const need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
+  const need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-find')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
   const was = head.classList.contains('stacked');
   if (head.classList.toggle('stacked', need > head.clientWidth) !== was) requestAnimationFrame(reportDragRegions);
 }
@@ -1849,6 +1882,7 @@ async function openConv(key) {
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
   const switching = S.current !== key;
   if (switching) {
+    closeFind();
     saveDraft(S.current);
     clearAttachments();
     cancelReply();
@@ -2524,6 +2558,156 @@ function jumpTo(seq) {
   el.classList.remove('flash');
   void el.offsetWidth; // 重新触发闪一下的动画
   el.classList.add('flash');
+  return el;
+}
+
+// 在跳到的那条消息里把关键词标出来（只标正文；之前标过的先去掉）
+function markFound(el, q) {
+  clearFoundMarks();
+  const needle = q.trim().toLowerCase();
+  const body = el.querySelector('.bubble');
+  if (!needle || !body) return;
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue.toLowerCase().includes(needle)) nodes.push(n);
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    const text = n.nodeValue;
+    const low = text.toLowerCase();
+    let i = 0;
+    for (let at = low.indexOf(needle); at >= 0; at = low.indexOf(needle, i)) {
+      frag.append(text.slice(i, at));
+      const m = document.createElement('mark');
+      m.className = 'found';
+      m.textContent = text.slice(at, at + needle.length);
+      frag.append(m);
+      i = at + needle.length;
+    }
+    frag.append(text.slice(i));
+    n.replaceWith(frag);
+  }
+}
+
+function clearFoundMarks() {
+  document.querySelectorAll('#messages mark.found').forEach((m) => {
+    const parent = m.parentNode;
+    m.replaceWith(m.textContent);
+    parent.normalize();
+  });
+}
+
+// ---------------- 在当前聊天里搜 ----------------
+// 顶栏的放大镜（或 ⌘F / Ctrl+F）打开：只搜这个群或这个私聊里看得到的消息，最新的在前；
+// 下面列出所有结果，点一条就跳过去；回车 / ↑ 往更早的找，Shift+回车 / ↓ 往更新的找，Esc 关掉
+const FIND = { q: '', hits: [], at: -1 };
+
+function openFind(q = null) {
+  if (!currentConv()) return;
+  const box = $('#find');
+  const input = $('#find-input');
+  box.hidden = false;
+  $('#btn-find').classList.add('on');
+  if (q !== null) input.value = q;
+  input.focus();
+  input.select();
+  runFind(true);
+}
+
+function closeFind() {
+  const box = $('#find');
+  if (box.hidden) return;
+  box.hidden = true;
+  $('#btn-find').classList.remove('on');
+  clearFoundMarks();
+  Object.assign(FIND, { q: '', hits: [], at: -1 });
+}
+
+function runFind(showList = false) {
+  const conv = currentConv();
+  const q = $('#find-input').value.trim();
+  FIND.q = q;
+  FIND.at = -1;
+  const needle = q.toLowerCase();
+  FIND.hits = !conv || !needle ? [] : convMessages(conv).filter((m) => m.from !== 'system' && m.text && m.text.toLowerCase().includes(needle)).reverse();
+  clearFoundMarks();
+  renderFind(showList);
+}
+
+function renderFind(showList) {
+  const { q, hits, at } = FIND;
+  $('#find-count').textContent = !q ? '' : hits.length ? (at >= 0 ? `${at + 1}/${hits.length}` : tr('{n} 条', { n: hits.length })) : tr('没有找到');
+  $('#find').classList.toggle('none', !!q && !hits.length);
+  $('#find-prev').disabled = !hits.length || at >= hits.length - 1;
+  $('#find-next').disabled = !hits.length || at <= 0;
+  const list = $('#find-list');
+  list.hidden = !showList || !hits.length;
+  if (list.hidden) return;
+  const needle = q.toLowerCase();
+  list.innerHTML = hits
+    .slice(0, 300)
+    .map((m, i) => {
+      const text = plainText(m.text);
+      const pos = text.toLowerCase().indexOf(needle);
+      const start = Math.max(0, pos - 30);
+      const snippet = `${start > 0 ? '…' : ''}${text.slice(start, pos + needle.length + 120)}`;
+      return `<li class="find-item${i === at ? ' active' : ''}" data-find-at="${i}">
+        <div class="hit-line">${avatarHtml(m.from === 'user' ? 'user' : m.from)}<span class="hit-who">${esc(speakerOf(m))}</span><span class="time">${fmtShort(m.ts)}</span></div>
+        <div class="hit-text">${highlight(snippet, q)}</div></li>`;
+    })
+    .join('');
+}
+
+// 跳到第 i 条结果；列表收起来，免得挡住消息（点一下输入框再展开）
+function gotoFind(i) {
+  if (!FIND.hits.length) return;
+  FIND.at = Math.max(0, Math.min(FIND.hits.length - 1, i));
+  renderFind(false);
+  const el = jumpTo(FIND.hits[FIND.at].seq);
+  if (el) markFound(el, FIND.q);
+}
+
+function bindFind() {
+  const input = $('#find-input');
+  $('#btn-find').onclick = () => ($('#find').hidden ? openFind() : closeFind());
+  $('#find-close').onclick = closeFind;
+  $('#find-prev').onclick = () => gotoFind(FIND.at + 1);
+  $('#find-next').onclick = () => gotoFind(FIND.at - 1);
+  input.addEventListener('input', () => {
+    clearTimeout(runFind.timer);
+    runFind.timer = setTimeout(() => runFind(true), 120);
+  });
+  input.addEventListener('click', () => renderFind(true));
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFind();
+      $('#input').focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(runFind.timer);
+      if (FIND.q !== input.value.trim()) runFind();
+      gotoFind(e.shiftKey ? FIND.at - 1 : FIND.at + 1);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      gotoFind(e.key === 'ArrowUp' ? FIND.at + 1 : FIND.at - 1);
+    }
+  });
+  $('#find-list').addEventListener('click', (e) => {
+    const li = e.target.closest('[data-find-at]');
+    if (li) gotoFind(Number(li.dataset.findAt));
+  });
+  // 点到搜索框外面（比如去看消息了），结果列表收起来
+  document.addEventListener('mousedown', (e) => {
+    if (!$('#find').hidden && !e.target.closest('#find')) $('#find-list').hidden = true;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'f' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (document.querySelector('dialog[open]') || $('#chat').hidden) return;
+    e.preventDefault();
+    openFind();
+  });
+  $('#btn-find').title = tr('在这个聊天里搜（{key}）', { key: IS_WIN ? 'Ctrl+F' : '⌘F' });
 }
 
 function insertMention(name, el = $('#input')) {
@@ -3571,6 +3755,11 @@ function bind() {
   $('#conv-list').addEventListener('click', (e) => {
     const hit = e.target.closest('.search-hit');
     if (hit) return void openSearchHit(hit);
+    const more = e.target.closest('[data-find-key]');
+    if (more) {
+      const q = S.filter.trim();
+      return void openConv(more.dataset.findKey).then(() => openFind(q));
+    }
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
       toggleCollapsed(toggle.dataset.toggle); // 小三角：只展开收起，不切换会话
@@ -3967,6 +4156,7 @@ async function init() {
   detectIcons();
   trackChrome();
   bindScrollbar();
+  bindFind();
   try {
     applyState(await api('GET', '/api/state'));
   } catch {

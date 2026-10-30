@@ -491,26 +491,39 @@ async function api(req, res, url) {
   const method = req.method;
 
   if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
-  // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段
+  // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段，再带上同一个会话里的上一条（看得出是在聊什么）
   if (method === 'GET' && parts[0] === 'search') {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 100);
     if (!q) return send(res, 200, { hits: [] });
+    // 消息显示在哪个会话：和用户的私聊、AI 之间的私聊（放在被找的那一位那里），其余在群里（和前端的 convOf 一样）
+    const convOf = (m) => (m.dm ? `d:${m.dm}` : m.pm ? `d:${m.pmIn || m.pm}` : 'g');
+    const flat = (t) => String(t).replace(/\s+/g, ' ').trim();
     const hits = [];
     for (const room of store.listRooms()) {
       const msgs = store.getMessages(room.id);
       let found = 0;
-      for (let i = msgs.length - 1; i >= 0 && found < 50; i--) {
+      for (let i = msgs.length - 1; i >= 0 && found < 100; i--) {
         const m = msgs[i];
         if (m.from === 'system' || !m.text) continue;
         const at = m.text.toLowerCase().indexOf(q);
         if (at < 0) continue;
         found++;
-        const start = Math.max(0, at - 30);
-        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, pm: m.pm || null, pmIn: m.pmIn || null, ts: m.ts, text: m.text.slice(start, at + q.length + 90), cut: start > 0 });
+        const start = Math.max(0, at - 40);
+        const end = at + q.length + 140;
+        const conv = convOf(m);
+        let prev = null;
+        for (let j = i - 1; j >= 0; j--) {
+          const p = msgs[j];
+          if (p.from === 'system' || !p.text || convOf(p) !== conv) continue;
+          const t = flat(p.text);
+          prev = { from: p.from, text: t.length > 80 ? t.slice(-80) : t, cut: t.length > 80 };
+          break;
+        }
+        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, pm: m.pm || null, pmIn: m.pmIn || null, ts: m.ts, text: m.text.slice(start, end), cut: start > 0, tail: end < m.text.length, prev });
       }
     }
     hits.sort((a, b) => b.ts - a.ts);
-    return send(res, 200, { hits: hits.slice(0, 60), more: hits.length > 60 });
+    return send(res, 200, { hits: hits.slice(0, 200), more: hits.length > 200 });
   }
   if (method === 'GET' && parts[0] === 'events') return events(req, res);
   if (method === 'GET' && parts[0] === 'state') {
