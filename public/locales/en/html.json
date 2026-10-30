@@ -120,5 +120,6 @@
   "API：填 Gemini API Key（在 Google AI Studio 创建），按用量计费。Key 只存在这台电脑上。": "API: enter a Gemini API key (create one in Google AI Studio) and usage is billed per use. The key is stored only on this computer.",
   "留空就用 Google 订阅": "Leave empty to use your Google subscription",
   "Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。": "On Windows, Claude, DeepSeek, and GLM run commands without a sandbox: with “Full Access in Project”, staying inside the project folder relies on their own discipline (it's spelled out in their instructions). ChatGPT and Gemini have their own sandboxes.",
-  "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活。": "A local AI group chat: you, Claude, ChatGPT, DeepSeek, GLM, and Gemini in one group, working together in your project folder."
+  "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活。": "A local AI group chat: you, Claude, ChatGPT, DeepSeek, GLM, and Gemini in one group, working together in your project folder.",
+  "清空聊天记录": "Clear Chat History"
 }

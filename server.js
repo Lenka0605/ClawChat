@@ -803,6 +803,11 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     if (sub === 'messages' && method === 'GET') return send(res, 200, { messages: store.getMessages(room.id) });
+    // 清空聊天记录（forget：连 AI 的记忆也清掉）
+    if (sub === 'clear' && method === 'POST') {
+      hub.clearRoom(room.id, !!(await readBody(req)).forget);
+      return send(res, 200, { ok: true });
+    }
     if (sub === 'messages' && method === 'POST') {
       const body = await readBody(req);
       const text = String(body.text || '').trim();

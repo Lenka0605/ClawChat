@@ -1497,3 +1497,40 @@ test('按停止和 Claude Code 里按 Esc 一样：这一轮不重做，但下�
   calls.at(-1).finish('[PASS]');
   await tick();
 });
+
+test('清空聊天记录：消息清掉、读取进度从头算；默认留着 AI 的记忆，选忘掉就清会话；正在干活的晚到结果不写回', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 你好');
+  await tick();
+  calls.at(-1).finish('你好');
+  await settle(hub);
+  assert.equal(store.getState(room.id).sessions.claude, 'claude-s');
+  hub.postUserMessage(room.id, '@Claude 帮我做件事');
+  await tick();
+  const busy = calls.at(-1);
+  hub.clearRoom(room.id);
+  busy.finish('做完了'); // 清空之后才回来的结果
+  await tick();
+  await tick();
+  const msgs = store.getMessages(room.id);
+  assert.equal(msgs.length, 1, '只剩一条「已清空」的提示');
+  assert.equal(msgs[0].from, 'system');
+  assert.match(msgs[0].text, /大家还记得/);
+  assert.equal(store.getState(room.id).sessions.claude, 'claude-s', '默认留着记忆');
+  assert.deepEqual(store.getState(room.id).cursors, {});
+  assert.equal(store.getRoom(room.id).last, null);
+  // 清空以后照常能用：新消息交给它
+  hub.postUserMessage(room.id, '@Claude 新的一件事');
+  await tick();
+  assert.match(calls.at(-1).prompt, /新的一件事/);
+  assert.doesNotMatch(calls.at(-1).prompt, /帮我做件事/);
+  calls.at(-1).finish('好');
+  await settle(hub);
+  // 选「让 AI 也忘掉」：会话清掉
+  hub.clearRoom(room.id, true);
+  assert.deepEqual(store.getState(room.id).sessions, {});
+  assert.match(store.getMessages(room.id)[0].text, /记忆也清掉了/);
+});

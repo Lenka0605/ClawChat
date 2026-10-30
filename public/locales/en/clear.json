@@ -1,0 +1,6 @@
+{
+  "清空「{name}」的聊天记录？": "Clear the chat history of “{name}”?",
+  "这个聊天里所有的消息、私聊和图片都会删掉，删了找不回来；项目文件夹里的文件不动。选「清空记录」，AI 还记得之前聊过的事；选「清空并让 AI 也忘掉」，大家从头开始。": "All messages, private chats, and images in this chat will be deleted and can't be recovered. Files in the project folder are not touched. “Clear History” keeps the AIs' memory of past discussions; “Clear and Make AIs Forget” starts everyone fresh.",
+  "清空记录": "Clear History",
+  "清空并让 AI 也忘掉": "Clear and Make AIs Forget"
+}

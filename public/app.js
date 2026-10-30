@@ -1063,7 +1063,7 @@ function folderIt(container, open) {
 
 // 一个群连同它的私聊；在收纳组里就缩进
 function roomItemsHtml({ group, dms }, inFolder = false, folderId = null) {
-  const open = !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
+  const open = !collapsed.has(group.room.id); // 正在看其中一个私聊也照样能收起（打开它的时候 openConv 会先展开）
   const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
   const extra = { dmCount: dms.length, open, hiddenUnread, inFolder, folderId };
   const out = [convItemHtml(group, extra)];
@@ -1091,8 +1091,8 @@ function renderConvs() {
       html.push(...roomItemsHtml(it.entry));
       continue;
     }
-    const hasCurrent = it.list.some((e) => e.group.key === S.current || e.dms.some((d) => d.key === S.current));
-    const open = hasCurrent || !collapsedFolders.has(it.folder.id); // 正在看的群在这个组里：自动展开
+    // 正在看的群在组里也照样能收起：只在打开它的时候（openConv）把组展开一次，不然点了收起马上又被展开回来
+    const open = !collapsedFolders.has(it.folder.id);
     html.push(folderIt(it, open));
     if (open) for (const e of it.list) html.push(...roomItemsHtml(e, true, it.folder.id));
   }
@@ -2360,6 +2360,10 @@ async function openConv(key) {
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
   const switching = S.current !== key;
   if (switching) {
+    // 要打开的聊天在收起的收纳组、或者收起的群底下（比如从搜索里点过来）：先展开，免得侧栏里找不到它
+    const folder = roomById(c.roomId)?.folder;
+    if (folder && collapsedFolders.delete(folder)) storeSet('clawchat.folderCollapsed', JSON.stringify([...collapsedFolders]));
+    if (c.dm && collapsed.delete(c.roomId)) storeSet('clawchat.collapsed', JSON.stringify([...collapsed]));
     closeFind();
     saveDraft(S.current);
     clearAttachments();
@@ -2517,6 +2521,18 @@ function handleEvent(ev) {
       renderConvs();
       renderShell();
       renderEngines(); // 侧栏的黄色提醒只管有聊天用到的程序
+      break;
+    case 'cleared':
+      // 这个群的聊天记录被清空了：本地的也清掉，正在看的话重画
+      S.messages.set(ev.roomId, []);
+      S.early.delete(ev.roomId);
+      for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
+      if (currentConv()?.roomId === ev.roomId) {
+        closeFind();
+        S.rendered = null;
+        renderMessages();
+      }
+      renderConvs();
       break;
     case 'folders':
       S.folders = ev.folders || [];
@@ -4220,6 +4236,7 @@ function openDialog(room, preset = null) {
   del.hidden = !room;
   del.dataset.armed = '';
   del.textContent = solo ? tr('删除聊天') : tr('删除群聊');
+  $('#btn-clear').hidden = !room;
   PENDING_CLONES = new Set(); // 上一次没保存就关掉的话，别把那张卡带进来
   $('#clone-picker').hidden = true;
   rebuildMembers();
@@ -4304,6 +4321,25 @@ async function submitDialog(e) {
   }
 }
 
+// 清空聊天记录：先问清楚；「清空记录」AI 的记忆留着，「清空并让 AI 也忘掉」大家换新会话从头开始
+async function clearRoom() {
+  const room = roomById(S.editing);
+  if (!room) return;
+  const answer = await askConfirm({
+    title: tr('清空「{name}」的聊天记录？', { name: room.name }),
+    text: tr('这个聊天里所有的消息、私聊和图片都会删掉，删了找不回来；项目文件夹里的文件不动。选「清空记录」，AI 还记得之前聊过的事；选「清空并让 AI 也忘掉」，大家从头开始。'),
+    ok: tr('清空记录'),
+    alt: tr('清空并让 AI 也忘掉'),
+  });
+  if (!answer) return;
+  try {
+    await api('POST', `/api/rooms/${room.id}/clear`, { forget: answer === 'alt' });
+    closeDialog($('#dlg-room'));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 async function deleteRoom() {
   const del = $('#btn-delete');
   if (!del.dataset.armed) {
@@ -4349,6 +4385,7 @@ function bind() {
   $('#btn-settings').onclick = () => currentConv() && openDialog(currentConv().room);
   $('#btn-cancel').onclick = () => closeDialog($('#dlg-room'));
   $('#btn-delete').onclick = deleteRoom;
+  $('#btn-clear').onclick = clearRoom;
   $('#room-form').addEventListener('submit', submitDialog);
   $('#room-form').addEventListener('change', (e) => {
     if (/^member/.test(e.target.name)) syncMemberFields();
