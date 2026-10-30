@@ -1450,3 +1450,43 @@ test('中途插话的两个边界：前一批被拒、后一批还在排队时�
   await tick();
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude').length, 1, '只回了一条');
 });
+
+test('中途插话以后老板按停止：这一轮本身不重做，插进来的那条退回没看过，下次叫它会再交给它', async () => {
+  const store = new Store();
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, prompt: opts.prompt, steered: [], done: false, finish: (text) => ((call.done = true), resolve({ ok: true, text, steps: [], session: `${agent}-s` })) };
+    calls.push(call);
+    return { done, kill: () => ((call.done = true), resolve({ ok: false, error: 'killed', steps: [], session: null })), steer: (prompt) => (call.steered.push(prompt), true) };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  // 先完整做完一轮，存下会话（不然下一轮是新会话，本来就会带上最近的聊天记录）
+  hub.postUserMessage(room.id, '@Claude 你好');
+  await tick();
+  calls.at(-1).finish('你好');
+  await tick();
+  hub.postUserMessage(room.id, '@Claude 第一件事');
+  await tick();
+  const first = calls.at(-1);
+  const start = store.getState(room.id).cursors.claude;
+  hub.postUserMessage(room.id, '@Claude 第二件事');
+  await tick();
+  assert.equal(first.steered.length, 1);
+  assert.ok(store.getState(room.id).cursors.claude > start, '插进去以后读取进度往前推了');
+  hub.stop(room.id, 'claude');
+  await tick();
+  await tick();
+  assert.equal(store.getState(room.id).cursors.claude, start, '停止以后退回这一轮开始时');
+  hub.postUserMessage(room.id, '@Claude 第三件事');
+  await tick();
+  const next = calls.at(-1);
+  assert.notEqual(next, first);
+  assert.match(next.prompt, /第二件事/, '插进来的那条会再交给它');
+  assert.match(next.prompt, /第三件事/);
+  assert.doesNotMatch(next.prompt, /第一件事/, '被停掉的那一轮本身不重做');
+  next.finish('[PASS]');
+  await tick();
+});
