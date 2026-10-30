@@ -1010,7 +1010,7 @@ const plainText = (t) => String(t).replace(/\*\*|`/g, '').replace(/\s+/g, ' ').t
 // 「谁说的」：AI 之间的私聊写成「Claude → DeepSeek」
 const speakerOf = (m) => (m.from === 'user' ? tr('我') : m.pm ? `${agentName(m.from)} → ${agentName(m.pm)}` : agentName(m.from));
 
-const SP = { q: '', tab: 'all', from: '', room: '', res: null, active: 0, seq: 0 };
+const SP = { q: '', tab: 'all', from: '', room: '', res: null, active: 0, seq: 0, loading: false };
 const SHORT_CONVS = 4; // 「全部」里聊天只列几个，多的点「查看全部」
 
 function openSearch(q = '') {
@@ -1036,6 +1036,7 @@ async function runSearch() {
     SP.res = null;
     return renderSearch();
   }
+  SP.loading = true; // 新结果回来之前，列表上的旧结果不算数（回车不会打开它们）
   const params = new URLSearchParams({ q });
   if (SP.from) params.set('from', SP.from);
   if (SP.room) params.set('room', SP.room);
@@ -1047,6 +1048,7 @@ async function runSearch() {
   }
   if (seq !== SP.seq) return; // 已经又改了关键词或筛选
   SP.res = res;
+  SP.loading = false;
   renderSearch();
 }
 
@@ -1056,9 +1058,13 @@ function searchConvs(q) {
   const out = [];
   for (const { group, dms } of groupedConversations()) {
     if (SP.room && group.room.id !== SP.room) continue;
-    const groupHit = group.room.name.toLowerCase().includes(needle);
+    const nameHit = group.room.name.toLowerCase().includes(needle);
+    // 搜成员的名字，也列出有它的群（比如搜「Claude」，有 Claude 的群也出来）
+    const member = group.room.members.length > 1 && !nameHit ? group.room.members.find((a) => agentLabel(a).toLowerCase().includes(needle)) : null;
+    const groupHit = nameHit || !!member;
+    if (member) group.hasMember = member;
     if (groupHit && (!SP.from || SP.from === 'user' || group.room.members.includes(SP.from))) out.push(group);
-    for (const d of dms) if ((groupHit || agentLabel(d.dm).toLowerCase().includes(needle)) && (!SP.from || SP.from === 'user' || d.dm === SP.from)) out.push(d);
+    for (const d of dms) if ((nameHit || agentLabel(d.dm).toLowerCase().includes(needle)) && (!SP.from || SP.from === 'user' || d.dm === SP.from)) out.push(d);
   }
   return out;
 }
@@ -1068,7 +1074,9 @@ function filtersHtml(convs) {
   const res = SP.res || { total: 0, facets: { from: {}, rooms: {} } };
   const tab = (id, label, n) => `<button type="button" class="spot-chip${SP.tab === id ? ' on' : ''}" data-tab="${id}">${esc(label)}${SP.q ? `<small>${n}</small>` : ''}</button>`;
   const opt = (v, label, n, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}${n ? ` · ${n}` : ''}</option>`;
-  const people = ['user', ...AGENT_IDS].filter((a) => res.facets.from[a] || a === SP.from);
+  const known = ['user', ...AGENT_IDS];
+  const gone = Object.keys(res.facets.from).filter((a) => !known.includes(a)); // 已经删掉的多开成员：历史消息还在，也能按它筛
+  const people = [...known, ...gone].filter((a) => res.facets.from[a] || a === SP.from);
   const fromLabel = SP.from ? (SP.from === 'user' ? tr('我') : agentName(SP.from)) : tr('谁说的');
   const fromSel = `<label class="spot-chip pick${SP.from ? ' on' : ''}"><span>${esc(fromLabel)}</span>${CHEVRON}<select id="spot-from">${opt('', tr('所有人说的'), 0, SP.from)}${people.map((a) => opt(a, a === 'user' ? tr('我') : agentName(a), res.facets.from[a], SP.from)).join('')}</select></label>`;
   const rooms = S.rooms.filter((r) => res.facets.rooms[r.id] || r.id === SP.room);
@@ -1083,7 +1091,13 @@ const GO_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" str
 
 function convRowHtml(c, i) {
   const name = c.dm ? `${highlight(agentLabel(c.dm), SP.q)}<span class="dm-tag">${tr('私聊')}</span>` : highlight(c.room.name, SP.q);
-  const sub = c.dm ? tr('来自「{room}」', { room: c.room.name }) : c.room.members.length > 1 ? tr('群聊 · {n} 位成员', { n: c.room.members.length }) : tr('单聊');
+  const sub = c.dm
+    ? tr('来自「{room}」', { room: c.room.name })
+    : c.hasMember
+      ? tr('群里有 {name}', { name: agentName(c.hasMember) })
+      : c.room.members.length > 1
+        ? tr('群聊 · 你和 {n} 位 AI', { n: c.room.members.length })
+        : tr('单聊');
   return `<li class="spot-row conv${i === SP.active ? ' active' : ''}" data-i="${i}" data-conv-key="${esc(c.key)}">
     <div class="spot-avatar">${convAvatar(c)}</div>
     <div class="spot-main"><div class="spot-name">${name}</div><div class="spot-where">${esc(sub)}</div></div>
@@ -1175,6 +1189,7 @@ function bindSearch() {
     openSearch();
   });
   input.addEventListener('input', () => {
+    SP.loading = true; // 刚改了字：等新结果
     clearTimeout(runSearch.timer);
     runSearch.timer = setTimeout(runSearch, 150);
   });
@@ -1185,6 +1200,7 @@ function bindSearch() {
       moveActive(e.key === 'ArrowDown' ? 1 : -1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (SP.loading || input.value.trim() !== SP.q) return; // 新结果还没回来，别打开旧的
       const li = $('#spot-body').querySelectorAll('.spot-row')[SP.active];
       if (li) openSearchRow(li);
     }
@@ -1224,7 +1240,11 @@ function bindSearch() {
     SP.active = Number(row.dataset.i);
     dlg.querySelectorAll('.spot-row').forEach((r) => r.classList.toggle('active', r === row));
   });
-  dlg.addEventListener('close', reportDragRegions);
+  // 关掉再打开：标签和筛选回到默认（关键词留着，方便接着搜）
+  dlg.addEventListener('close', () => {
+    Object.assign(SP, { tab: 'all', from: '', room: '' });
+    reportDragRegions();
+  });
 }
 
 // 内容没变就不动它，免得正在打开的下拉框被刷新关掉
