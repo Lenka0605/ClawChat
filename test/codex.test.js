@@ -634,7 +634,8 @@ test('Windows 升级恢复：健康成功才清标记；失败时在隔离仓库
   };
   const from = commit('old'), to = commit('new');
   const pending = path.join(dataDir, 'update-prev.json');
-  fs.writeFileSync(pending, JSON.stringify({ from, to, at: Date.now() }));
+  const prev = { from, to, fromVersion: '0.7.30', toVersion: '0.7.31', at: Date.now() };
+  fs.writeFileSync(pending, JSON.stringify(prev));
   let clock = 0, starts = 0, stopped = 0;
   const errors = [];
   const runtime = {
@@ -645,7 +646,10 @@ test('Windows 升级恢复：健康成功才清标记；失败时在隔离仓库
       if (starts === 2) {
         assert.equal(stopped, 1);
         assert.equal(fs.readFileSync(path.join(repo, 'version.txt'), 'utf8'), 'old');
-        assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'update-rollback.json'), 'utf8')).to, to);
+        const rollback = JSON.parse(fs.readFileSync(path.join(dataDir, 'update-rollback.json'), 'utf8'));
+        const { reason, ...restored } = rollback;
+        assert.deepEqual(restored, prev);
+        assert.ok(reason);
       }
       return { stop: async () => { stopped++; return true; } };
     },

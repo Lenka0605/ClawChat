@@ -46,7 +46,7 @@ export async function restartServer({ root, dataDir, alive, isStopped = async ()
   if (!reset.ok) return report(tr('自动退回旧版本失败：{error}', { error: reset.err }));
   try {
     const tmp = `${rollbackFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ from: prev.from, to: prev.to, reason: next.error }), { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify({ ...prev, reason: next.error }), { mode: 0o600 });
     fs.renameSync(tmp, rollbackFile);
     fs.rmSync(pendingFile, { force: true });
   } catch (err) {
