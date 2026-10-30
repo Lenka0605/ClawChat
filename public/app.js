@@ -946,7 +946,7 @@ function renderEngines() {
     const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      e?.ok && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
+      (e?.ok || (key === 'codex' && e?.error)) && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
     }</div>`;
   }).join('');
   for (const id of KEY_TARGETS) {
