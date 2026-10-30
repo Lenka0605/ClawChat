@@ -998,7 +998,8 @@ function convItemHtml(c, extra = {}) {
         <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : '';
   const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">${tr('私聊')}</span>` : esc(convTitle(c));
-  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${extra.inFolder ? ' in-folder' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}"${extra.inFolder ? ` data-parent-folder="${esc(extra.folderId)}"` : ''}>
+  const drag = extra.drag ? ` draggable="true" data-drag-scope="${esc(extra.drag.scope)}" data-drag-key="${esc(extra.drag.key)}"` : '';
+  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${extra.inFolder ? ' in-folder' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}"${extra.inFolder ? ` data-parent-folder="${esc(extra.folderId)}"` : ''}${drag}>
     ${toggle}${convAvatar(c)}
     <div class="conv-meta">
       <div class="conv-line"><span class="name">${name}</span><span class="time">${last ? fmtShort(last.ts) : ''}</span></div>
@@ -1016,9 +1017,6 @@ const collapsedFolders = new Set((() => {
     return [];
   }
 })());
-
-const FOLDER_ICON =
-  '<svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true"><path d="M2 5.4h16.2v6.7c0 1.1-.9 1.9-1.9 1.9H3.9c-1 0-1.9-.8-1.9-1.9z" fill="currentColor" opacity=".3"/><path d="M2 5.4V4.2c0-1.1.9-1.9 1.9-1.9h3c.5 0 1 .2 1.4.6l1 1c.3.4.8.6 1.3.6h5.7c1 0 1.9.8 1.9 1.9v1z" fill="currentColor" opacity=".48"/></svg>';
 
 // 组里最新的一条消息（群消息和群里的私聊都算）
 function folderLatest(list) {
@@ -1051,10 +1049,10 @@ function folderIt(container, open) {
       ? esc(lastLine(latest.last, latest.conv))
       : '';
   const label = list.length === 1 ? tr('一个群') : tr('{n} 个群', { n: list.length });
-  return `<li class="conv-item folder has-children${open ? ' open' : ''}" data-folder="${esc(folder.id)}">
+  return `<li class="conv-item folder has-children${open ? ' open' : ''}" data-folder="${esc(folder.id)}" draggable="true" data-drag-scope="top" data-drag-key="f:${esc(folder.id)}">
     <button class="disclosure${open ? ' open' : ''}" data-folder-toggle="${esc(folder.id)}" title="${open ? tr('收起收纳组') : tr('展开收纳组')}" aria-label="${open ? tr('收起收纳组') : tr('展开收纳组')}">
       <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <span class="folder-avatar">${FOLDER_ICON}</span>
+    ${folderAvatar(folder)}
     <div class="conv-meta">
       <div class="conv-line"><span class="name folder-name">${esc(folder.name)}</span><span class="time">${latest ? fmtShort(latest.last.ts) : ''}</span></div>
       <div class="conv-line"><span class="tag folder-count">${label}</span><span class="conv-preview">${preview}</span>${unread ? `<span class="unread">${unread > 99 ? '99+' : unread}</span>` : ''}</div>
@@ -1063,12 +1061,59 @@ function folderIt(container, open) {
 
 // 一个群连同它的私聊；在收纳组里就缩进
 function roomItemsHtml({ group, dms }, inFolder = false, folderId = null) {
-  const open = !collapsed.has(group.room.id); // 正在看其中一个私聊也照样能收起（打开它的时候 openConv 会先展开）
+  const id = group.room.id;
+  const open = !collapsed.has(id); // 正在看其中一个私聊也照样能收起（打开它的时候 openConv 会先展开）
   const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
-  const extra = { dmCount: dms.length, open, hiddenUnread, inFolder, folderId };
-  const out = [convItemHtml(group, extra)];
-  if (open) for (const d of dms) out.push(convItemHtml(d, extra));
+  const drag = inFolder ? { scope: `f:${folderId}`, key: id } : { scope: 'top', key: `r:${id}` };
+  const out = [convItemHtml(group, { dmCount: dms.length, open, hiddenUnread, inFolder, folderId, drag })];
+  // 私聊只带缩进和拖动的信息：展开收起的箭头是群的，私聊左边不要
+  if (open) for (const d of byOrder(dms, (x) => x.dm, SIDE_ORDER.dms[id])) out.push(convItemHtml(d, { inFolder, folderId, drag: { scope: `d:${id}`, key: d.dm } }));
   return out;
+}
+
+// ---------------- 侧栏的排序（可以拖） ----------------
+// 收纳组和群可以互换位置，组里的群可以互换，同一个群下面的私聊也可以互换。拖过的顺序记在本机；
+// 没拖过的（新建的群、新来的私聊）按最近的动静排在最上面
+const SIDE_ORDER = (() => {
+  try {
+    return { top: [], folders: {}, dms: {}, ...JSON.parse(storeGet('clawchat.sideOrder') || '{}') };
+  } catch {
+    return { top: [], folders: {}, dms: {} };
+  }
+})();
+
+function byOrder(items, keyOf, saved) {
+  if (!saved?.length) return items;
+  const pos = new Map(saved.map((k, i) => [k, i]));
+  const fresh = items.filter((it) => !pos.has(keyOf(it)));
+  const placed = items.filter((it) => pos.has(keyOf(it))).sort((a, b) => pos.get(keyOf(a)) - pos.get(keyOf(b)));
+  return [...fresh, ...placed];
+}
+
+function saveSideOrder(scope, keys) {
+  if (scope === 'top') SIDE_ORDER.top = keys;
+  else if (scope.startsWith('f:')) SIDE_ORDER.folders[scope.slice(2)] = keys;
+  else if (scope.startsWith('d:')) SIDE_ORDER.dms[scope.slice(2)] = keys;
+  storeSet('clawchat.sideOrder', JSON.stringify(SIDE_ORDER));
+}
+
+// 收纳组的头像：组名的第一个字（汉字、字母都行），配一个固定的颜色（按组随机分到，同一个组一直是同一个颜色）
+const FOLDER_COLORS = [
+  ['#6E8EF5', '#4A67D8'],
+  ['#9B7CF0', '#7556D6'],
+  ['#E9839E', '#C95C7C'],
+  ['#F0A35E', '#D9803A'],
+  ['#4FB9A8', '#2E9887'],
+  ['#5FAEE3', '#3A8CC8'],
+  ['#8C9AAE', '#6B7A90'],
+  ['#C9A45C', '#A8843E'],
+];
+function folderAvatar(folder) {
+  let h = 0;
+  for (const ch of String(folder.id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const [a, b] = FOLDER_COLORS[h % FOLDER_COLORS.length];
+  const first = [...String(folder.name || '').trim()][0] || '·';
+  return `<span class="folder-avatar" style="background:linear-gradient(160deg,${a},${b})">${esc(/[a-z]/.test(first) ? first.toUpperCase() : first)}</span>`;
 }
 
 function renderConvs() {
@@ -1082,10 +1127,10 @@ function renderConvs() {
       box.ts = Math.max(box.ts, e.ts || 0);
     } else items.push({ type: 'room', entry: e, ts: e.ts || 0 });
   }
-  for (const box of boxes.values()) items.push({ type: 'folder', ...box, ts: box.ts || box.folder.createdAt || 0 });
+  for (const box of boxes.values()) items.push({ type: 'folder', ...box, list: byOrder(box.list, (e) => e.group.room.id, SIDE_ORDER.folders[box.folder.id]), ts: box.ts || box.folder.createdAt || 0 });
   items.sort((a, b) => b.ts - a.ts); // 组里一直没有动静的放到最后；空组按建组时间
   const html = [];
-  for (const it of items) {
+  for (const it of byOrder(items, (x) => (x.type === 'folder' ? `f:${x.folder.id}` : `r:${x.entry.group.room.id}`), SIDE_ORDER.top)) {
     if (html.length) html.push('<li class="conv-sep" aria-hidden="true"></li>'); // 不同的群 / 收纳组之间一条细线
     if (it.type === 'room') {
       html.push(...roomItemsHtml(it.entry));
@@ -4410,6 +4455,47 @@ function bind() {
       toast(err.message);
     }
   };
+  // 拖动排序：只能在同一层里换位置（收纳组和群之间、同一个组里的群之间、同一个群下面的私聊之间）
+  const list = $('#conv-list');
+  let dragging = null;
+  const clearMarks = () => list.querySelectorAll('.drop-before, .drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+  const dropSpot = (e) => {
+    const li = e.target.closest('[data-drag-key]');
+    if (!dragging || !li || li === dragging || li.dataset.dragScope !== dragging.dataset.dragScope) return null;
+    const r = li.getBoundingClientRect();
+    return { li, after: e.clientY > r.top + r.height / 2 };
+  };
+  list.addEventListener('dragstart', (e) => {
+    dragging = e.target.closest?.('[data-drag-key]');
+    if (!dragging) return;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', dragging.dataset.dragKey);
+    requestAnimationFrame(() => dragging?.classList.add('dragging'));
+  });
+  list.addEventListener('dragover', (e) => {
+    const spot = dropSpot(e);
+    clearMarks();
+    if (!spot) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    spot.li.classList.add(spot.after ? 'drop-after' : 'drop-before');
+  });
+  list.addEventListener('drop', (e) => {
+    const spot = dropSpot(e);
+    clearMarks();
+    if (!spot) return;
+    e.preventDefault();
+    const scope = dragging.dataset.dragScope;
+    const keys = [...list.querySelectorAll(`[data-drag-scope="${CSS.escape(scope)}"]`)].map((el) => el.dataset.dragKey).filter((k) => k !== dragging.dataset.dragKey);
+    keys.splice(keys.indexOf(spot.li.dataset.dragKey) + (spot.after ? 1 : 0), 0, dragging.dataset.dragKey);
+    saveSideOrder(scope, keys);
+    renderConvs();
+  });
+  list.addEventListener('dragend', () => {
+    clearMarks();
+    dragging?.classList.remove('dragging');
+    dragging = null;
+  });
   $('#conv-list').addEventListener('click', (e) => {
     const folderToggle = e.target.closest('[data-folder-toggle]');
     if (folderToggle) {
