@@ -216,6 +216,10 @@ function normalizeRoom(body, creating, room = null) {
     const target = body.defaultTarget ?? room?.defaultTarget;
     if (target && !['all', 'sequential', 'last'].includes(target) && !members.includes(target)) out.defaultTarget = 'last';
   }
+  if (body.folder !== undefined) {
+    if (body.folder && !store.getFolder(String(body.folder))) throw httpError(400, tr('这个收纳组不存在了'));
+    out.folder = body.folder ? String(body.folder) : undefined;
+  }
   if (body.name !== undefined || creating) {
     let name = String(body.name || '').trim().slice(0, 40);
     if (!name && out.members?.length === 1) name = AGENTS[out.members[0]].label; // 单聊默认用对方的名字
@@ -552,6 +556,7 @@ async function api(req, res, url) {
   if (method === 'GET' && parts[0] === 'state') {
     return send(res, 200, {
       rooms: store.listRooms(),
+      folders: store.listFolders(),
       runs: hub.status(true),
       engines,
       agents: AGENTS,
@@ -684,6 +689,37 @@ async function api(req, res, url) {
     return send(res, 200, await probeModel(agent, model));
   }
 
+  // 收纳组：新建（可以顺便把几个群放进去）、改名、解散（里面的群回到最外层）
+  if (parts[0] === 'folders') {
+    const emitFolders = () => {
+      hub.emit('event', { type: 'folders', folders: store.listFolders() });
+      hub.emitRooms();
+    };
+    const folderName = (v) => {
+      const name = String(v || '').trim().slice(0, 30);
+      if (!name) throw httpError(400, tr('收纳组的名字不能为空'));
+      return name;
+    };
+    if (method === 'POST' && !parts[1]) {
+      const body = await readBody(req);
+      const folder = store.createFolder(folderName(body.name));
+      for (const id of Array.isArray(body.rooms) ? body.rooms : []) if (store.getRoom(id)) store.updateRoom(id, { folder: folder.id });
+      emitFolders();
+      return send(res, 201, { folder });
+    }
+    const folder = store.getFolder(parts[1]);
+    if (!folder) return send(res, 404, { error: tr('这个收纳组不存在了') });
+    if (method === 'PATCH' && !parts[2]) {
+      store.renameFolder(folder.id, folderName((await readBody(req)).name));
+      emitFolders();
+      return send(res, 200, { folder });
+    }
+    if (method === 'DELETE' && !parts[2]) {
+      store.deleteFolder(folder.id);
+      emitFolders();
+      return send(res, 200, { ok: true });
+    }
+  }
   if (parts[0] === 'rooms') {
     if (parts.length === 1 && method === 'POST') {
       const before = Object.keys(AGENTS).join();

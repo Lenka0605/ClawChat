@@ -122,5 +122,7 @@
   "不能看图": "Can't see images",
   "{size} 上下文": "{size} context",
   "{name}：{warning}": "{name}: {warning}",
-  "{name} 的分身：{warning}": "{name}'s clone: {warning}"
+  "{name} 的分身：{warning}": "{name}'s clone: {warning}",
+  "这个收纳组不存在了": "This collection no longer exists",
+  "收纳组的名字不能为空": "The collection needs a name"
 }
