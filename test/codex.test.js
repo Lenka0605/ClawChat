@@ -163,3 +163,41 @@ test('Codex app-server：有成功终态但没有最终文字，不重跑已做�
   assert.equal(res.ok, true);
   assert.equal(res.text, '');
 });
+
+test('Codex 经 Hub 完整收发：老板、同事的插话进同一回合，只发一次回复，退出重载后还能续聊', async () => {
+  clearLog();
+  const store = new Store();
+  const r = store.createRoom({ ...room, name: '完整插话', members: ['gpt', 'claude'], collab: true });
+  const hub = new Hub(store, { imageBytes: async () => 0 });
+  hub.postUserMessage(r.id, '@ChatGPT 开工');
+  await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'run'));
+  hub.postUserMessage(r.id, '@ChatGPT 老板的补充');
+  hub.deliver(r.id, 'claude', '@ChatGPT 同事的补充', false, {});
+  await until(() => !hub.runs.size && !hub.wanted.size);
+  const messages = store.getMessages(r.id).filter((m) => m.from === 'gpt');
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /中途收到 2 条新消息/);
+  assert.equal(logs().filter((m) => m.method === 'turn/start').length, 1);
+  const sid = store.getState(r.id).sessions.gpt;
+  const reloaded = new Store();
+  const nextHub = new Hub(reloaded, { imageBytes: async () => 0 });
+  nextHub.postUserMessage(r.id, '@ChatGPT 重开后接着干');
+  await until(() => !nextHub.runs.size);
+  assert.equal(reloaded.getState(r.id).sessions.gpt, sid);
+});
+
+test('Codex 经 Hub：插话回执拒绝后，原消息只排到下一轮，不漏掉也不重复开工', async () => {
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'reject-steer';
+  clearLog();
+  const store = new Store();
+  const r = store.createRoom({ ...room, name: '拒绝后排队', members: ['gpt'], collab: false });
+  const hub = new Hub(store, { imageBytes: async () => 0 });
+  hub.postUserMessage(r.id, '首轮开工');
+  await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'run'));
+  hub.postUserMessage(r.id, '这条必须进下一轮');
+  await until(() => !hub.runs.size && !hub.wanted.size);
+  const starts = logs().filter((m) => m.method === 'turn/start');
+  assert.equal(starts.length, 2);
+  assert.match(starts[1].params.input[0].text, /这条必须进下一轮/);
+  assert.equal(store.getMessages(r.id).filter((m) => m.from === 'gpt').length, 2);
+});

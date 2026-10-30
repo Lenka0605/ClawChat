@@ -73,7 +73,10 @@ rl.on('line', (line) => {
       finish();
       return setTimeout(() => reject(m.id, 'no active turn'), 40);
     }
-    extras.push((p.input || []).filter((x) => x.type === 'text').map((x) => x.text).join('\n'));
+    const raw = (p.input || []).filter((x) => x.type === 'text').map((x) => x.text).join('\n');
+    const summary = raw.match(/^\[[^\]\n]*\] .*$/m)?.[0] || raw;
+    // 只报告收到什么，不把提示词里的私聊标签、@ 原样回显成真的私聊或接力。
+    extras.push(summary.replace(/@/g, '＠').replace(/</g, '＜').replace(/>/g, '＞'));
     if (scenario === 'complete-before-steer-reply') {
       clearTimeout(timer);
       finish();
