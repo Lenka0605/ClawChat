@@ -1,8 +1,8 @@
 {
   "name": "clawchat",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "private": true,
-  "description": "本地 AI 群聊：你、Claude（Claude Code）、GPT（Codex）和 DeepSeek 在一个群里一起干活",
+  "description": "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活",
   "repository": "https://github.com/Lenka0605/ClawChat",
   "type": "module",
   "scripts": {

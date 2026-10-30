@@ -237,7 +237,7 @@ function normalizeRoom(body, creating, room = null) {
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek' };
+    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini' };
     for (const a of Object.keys(AGENTS)) {
       if (!custom.includes(a) && !keep(a) && !validModel(AGENT_ENGINE[a], out.models[a])) {
         throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
@@ -840,7 +840,10 @@ function engineSummary() {
   };
   const ds = engines.deepseek;
   const deepseek = !ds?.hasKey ? 'DeepSeek 没填 Key' : `DeepSeek（借 Claude Code，${ds.models?.length || 0} 个模型）${ds.ok ? '' : `，${ds.error || '用不了'}`}`;
-  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek].join(' · ');
+  const glm = !engines.glm?.hasKey ? 'GLM 没填 Key' : `GLM（借 Claude Code，${engines.glm.models?.length || 0} 个模型）${engines.glm.ok ? '' : `，${engines.glm.error || '用不了'}`}`;
+  const gem = engines.gemini;
+  const gemini = !gem?.path ? 'Gemini 没装' : `Gemini（${gem.cli === 'agy' ? 'Antigravity 订阅' : 'Gemini CLI API'} ${gem.version || '?'}）${gem.ok ? '' : `，${gem.error || '用不了'}`}`;
+  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini].join(' · ');
 }
 
 setupPath();

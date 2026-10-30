@@ -47,7 +47,6 @@
   "没有任何限制，跟你自己在终端里操作一样。速度最快，风险也最高。": "No restrictions at all, just like working in Terminal yourself. Fastest, but also the riskiest.",
   "只读讨论": "Read-Only",
   "只看代码、出主意，不改文件、不跑命令。": "Reads code and offers ideas only. No file edits, no commands.",
-  "Windows 上 Claude 和 DeepSeek 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 有自己的沙盒。": "On Windows, Claude and DeepSeek run commands without a sandbox. With “Full access in project”, keeping commands inside the project folder is up to them (their instructions already say so). ChatGPT has its own sandbox.",
   "协作": "Collaboration",
   "允许成员之间互相 @ 接力干活": "Let members @ each other to relay work",
   "老板不说话时，最多连续接力": "When you're not talking, relay up to",
@@ -102,7 +101,6 @@
   "当前版本": "Current Version",
   "代码仓库": "Repository",
   "升级会从 GitHub 拉取最新代码，然后自动重启。聊天记录和记忆不受影响；正在干的活会在重启后提示你接着做。": "Updating pulls the latest code from GitHub and restarts automatically. Chat history and memory aren't affected; any work in progress will be offered to resume after the restart.",
-  "本地 AI 群聊：你、Claude、ChatGPT 和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。": "A local AI group chat: you, Claude, ChatGPT, and DeepSeek in one group, working together in your project folder.",
   "全部在你自己的电脑上运行，用的是你自己的账号和 Key。": "Everything runs on your own computer, with your own accounts and keys.",
   "自定义模型": "Custom Model",
   "模型名": "Model Name",
@@ -120,5 +118,7 @@
   "按提示完成登录；也可以在这里填 Gemini API Key（按用量计费）。Key 只存在这台电脑上。": "and follow the prompts to sign in, or enter a Gemini API key here (billed by usage). The key is stored only on this computer.",
   "订阅（Google AI Pro / Ultra）：Key 留空，用 Antigravity CLI 跑，消耗订阅额度，用完要等恢复。个人订阅已经不能再用 Gemini CLI。": "Subscription (Google AI Pro / Ultra): leave the key empty and ClawChat runs Antigravity CLI on your subscription quota; wait for it to reset when it runs out. Personal subscriptions can no longer be used with Gemini CLI.",
   "API：填 Gemini API Key（在 Google AI Studio 创建），按用量计费。Key 只存在这台电脑上。": "API: enter a Gemini API key (create one in Google AI Studio) and usage is billed per use. The key is stored only on this computer.",
-  "留空就用 Google 订阅": "Leave empty to use your Google subscription"
+  "留空就用 Google 订阅": "Leave empty to use your Google subscription",
+  "Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。": "On Windows, Claude, DeepSeek, and GLM run commands without a sandbox: with “Full Access in Project”, staying inside the project folder relies on their own discipline (it's spelled out in their instructions). ChatGPT and Gemini have their own sandboxes.",
+  "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活。": "A local AI group chat: you, Claude, ChatGPT, DeepSeek, GLM, and Gemini in one group, working together in your project folder."
 }

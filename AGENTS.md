@@ -1,6 +1,6 @@
 # ClawChat 开发须知（给在这个仓库里干活的 AI 看）
 
-ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex）+ DeepSeek（借 Claude Code 跑）。
+ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex）+ DeepSeek、GLM（都借 Claude Code 跑）+ Gemini（订阅走 Antigravity CLI，API 走 Gemini CLI）。
 这个仓库常常是在 ClawChat 里由群里的 AI 自己开发的：**改坏了会把正在用的群聊弄坏**，所以下面的规矩要守。
 
 > 本机如果有本地须知文件 `AGENTS.local.md`（不进仓库），先读它，它优先。

@@ -33,7 +33,7 @@
   --accent-ring: rgba(0, 122, 255, 0.5);
   --menu-bg: rgba(246, 246, 248, 0.94);
   --fast: #e68600;
-  /* 三位 AI 的气泡（贴近各自的官方配色）：上下两个颜色做渐变，描边和光晕带一点品牌色 */
+  /* 每位 AI 的气泡（贴近各自的官方配色）：上下两个颜色做渐变，描边和光晕带一点品牌色 */
   --claude-b1: #fdf8f3; --claude-b2: #f6ece3; --claude-edge: rgba(217, 119, 87, 0.26); --claude-glow: rgba(217, 119, 87, 0.3);
   --gpt-b1: #f9f9fa; --gpt-b2: #eeeff1; --gpt-edge: rgba(16, 163, 127, 0.22); --gpt-glow: rgba(0, 0, 0, 0.16);
   --ds-b1: #f4f6ff; --ds-b2: #e8edff; --ds-edge: rgba(77, 107, 254, 0.26); --ds-glow: rgba(77, 107, 254, 0.3);

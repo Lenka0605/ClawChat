@@ -98,6 +98,8 @@
               <button class="chip mention-chip" data-mention="Claude" title="@Claude"><span class="avatar av-claude"></span><span class="chip-name">@Claude</span></button>
               <button class="chip mention-chip" data-mention="ChatGPT" title="@ChatGPT"><span class="avatar av-gpt"></span><span class="chip-name">@ChatGPT</span></button>
               <button class="chip mention-chip" data-mention="DeepSeek" title="@DeepSeek"><span class="avatar av-deepseek"></span><span class="chip-name">@DeepSeek</span></button>
+              <button class="chip mention-chip" data-mention="GLM" title="@GLM"><span class="avatar av-glm"></span><span class="chip-name">@GLM</span></button>
+              <button class="chip mention-chip" data-mention="Gemini" title="@Gemini"><span class="avatar av-gemini"></span><span class="chip-name">@Gemini</span></button>
               <button class="chip mention-chip" data-mention="所有人" title="@所有人"><span class="chip-stack" id="mention-all-icons"></span><span class="chip-name">@所有人</span></button>
               <label class="target" title="不 @ 人或者 @所有人 时，大家怎么接"><span class="target-label">不 @ 时</span>
                 <select id="default-target"></select>
@@ -173,7 +175,7 @@
             <label class="radio"><input type="radio" name="permission" value="readonly">
               <span><b>只读讨论</b><small>只看代码、出主意，不改文件、不跑命令。</small></span></label>
           </div>
-          <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude 和 DeepSeek 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 有自己的沙盒。</p>
+          <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。</p>
         </section>
         <section class="form-section" id="group-fields">
           <h3>协作</h3>
@@ -388,8 +390,8 @@
             <img src="/app-icon.png" alt="" class="about-icon" onerror="this.style.visibility='hidden'">
             <h3>ClawChat</h3>
             <p id="about-version" class="muted"></p>
-            <p class="about-desc">本地 AI 群聊：你、Claude、ChatGPT 和 DeepSeek 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
-            <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span><span class="plus">+</span><span class="avatar av-deepseek"></span></div>
+            <p class="about-desc">本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
+            <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span><span class="plus">+</span><span class="avatar av-deepseek"></span><span class="plus">+</span><span class="avatar av-glm"></span><span class="plus">+</span><span class="avatar av-gemini"></span></div>
             <p><a id="about-repo" href="#" target="_blank" rel="noopener"></a></p>
           </div>
         </section>

@@ -540,7 +540,7 @@ function inline(s) {
     .map((seg, j) =>
       j % 2 === 1
         ? seg
-        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|所有人|全体成员|全体|大家|everyone)/gi, (_, pre, name) => {
+        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|GLM|智谱|Gemini|谷歌|所有人|全体成员|全体|大家|everyone)/gi, (_, pre, name) => {
             const who = MENTION_WHO[name.toLowerCase()];
             return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? avatarHtml(who) : '@'}${name}</span>`;
           }),

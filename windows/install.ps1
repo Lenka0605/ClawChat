@@ -1,5 +1,5 @@
 ﻿# ClawChat 的 Windows 安装脚本（由 ClawChat 文件夹里的 Install-Windows.cmd 启动，可以重复运行，相当于「修复」）：
-# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude 和 DeepSeek 都借它干活），可选 Codex（群里的 ChatGPT）和 Google 的 Gemini（Antigravity CLI / Gemini CLI）
+# 1. 检查并安装需要的程序：Node.js、Git、Claude Code（Claude、DeepSeek、GLM 都借它干活），可选 Codex（群里的 ChatGPT）和 Google 的 Gemini（Antigravity CLI / Gemini CLI）
 # 2. 接上 GitHub，以后可以在 设置 → 软件更新 里一键升级
 # 3. 在桌面和开始菜单放一个 ClawChat 快捷方式，然后打开 ClawChat
 # 这个文件要存成带 BOM 的 UTF-8，Windows PowerShell 才能认出中文。
@@ -82,7 +82,7 @@ if (-not (Has 'git')) { WingetInstall 'Git.Git' 'Git' | Out-Null }
 if (Has 'git') { Ok (git --version) } else { Warn '没装上 Git：不能在线升级，Claude / DeepSeek 跑命令也会改用 PowerShell。建议去 https://git-scm.com 下载安装后，再运行一次这个安装程序。' }
 
 # ---------- Claude Code ----------
-Step '检查 Claude Code（Claude 和 DeepSeek 都借它干活）'
+Step '检查 Claude Code（Claude、DeepSeek、GLM 都借它干活）'
 if (-not (Has 'claude')) {
   Say '   没有找到 Claude Code。要用 Claude 得有 Claude 账号；只用 DeepSeek 也要装它，但不用登录。'
   if (Ask '现在安装 Claude Code 吗？' $true) {
@@ -96,7 +96,7 @@ if ((Test-Path -LiteralPath (Join-Path $localBin 'claude.exe')) -and -not (($use
   [Environment]::SetEnvironmentVariable('Path', ((@($userPath, $localBin) | Where-Object { $_ }) -join ';'), 'User')
   RefreshPath
 }
-if (Has 'claude') { Ok (claude --version) } else { Warn '没有 Claude Code：Claude 和 DeepSeek 暂时用不了。再运行一次这个安装程序就能补装。' }
+if (Has 'claude') { Ok (claude --version) } else { Warn '没有 Claude Code：Claude、DeepSeek、GLM 暂时用不了。再运行一次这个安装程序就能补装。' }
 
 # ---------- Codex（可选） ----------
 Step '检查 Codex（群里的 ChatGPT，要有 ChatGPT 账号，可以不装）'
