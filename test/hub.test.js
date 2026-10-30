@@ -1246,3 +1246,63 @@ test('更新重启打断的活：重新打开后自动接着做；退出应用�
   await settle(hub4);
   assert.match(r4.calls[0].prompt, /写个登录页/);
 });
+
+test('中途插话：Claude 正在干活时老板又发一条，直接塞进这一轮；不能插话的（或者场合对不上的）照旧干完再来一轮', async () => {
+  const store = new Store();
+  const calls = [];
+  // 假 AI：claude 能中途插话，gpt 不能
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, prompt: opts.prompt, steered: [], done: false, finish: (text) => ((call.done = true), resolve({ ok: true, text, steps: [], session: `${agent}-s` })) };
+    calls.push(call);
+    const handle = { done, kill: () => resolve({ ok: false, error: 'killed', steps: [], session: null }) };
+    if (agent === 'claude') handle.steer = (prompt) => (call.steered.push(prompt), true);
+    return handle;
+  };
+  const hub = new Hub(store, { run });
+  // 把还挂着的都结束掉（分身回完私聊，本体还会再看一眼），直到没人在干活
+  const drain = async () => {
+    for (let i = 0; i < 20 && (hub.runs.size || hub.sideRuns.size || calls.some((c) => !c.done)); i++) {
+      calls.filter((c) => !c.done).forEach((c) => c.finish('[PASS]'));
+      await tick();
+    }
+  };
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 先把首页改一下');
+  await tick();
+  assert.equal(calls.length, 1);
+  hub.postUserMessage(room.id, '@Claude 顺便把按钮改成蓝色');
+  await tick();
+  assert.equal(calls.length, 1, '插进去了，没有另开一轮');
+  assert.equal(calls[0].steered.length, 1);
+  assert.match(calls[0].steered[0], /你正在干活时，老板又发来了新消息/);
+  assert.match(calls[0].steered[0], /按钮改成蓝色/);
+  assert.equal(hub.runs.get(hub.key(room.id, 'claude')).steps.at(-1).text, '收到老板的新消息，接着一起干');
+  calls[0].finish('首页改好了，按钮也换成蓝色了');
+  await tick();
+  assert.equal(calls.length, 1, '插进去的消息已经看过了，做完不会再来一轮');
+
+  // 私聊里的话场合对不上（这一轮在群里干）：不往群里这一轮塞，走原来的路（开分身回私聊）
+  hub.postUserMessage(room.id, '@Claude 再看看页脚');
+  await tick();
+  hub.postUserMessage(room.id, '私下问一句：今天能做完吗', [], 'claude');
+  await tick();
+  assert.equal(calls[1].steered.length, 0);
+  await drain();
+
+  // ChatGPT 不能插话：干完再来一轮（和以前一样）
+  hub.postUserMessage(room.id, '@ChatGPT 看下测试');
+  await tick();
+  const gptCount = calls.filter((c) => c.agent === 'gpt').length;
+  hub.postUserMessage(room.id, '@ChatGPT 还有日志也看看');
+  await tick();
+  assert.equal(calls.filter((c) => c.agent === 'gpt').length, gptCount);
+  calls.filter((c) => c.agent === 'gpt').at(-1).finish('测试看完了');
+  await tick();
+  await tick();
+  await tick();
+  assert.equal(calls.filter((c) => c.agent === 'gpt').length, gptCount + 1, '干完以后再来一轮看新消息');
+  assert.match(calls.filter((c) => c.agent === 'gpt').at(-1).prompt, /日志也看看/);
+  await drain();
+});

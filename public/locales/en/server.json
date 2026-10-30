@@ -124,5 +124,6 @@
   "{name}：{warning}": "{name}: {warning}",
   "{name} 的分身：{warning}": "{name}'s clone: {warning}",
   "这个收纳组不存在了": "This folder no longer exists",
-  "收纳组的名字不能为空": "The folder needs a name"
+  "收纳组的名字不能为空": "The folder needs a name",
+  "收到老板的新消息，接着一起干": "Got your new message, working it in"
 }

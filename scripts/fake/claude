@@ -3,7 +3,10 @@
 if [ "$1" = "--version" ]; then echo "9.9.9 (Claude Code 假的)"; exit 0; fi
 # 登录状态：FAKE_CLAUDE_LOGGED_OUT=1 时装作没登录（测「没登录 Claude 的电脑上群里默认不出现 Claude」）
 if [ "$1" = "auth" ]; then if [ -n "$FAKE_CLAUDE_LOGGED_OUT" ]; then echo '{"loggedIn": false}'; else echo '{"loggedIn": true, "authMethod": "fake"}'; fi; exit 0; fi
-cat > /dev/null &
+# 收到的每条消息记下来（中途插话的也在里面），最后回复里写上中途收到了什么，方便测「干活中途再发一条」
+INFILE="$(mktemp -t fake-claude-in)"
+exec 3<&0 # 后台命令的标准输入会被换成 /dev/null：先另存一份
+cat <&3 > "$INFILE" &
 SID="fake-$(date +%s)-$$-$RANDOM" # 带上进程号和随机数：同一秒开好几个（多开成员）也不会撞号
 echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$SID\",\"model\":\"claude-fake\"}"
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"我先看一下项目文件夹里的东西"}]}}'
@@ -17,5 +20,14 @@ sleep "${FAKE_SECS:-6}"
 # 想让它回指定的话（比如测 AI 之间私聊）：把内容写进 $CLAWCHAT_HOME/fake-replies/claude.txt，用一次就删掉
 REPLY_FILE="${CLAWCHAT_HOME:-/tmp}/fake-replies/claude.txt"
 if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; else TEXT="（假的 Claude）做完了"; fi
+# 第一条是开工时的消息，后面的都是干活中途插进来的
+EXTRA="$(node -e '
+const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).slice(1);
+const pick = (l) => { try { const t = JSON.parse(l).message.content.filter((c) => c.type === "text").map((c) => c.text).join("\n"); const m = t.match(/^\[[^\]\n]*\] .*$/m); return (m ? m[0] : t).replace(/\s+/g, " ").slice(0, 60); } catch { return ""; } };
+if (lines.length) process.stdout.write(`（中途收到 ${lines.length} 条新消息，最后一条：${pick(lines[lines.length - 1])}）`);
+' "$INFILE")"
+rm -f "$INFILE"
+[ -n "$EXTRA" ] && TEXT="$TEXT
+$EXTRA"
 RESULT="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$TEXT")"
 echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":$RESULT,\"session_id\":\"$SID\",\"modelUsage\":{\"claude-fake\":{\"contextWindow\":1000000}}}"
