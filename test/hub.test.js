@@ -1316,7 +1316,7 @@ test('中途插话：Claude 正在干活时老板又发一条，直接塞进这�
   assert.equal(claudeRun.steered.length, 1, '同事 @ 它的话也插进了这一轮');
   assert.match(claudeRun.steered[0], /ChatGPT又发来了新消息/);
   assert.match(claudeRun.steered[0], /cache\.js/);
-  assert.equal(hub.runs.get(hub.key(room.id, 'claude')).steps.at(-1).text, '收到 ChatGPT 的新消息，接着一起干');
+  assert.equal(hub.runs.get(hub.key(room.id, 'claude')).steps.at(-1).text, '收到ChatGPT的新消息，接着一起干');
   const before = calls.filter((c) => c.agent === 'claude').length;
   claudeRun.finish('缓存那边也改好了');
   await tick();
