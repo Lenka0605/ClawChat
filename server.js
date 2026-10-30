@@ -833,7 +833,8 @@ async function api(req, res, url) {
     }
     // 某条回复的干活过程（分页取消息时不带，点开「过程」时再要）
     if (sub === 'messages' && parts[4] === 'steps' && method === 'GET') {
-      const m = store.getMessages(room.id)[Number(parts[3])];
+      const seq = Number(parts[3]);
+      const m = store.getMessages(room.id).find((x) => x.seq === seq);
       if (!m || m.lost) return send(res, 404, { error: tr('这条消息找不到了') });
       return send(res, 200, { steps: m.steps || [] });
     }
