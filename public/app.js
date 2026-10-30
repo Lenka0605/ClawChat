@@ -1039,23 +1039,39 @@ function lastLine(last, conv) {
 function folderIt(container, open) {
   const { folder, list } = container;
   const unread = list.reduce((n, e) => n + (S.unread.get(e.group.key) || 0) + e.dms.reduce((m, d) => m + (S.unread.get(d.key) || 0), 0), 0);
-  const busy = S.runs
-    .filter((x) => list.some((e) => [e.group, ...e.dms].some((c) => runInConv(x, c))))
-    .map((x) => (x.side ? tr('{name} 分身', { name: agentName(x.agent) }) : agentName(x.agent)));
+  // 第二行开头写清楚是组里哪个聊天，免得看成是别的聊天里的：组里只有一个群，就写「群聊」或「私聊 某某」；
+  // 好几个群，写群名或「群名 · 私聊 某某」
+  const one = list.length === 1;
+  const source = (c) =>
+    c.dm
+      ? one
+        ? tr('私聊 {name}', { name: agentName(c.dm) })
+        : tr('{room} · 私聊 {name}', { room: c.room.name, name: agentName(c.dm) })
+      : one
+        ? tr('群聊')
+        : c.room.name;
+  const busyRuns = S.runs
+    .map((x) => ({ run: x, conv: list.flatMap((e) => [e.group, ...e.dms]).find((c) => runInConv(x, c)) }))
+    .filter((b) => b.conv);
   const latest = folderLatest(list);
-  const preview = busy.length
-    ? `<span class="busy">${esc(tr('{names} 正在干活…', { names: [...new Set(busy)].join(LIST_SEP) }))}</span>`
-    : latest
-      ? esc(lastLine(latest.last, latest.conv))
-      : '';
-  const label = list.length === 1 ? tr('一个群') : tr('{n} 个群', { n: list.length });
+  let tag = '';
+  let preview = '';
+  if (busyRuns.length) {
+    // 好几个聊天都有人在干活：写最先开工的那个聊天，后面的人名照列
+    tag = source(busyRuns[0].conv);
+    const names = [...new Set(busyRuns.map((b) => (b.run.side ? tr('{name} 分身', { name: agentName(b.run.agent) }) : agentName(b.run.agent))))];
+    preview = `<span class="busy">${esc(tr('{names} 正在干活…', { names: names.join(LIST_SEP) }))}</span>`;
+  } else if (latest) {
+    tag = source(latest.conv);
+    preview = esc(lastLine(latest.last, latest.conv));
+  }
   return `<li class="conv-item folder has-children${open ? ' open' : ''}" data-folder="${esc(folder.id)}" draggable="true" data-drag-scope="top" data-drag-key="f:${esc(folder.id)}">
     <button class="disclosure${open ? ' open' : ''}" data-folder-toggle="${esc(folder.id)}" title="${open ? tr('收起收纳组') : tr('展开收纳组')}" aria-label="${open ? tr('收起收纳组') : tr('展开收纳组')}">
       <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     ${folderAvatar(folder)}
     <div class="conv-meta">
-      <div class="conv-line"><span class="name folder-name">${esc(folder.name)}</span><span class="time">${latest ? fmtShort(latest.last.ts) : ''}</span></div>
-      <div class="conv-line"><span class="tag folder-count">${label}</span><span class="conv-preview">${preview}</span>${unread ? `<span class="unread">${unread > 99 ? '99+' : unread}</span>` : ''}</div>
+      <div class="conv-line"><span class="name folder-name">${esc(folder.name)}<span class="folder-count">${list.length}</span></span><span class="time">${latest ? fmtShort(latest.last.ts) : ''}</span></div>
+      <div class="conv-line">${tag ? `<span class="tag folder-src" title="${esc(tag)}">${esc(tag)}</span>` : `<span class="conv-preview">${list.length ? tr('还没有消息') : tr('还没有群')}</span>`}<span class="conv-preview">${preview}</span>${unread ? `<span class="unread">${unread > 99 ? '99+' : unread}</span>` : ''}</div>
     </div></li>`;
 }
 
@@ -1108,12 +1124,111 @@ const FOLDER_COLORS = [
   ['#8C9AAE', '#6B7A90'],
   ['#C9A45C', '#A8843E'],
 ];
-function folderAvatar(folder) {
+function folderColor(folder) {
+  const pick = folder.avatar?.color;
+  if (Number.isInteger(pick) && FOLDER_COLORS[pick]) return pick;
   let h = 0;
   for (const ch of String(folder.id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const [a, b] = FOLDER_COLORS[h % FOLDER_COLORS.length];
+  return h % FOLDER_COLORS.length;
+}
+
+// 自定义过的（右键「更换头像…」）优先：图片 > 自己写的字 > 组名的第一个字
+function folderAvatar(folder) {
+  const av = folder.avatar || {};
+  if (av.image) return `<span class="folder-avatar has-image" style="background-image:url('${esc(av.image)}')"></span>`;
+  const [a, b] = FOLDER_COLORS[folderColor(folder)];
   const first = [...String(folder.name || '').trim()][0] || '·';
-  return `<span class="folder-avatar" style="background:linear-gradient(160deg,${a},${b})">${esc(/[a-z]/.test(first) ? first.toUpperCase() : first)}</span>`;
+  const text = av.text || (/[a-z]/.test(first) ? first.toUpperCase() : first);
+  return `<span class="folder-avatar${[...text].length > 1 ? ' two' : ''}" style="background:linear-gradient(160deg,${a},${b})">${esc(text)}</span>`;
+}
+
+// 更换收纳组头像：颜色、文字、图片，改的时候上面实时预览
+async function openAvatarDialog(folderId) {
+  const folder = S.folders.find((f) => f.id === folderId);
+  if (!folder) return;
+  const dlg = $('#dlg-avatar');
+  let draft = { ...(folder.avatar || {}) };
+  const preview = () => {
+    $('#avatar-preview').innerHTML = folderAvatar({ ...folder, avatar: draft });
+    $('#btn-avatar-remove').hidden = !draft.image;
+    const cur = folderColor({ ...folder, avatar: draft });
+    $('#avatar-colors').innerHTML = FOLDER_COLORS.map(
+      ([a, b], i) => `<button type="button" class="avatar-color${i === cur ? ' on' : ''}" data-color="${i}" style="background:linear-gradient(160deg,${a},${b})" aria-label="${tr('颜色 {n}', { n: i + 1 })}"></button>`,
+    ).join('');
+  };
+  $('#avatar-text').value = draft.text || '';
+  $('#avatar-text').placeholder = tr('默认用组名的第一个字');
+  preview();
+  $('#avatar-text').oninput = (e) => {
+    draft.text = [...e.target.value.trim()].slice(0, 2).join('');
+    preview();
+  };
+  $('#avatar-colors').onclick = (e) => {
+    const b = e.target.closest('[data-color]');
+    if (!b) return;
+    draft.color = Number(b.dataset.color);
+    delete draft.image; // 选了颜色就是不要图片了
+    preview();
+  };
+  $('#btn-avatar-upload').onclick = () => $('#avatar-file').click();
+  $('#avatar-file').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      draft.image = await squareImage(file, 160);
+      preview();
+    } catch {
+      toast(tr('这张图片打不开，换一张试试'));
+    }
+  };
+  $('#btn-avatar-remove').onclick = () => {
+    delete draft.image;
+    preview();
+  };
+  $('#btn-avatar-reset').onclick = () => {
+    draft = {};
+    $('#avatar-text').value = '';
+    preview();
+  };
+  $('#btn-avatar-cancel').onclick = () => closeDialog(dlg);
+  dlg.querySelector('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const avatar = Object.keys(draft).filter((k) => draft[k] !== undefined && draft[k] !== '').length ? draft : null;
+    try {
+      await api('PATCH', `/api/folders/${folderId}`, { avatar });
+      S.folders = S.folders.map((f) => (f.id === folderId ? { ...f, avatar: avatar || undefined } : f));
+      renderConvs();
+      closeDialog(dlg);
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  dlg.showModal();
+  reportDragRegions();
+}
+
+// 上传的图片裁成正方形、缩到 size×size（头像用不着大图，存起来也小）
+function squareImage(file, size) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      let data = canvas.toDataURL('image/png');
+      if (data.length > 380000) data = canvas.toDataURL('image/jpeg', 0.85);
+      resolve(data);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('bad image'));
+    };
+    img.src = url;
+  });
 }
 
 function renderConvs() {
@@ -1142,7 +1257,16 @@ function renderConvs() {
     if (open) for (const e of it.list) html.push(...roomItemsHtml(e, true, it.folder.id));
   }
   $('#conv-list').innerHTML = html.join('');
+  markSideNav();
   updateBadge();
+}
+
+// 键盘在侧栏里停在哪一行（聊天就是打开的那个，收纳组单独标出来）
+const SIDE_NAV = { key: null };
+function markSideNav() {
+  const key = SIDE_NAV.key?.startsWith('f:') ? SIDE_NAV.key : null;
+  $('#conv-list').querySelectorAll('.conv-item.kbd').forEach((li) => li.classList.remove('kbd'));
+  if (key) $('#conv-list').querySelector(`[data-folder="${CSS.escape(key.slice(2))}"]`)?.classList.add('kbd');
 }
 
 function toggleFolder(id) {
@@ -1236,7 +1360,8 @@ async function setRoomFolder(roomId, folderId) {
 async function createFolder(name, roomId = null) {
   try {
     const { folder } = await api('POST', '/api/folders', roomId ? { name, rooms: [roomId] } : { name });
-    S.folders = [...S.folders, folder];
+    // 服务端推过来的收纳组列表可能比这里的回应先到（里面已经有它了）：别再加一遍，不然右键菜单里会出现两个同名的组
+    if (!S.folders.some((f) => f.id === folder.id)) S.folders = [...S.folders, folder];
     if (roomId) S.rooms = S.rooms.map((r) => (r.id === roomId ? { ...r, folder: folder.id } : r));
     collapsedFolders.delete(folder.id);
     renderConvs();
@@ -1305,6 +1430,7 @@ function openFolderMenu(folderId, x, y) {
           if (name && name !== folder.name) renameFolderApi(folderId, name);
         },
       },
+      { label: tr('更换头像…'), act: () => openAvatarDialog(folderId) },
       {
         label: tr('解散收纳组'),
         danger: true,
@@ -2399,7 +2525,8 @@ function loadDraft(key) {
   autoGrow();
 }
 
-async function openConv(key) {
+// keepFocus：从侧栏点进来、用键盘上下切过来的，焦点留在侧栏（接着按上下还能切；直接打字会跳到输入框）
+async function openConv(key, { keepFocus = false } = {}) {
   const c = parseKey(key);
   if (!c || !roomById(c.roomId)) return;
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
@@ -2432,7 +2559,7 @@ async function openConv(key) {
   renderLive();
   scrollToBottom();
   replay($('#scroller'), 'switching');
-  $('#input').focus();
+  if (!keepFocus) $('#input').focus();
 }
 
 // ---------------- 系统通知 ----------------
@@ -4491,6 +4618,38 @@ function bind() {
     saveSideOrder(scope, keys);
     renderConvs();
   });
+  // 键盘：点过侧栏以后按上下在收纳组、群、私聊之间移动（移到聊天上就打开它）；→ / ← 展开、收起；
+  // 回车跳到输入框（停在收纳组上是展开收起）；直接打字也会跳到输入框，字照样打进去
+  list.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.metaKey && e.key !== 'v' || e.ctrlKey && e.key !== 'v' || e.altKey) return;
+    const rows = [...list.querySelectorAll('.conv-item')];
+    const keyOf = (li) => li.dataset.key || `f:${li.dataset.folder}`;
+    let i = rows.findIndex((li) => keyOf(li) === (SIDE_NAV.key || S.current));
+    const row = rows[i];
+    const folderId = row?.dataset.folder;
+    const roomId = row?.dataset.key && parseKey(row.dataset.key)?.roomId;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      i = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+      const next = rows[i];
+      if (!next) return;
+      SIDE_NAV.key = keyOf(next);
+      if (next.dataset.key) openConv(next.dataset.key, { keepFocus: true });
+      else markSideNav();
+      next.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const open = e.key === 'ArrowRight';
+      if (folderId && collapsedFolders.has(folderId) === open) toggleFolder(folderId);
+      else if (row?.classList.contains('has-children') && roomId && collapsed.has(roomId) === open) toggleCollapsed(roomId);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (folderId) toggleFolder(folderId);
+      else $('#input').focus();
+    } else if (e.key.length === 1 || e.key === 'Process' || e.key === 'v') {
+      $('#input').focus(); // 直接打字：跳到输入框，这个字照样打进去
+    }
+  });
   list.addEventListener('dragend', () => {
     clearMarks();
     dragging?.classList.remove('dragging');
@@ -4504,6 +4663,7 @@ function bind() {
     }
     const folderRow = e.target.closest('.conv-item[data-folder]');
     if (folderRow) {
+      SIDE_NAV.key = `f:${folderRow.dataset.folder}`;
       toggleFolder(folderRow.dataset.folder); // 点整行也是展开 / 收起
       return;
     }
@@ -4520,7 +4680,8 @@ function bind() {
       toggleCollapsed(roomId);
       return;
     }
-    openConv(li.dataset.key);
+    openConv(li.dataset.key, { keepFocus: true });
+    SIDE_NAV.key = li.dataset.key;
     if (li.classList.contains('has-children') && collapsed.has(roomId)) toggleCollapsed(roomId);
   });
   // 右键：群和收纳组都有菜单（私聊不参与收纳组）

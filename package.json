@@ -1,6 +1,6 @@
 {
   "name": "clawchat",
-  "version": "0.7.26",
+  "version": "0.7.27",
   "private": true,
   "description": "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活",
   "repository": "https://github.com/Lenka0605/ClawChat",

@@ -30,7 +30,7 @@
         <input id="search" type="text" placeholder="搜索" autocomplete="off" readonly>
         <kbd id="search-key" class="search-key"></kbd>
       </div>
-      <ul id="conv-list"></ul>
+      <ul id="conv-list" tabindex="0" aria-label="聊天列表"></ul>
       <div class="side-foot">
         <button id="btn-app-settings" class="side-settings" title="设置（⌘,）">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -469,6 +469,28 @@
           <button type="button" id="btn-confirm-cancel" class="secondary">取消</button>
           <button type="button" id="btn-confirm-alt" class="secondary" hidden></button>
           <button type="submit" id="btn-confirm-ok" class="primary"></button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 收纳组头像：选颜色、改上面的字，或者上传一张图片（照飞书的做法） -->
+  <dialog id="dlg-avatar" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>收纳组头像</h2></header>
+      <div class="sheet-body avatar-editor">
+        <div id="avatar-preview" class="avatar-preview"></div>
+        <label class="form-row"><span>文字</span><input id="avatar-text" type="text" maxlength="4" placeholder="默认用组名的第一个字" autocomplete="off" spellcheck="false"></label>
+        <div class="form-row"><span>颜色</span><div id="avatar-colors" class="avatar-colors"></div></div>
+        <div class="form-row"><span>图片</span><span class="row"><button type="button" id="btn-avatar-upload" class="secondary">上传图片…</button><button type="button" id="btn-avatar-remove" class="secondary" hidden>去掉图片</button></span></div>
+        <input id="avatar-file" type="file" accept="image/*" hidden>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions">
+          <button type="button" id="btn-avatar-reset" class="secondary">恢复默认</button>
+          <span class="spacer"></span>
+          <button type="button" id="btn-avatar-cancel" class="secondary">取消</button>
+          <button type="submit" class="primary">保存</button>
         </div>
       </footer>
     </form>

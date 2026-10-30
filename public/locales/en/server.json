@@ -130,5 +130,6 @@
   "收到老板的新消息，接着一起干": "Got your new message, working it in",
   "收到{names}的新消息，接着一起干": "Got a new message from {names}, working it in",
   "聊天记录已清空，大家的记忆也清掉了，下次从头开始": "Chat history cleared, and everyone's memory too. Next time everyone starts fresh.",
-  "聊天记录已清空（大家还记得之前聊过的事）": "Chat history cleared (everyone still remembers what was discussed)."
+  "聊天记录已清空（大家还记得之前聊过的事）": "Chat history cleared (everyone still remembers what was discussed).",
+  "头像图片不对，换一张试试": "That image can't be used as an avatar. Try another one."
 }

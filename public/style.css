@@ -249,12 +249,30 @@ html.native .logo { visibility: hidden; }
 }
 /* 拖动排序：拖着的那一项淡一点，放下的位置画一条蓝线 */
 .conv-item.dragging { opacity: 0.4; }
+.folder-avatar.two { font-size: 14px; }
+.folder-avatar.has-image { background-size: cover; background-position: center; }
+/* 侧栏可以用键盘上下切：焦点框不画，停在收纳组上时那一行淡淡地亮一下 */
+#conv-list:focus { outline: none; }
+#conv-list:focus .conv-item.kbd { background: var(--fill); }
+/* 收纳组头像编辑 */
+.avatar-editor { justify-items: stretch; }
+.avatar-preview { display: grid; place-items: center; padding: 6px 0 4px; }
+.avatar-preview .folder-avatar { width: 72px; height: 72px; border-radius: 20px; font-size: 32px; }
+.avatar-preview .folder-avatar.two { font-size: 25px; }
+.avatar-colors { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.avatar-color { width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0; box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35); cursor: pointer; }
+.avatar-color.on { box-shadow: 0 0 0 2px var(--bg, #fff), 0 0 0 3.5px var(--accent); }
 .conv-item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .conv-item.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .conv-item.in-folder { margin-left: 16px; }
 .conv-item.child.in-folder { margin-left: 46px; }
 .conv-item.folder .folder-name { flex: 1; }
-.folder-count { flex: none; }
+.conv-item.folder .folder-name { display: flex; align-items: baseline; gap: 4px; }
+.folder-count { flex: none; font-weight: 400; color: var(--muted); font-size: 12px; }
+.folder-count::before { content: "("; }
+.folder-count::after { content: ")"; }
+/* 最新消息 / 正在干活是组里哪个聊天的：小标签写群名或「群名 · 私聊 某某」 */
+.folder-src { flex: 0 3 auto; max-width: 62%; }
 .conv-avatar > .avatar { width: 40px; height: 40px; }
 .conv-avatar.stack .avatar { position: absolute; width: 27px; height: 27px; box-shadow: 0 0 0 1.5px var(--side); }
 html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.14); }

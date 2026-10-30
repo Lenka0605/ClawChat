@@ -16,5 +16,12 @@
   "{n} 个群": "{n} chats",
   "展开收纳组": "Expand Folder",
   "收起收纳组": "Collapse Folder",
-  "一个群": "1 chat"
+  "一个群": "1 chat",
+  "更换头像…": "Change Avatar…",
+  "颜色 {n}": "Color {n}",
+  "默认用组名的第一个字": "Defaults to the first character of the name",
+  "这张图片打不开，换一张试试": "This image can't be opened. Try another one.",
+  "{room} · 私聊 {name}": "{room} · {name} (private)",
+  "还没有群": "No chats yet",
+  "群聊": "Group"
 }

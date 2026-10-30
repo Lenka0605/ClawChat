@@ -695,6 +695,19 @@ async function api(req, res, url) {
       hub.emit('event', { type: 'folders', folders: store.listFolders() });
       hub.emitRooms();
     };
+    // 自定义头像：颜色是第几种（0-7）、上面写的字（最多两个字或一个表情）、或者一张小图片（界面上已经缩成 160×160）
+    const folderAvatar = (v) => {
+      if (!v) return null;
+      const out = {};
+      if (Number.isInteger(v.color) && v.color >= 0 && v.color < 8) out.color = v.color;
+      const text = [...String(v.text || '').trim()].slice(0, 2).join('');
+      if (text) out.text = text;
+      if (v.image) {
+        if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v.image) || v.image.length > 400000) throw httpError(400, tr('头像图片不对，换一张试试'));
+        out.image = v.image;
+      }
+      return Object.keys(out).length ? out : null;
+    };
     const folderName = (v) => {
       const name = String(v || '').trim().slice(0, 30);
       if (!name) throw httpError(400, tr('收纳组的名字不能为空'));
@@ -710,7 +723,9 @@ async function api(req, res, url) {
     const folder = store.getFolder(parts[1]);
     if (!folder) return send(res, 404, { error: tr('这个收纳组不存在了') });
     if (method === 'PATCH' && !parts[2]) {
-      store.renameFolder(folder.id, folderName((await readBody(req)).name));
+      const body = await readBody(req);
+      if (body.name !== undefined) store.renameFolder(folder.id, folderName(body.name));
+      if (body.avatar !== undefined) store.setFolderAvatar(folder.id, folderAvatar(body.avatar));
       emitFolders();
       return send(res, 200, { folder });
     }
