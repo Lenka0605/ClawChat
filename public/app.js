@@ -4620,6 +4620,7 @@ function bind() {
     keys.splice(keys.indexOf(spot.li.dataset.dragKey) + (spot.after ? 1 : 0), 0, dragging.dataset.dragKey);
     saveSideOrder(scope, keys);
     renderConvs();
+    $('#side-sink').focus(); // 列表重画后原来那一行已经不在了，dragend 冒不到列表上：放下时直接把键盘交回侧栏
   });
   // 键盘：点过侧栏以后按上下在收纳组、群、私聊之间移动（移到聊天上就打开它）；→ / ← 展开、收起；回车跳到输入框
   // （停在收纳组上是展开收起）。焦点其实落在侧栏里一个看不见的小输入框上：直接打字（包括拼音组字）先在它里面打，
@@ -4628,7 +4629,6 @@ function bind() {
   const sidebar = $('#sidebar');
   // 用鼠标点了侧栏（点完、拖完）才把焦点交给它；用 Tab 键路过侧栏不接管，不然 Tab 会被困在这里出不去
   list.addEventListener('click', () => sink.focus());
-  list.addEventListener('dragend', () => sink.focus());
   sink.addEventListener('focus', () => {
     sidebar.classList.add('nav-on');
     markSideNav();
