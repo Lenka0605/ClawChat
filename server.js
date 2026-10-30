@@ -506,39 +506,47 @@ async function api(req, res, url) {
   const method = req.method;
 
   if (method === 'GET' && parts[0] === 'health') return send(res, 200, { ok: true });
-  // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段，再带上同一个会话里的上一条（看得出是在聊什么）
+  // 搜聊天内容：所有群、私聊里的消息，最新的在前；每条只带命中位置前后的一小段，再带上同一个会话里的上一条（看得出是在聊什么）。
+  // 可以按谁说的（from）、哪个群（room）筛；facets 是筛选前每个人、每个群各命中几条，给筛选菜单用
   if (method === 'GET' && parts[0] === 'search') {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 100);
-    if (!q) return send(res, 200, { hits: [] });
+    const onlyFrom = String(url.searchParams.get('from') || '');
+    const onlyRoom = String(url.searchParams.get('room') || '');
+    if (!q) return send(res, 200, { hits: [], total: 0, facets: { from: {}, rooms: {} } });
     // 消息显示在哪个会话：和用户的私聊、AI 之间的私聊（放在被找的那一位那里），其余在群里（和前端的 convOf 一样）
     const convOf = (m) => (m.dm ? `d:${m.dm}` : m.pm ? `d:${m.pmIn || m.pm}` : 'g');
     const flat = (t) => String(t).replace(/\s+/g, ' ').trim();
-    const hits = [];
+    const facets = { from: {}, rooms: {} };
+    const found = [];
     for (const room of store.listRooms()) {
       const msgs = store.getMessages(room.id);
-      let found = 0;
-      for (let i = msgs.length - 1; i >= 0 && found < 100; i--) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
-        if (m.from === 'system' || !m.text) continue;
-        const at = m.text.toLowerCase().indexOf(q);
-        if (at < 0) continue;
-        found++;
-        const start = Math.max(0, at - 40);
-        const end = at + q.length + 140;
-        const conv = convOf(m);
-        let prev = null;
-        for (let j = i - 1; j >= 0; j--) {
-          const p = msgs[j];
-          if (p.from === 'system' || !p.text || convOf(p) !== conv) continue;
-          const t = flat(p.text);
-          prev = { from: p.from, text: t.length > 80 ? t.slice(-80) : t, cut: t.length > 80 };
-          break;
-        }
-        hits.push({ roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, pm: m.pm || null, pmIn: m.pmIn || null, ts: m.ts, text: m.text.slice(start, end), cut: start > 0, tail: end < m.text.length, prev });
+        if (m.from === 'system' || !m.text || !m.text.toLowerCase().includes(q)) continue;
+        facets.from[m.from] = (facets.from[m.from] || 0) + 1;
+        facets.rooms[room.id] = (facets.rooms[room.id] || 0) + 1;
+        if ((onlyFrom && m.from !== onlyFrom) || (onlyRoom && room.id !== onlyRoom)) continue;
+        found.push({ room, msgs, i });
       }
     }
-    hits.sort((a, b) => b.ts - a.ts);
-    return send(res, 200, { hits: hits.slice(0, 200), more: hits.length > 200 });
+    found.sort((x, y) => y.msgs[y.i].ts - x.msgs[x.i].ts);
+    const hits = found.slice(0, 200).map(({ room, msgs, i }) => {
+      const m = msgs[i];
+      const at = m.text.toLowerCase().indexOf(q);
+      const start = Math.max(0, at - 40);
+      const end = at + q.length + 140;
+      const conv = convOf(m);
+      let prev = null;
+      for (let j = i - 1; j >= 0; j--) {
+        const p = msgs[j];
+        if (p.from === 'system' || !p.text || convOf(p) !== conv) continue;
+        const t = flat(p.text);
+        prev = { from: p.from, pm: p.pm || null, text: t.length > 80 ? t.slice(-80) : t, cut: t.length > 80 };
+        break;
+      }
+      return { roomId: room.id, seq: m.seq, from: m.from, dm: m.dm || null, pm: m.pm || null, pmIn: m.pmIn || null, ts: m.ts, text: m.text.slice(start, end), cut: start > 0, tail: end < m.text.length, prev };
+    });
+    return send(res, 200, { hits, total: found.length, more: found.length > hits.length, facets });
   }
   if (method === 'GET' && parts[0] === 'events') return events(req, res);
   if (method === 'GET' && parts[0] === 'state') {

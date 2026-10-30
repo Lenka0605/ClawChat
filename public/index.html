@@ -27,7 +27,8 @@
       </div>
       <div class="search">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
-        <input id="search" type="search" placeholder="搜索" autocomplete="off">
+        <input id="search" type="text" placeholder="搜索" autocomplete="off" readonly>
+        <kbd id="search-key" class="search-key"></kbd>
       </div>
       <ul id="conv-list"></ul>
       <div class="side-foot">
@@ -154,7 +155,22 @@
   </div>
 
   <!-- 群设置 / 新建聊天：标题和按钮固定，中间滚动 -->
-  <dialog id="dlg-room" class="sheet">
+  <dialog id="dlg-search" class="spot" aria-label="搜索">
+      <div class="spot-wrap">
+        <div class="spot-head">
+          <div class="spot-box">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+            <input id="spot-input" type="text" placeholder="搜索消息和聊天" autocomplete="off" spellcheck="false">
+            <button type="button" id="spot-clear" class="spot-clear" hidden>清除</button>
+          </div>
+          <button type="button" id="spot-close" class="icon-btn" title="关闭（Esc）" aria-label="关闭"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9"/></svg></button>
+        </div>
+        <div id="spot-filters" class="spot-filters"></div>
+        <div id="spot-body" class="spot-body"></div>
+      </div>
+    </dialog>
+
+    <dialog id="dlg-room" class="sheet">
     <form id="room-form" method="dialog">
       <header class="sheet-head"><h2 id="dlg-title">新建聊天</h2></header>
       <div class="sheet-body">

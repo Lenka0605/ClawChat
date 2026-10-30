@@ -49,7 +49,6 @@ const S = {
   defaults: {},
   projectsDir: '',
   editing: null,
-  filter: '',
 };
 
 function storeGet(k) {
@@ -979,30 +978,23 @@ function convItemHtml(c, extra = {}) {
 }
 
 function renderConvs() {
-  const q = S.filter.trim().toLowerCase();
   const html = [];
   for (const { group, dms } of groupedConversations()) {
-    const groupHit = !q || group.room.name.toLowerCase().includes(q);
-    const dmHits = dms.filter((d) => groupHit || agentLabel(d.dm).toLowerCase().includes(q));
-    if (!groupHit && !dmHits.length) continue;
-    // 搜索时、或者正在看其中一个私聊时，自动展开
-    const open = !!q || !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
+    // 正在看其中一个私聊时，自动展开
+    const open = !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
     const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
     if (html.length) html.push('<li class="conv-sep" aria-hidden="true"></li>'); // 不同的群（连同它下面的私聊）之间一条细线
     html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
-    if (open) for (const d of dmHits) html.push(convItemHtml(d));
+    if (open) for (const d of dms) html.push(convItemHtml(d));
   }
-  if (q && html.length) html.unshift(`<li class="search-head">${tr('聊天')}</li>`);
-  if (q) html.push(searchHitsHtml(q, html.length > 0));
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
 }
 
-// ---------------- 搜聊天内容 ----------------
-// 侧栏搜索时，除了按名字找会话，也在所有聊天记录里找。结果按聊天分组：组头是哪个群 / 私聊，每条带上谁说的、
-// 前一条在聊什么；点一条就打开那个会话、跳到那条消息，点组头（或「还有 N 条」）就在那个聊天里接着逐条搜
+// ---------------- 搜索面板 ----------------
+// 点侧栏的搜索框（或 ⌘K / Ctrl+K）弹出来：上面是搜索框和筛选（全部 / 消息 / 聊天、谁说的、哪个群），
+// 下面一条一条列结果：哪个群、谁说的、命中的那段（关键词标黄）、时间；点一条就打开那个聊天、跳到那条消息
 
-const HITS_PER_CONV = 3;
 const escRe = (q) => q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // 把文字里的关键词标出来（大小写不分）
@@ -1018,58 +1010,221 @@ const plainText = (t) => String(t).replace(/\*\*|`/g, '').replace(/\s+/g, ' ').t
 // 「谁说的」：AI 之间的私聊写成「Claude → DeepSeek」
 const speakerOf = (m) => (m.from === 'user' ? tr('我') : m.pm ? `${agentName(m.from)} → ${agentName(m.pm)}` : agentName(m.from));
 
-function searchHitsHtml(q, hasConvs) {
-  const res = S.searchHits;
-  if (!res || res.q !== q) return `<li class="search-head">${tr('正在搜聊天记录…')}</li>`;
-  if (!res.hits.length) return `<li class="search-head">${hasConvs ? tr('聊天记录里没有找到') : tr('没有找到相关的聊天和消息')}</li>`;
-  const groups = new Map(); // 会话 → 命中的消息（最新的在前）
-  for (const h of res.hits) {
-    if (!roomById(h.roomId)) continue;
-    const key = convOf(h.roomId, h);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(h);
+const SP = { q: '', tab: 'all', from: '', room: '', res: null, active: 0, seq: 0 };
+const SHORT_CONVS = 4; // 「全部」里聊天只列几个，多的点「查看全部」
+
+function openSearch(q = '') {
+  const dlg = $('#dlg-search');
+  if (!dlg.open) {
+    dlg.showModal();
+    requestAnimationFrame(reportDragRegions);
   }
-  const out = [`<li class="search-head">${tr('聊天记录 · {n} 个聊天里共 {count} 条', { n: groups.size, count: `${res.hits.length}${res.more ? '+' : ''}` })}</li>`];
-  for (const [key, hits] of groups) {
-    const c = parseKey(key);
-    const room = roomById(c.roomId);
-    const dm = c.dm && room.members.length > 1 ? c.dm : null;
-    // 群名太长时只截群名；私聊对象和「私聊」小标签一直留着
-    const who = dm ? `<span class="hit-conv-dm">${esc(agentName(dm))}<span class="dm-tag">${tr('私聊')}</span></span>` : '';
-    out.push(`<li class="hit-conv" data-find-key="${esc(key)}" title="${tr('在这个聊天里逐条查看')}">${convAvatar({ room, dm })}<span class="hit-conv-name">${esc(room.name)}</span>${who}<span class="hit-conv-count">${hits.length}</span></li>`);
-    for (const h of hits.slice(0, HITS_PER_CONV)) {
-      const prev = h.prev ? `<div class="hit-ctx"><span class="hit-ctx-who">${esc(speakerOf(h.prev))}</span>${esc((h.prev.cut ? '…' : '') + plainText(h.prev.text))}</div>` : '';
-      // 关键词前面只留一小段，免得关键词被挤到三行以外看不见
-      let text = plainText(h.text);
-      const pos = text.toLowerCase().indexOf(q.toLowerCase());
-      const cut = h.cut || pos > 24;
-      if (pos > 24) text = text.slice(pos - 24);
-      text = `${cut ? '…' : ''}${text}${h.tail ? '…' : ''}`;
-      out.push(`<li class="search-hit" data-hit-key="${esc(key)}" data-hit-seq="${h.seq}">${prev}
-        <div class="hit-line">${avatarHtml(h.from === 'user' ? 'user' : h.from)}<span class="hit-who">${esc(speakerOf(h))}</span><span class="time">${fmtShort(h.ts)}</span></div>
-        <div class="hit-text">${highlight(text, q)}</div></li>`);
-    }
-    if (hits.length > HITS_PER_CONV) out.push(`<li class="hit-more" data-find-key="${esc(key)}">${tr('还有 {n} 条，在这个聊天里查看', { n: hits.length - HITS_PER_CONV })}</li>`);
-  }
-  return out.join('');
+  const input = $('#spot-input');
+  if (q) input.value = q;
+  input.focus();
+  input.select();
+  runSearch();
 }
 
-async function searchMessages(q) {
+async function runSearch() {
+  const q = $('#spot-input').value.trim();
+  SP.q = q;
+  SP.active = 0;
+  $('#spot-clear').hidden = !q;
+  const seq = ++SP.seq;
+  if (!q) {
+    SP.res = null;
+    return renderSearch();
+  }
+  const params = new URLSearchParams({ q });
+  if (SP.from) params.set('from', SP.from);
+  if (SP.room) params.set('room', SP.room);
+  let res;
   try {
-    const res = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
-    if (S.filter.trim().toLowerCase() !== q) return; // 已经改了关键词
-    S.searchHits = { q, hits: res.hits || [], more: !!res.more };
+    res = await api('GET', `/api/search?${params}`);
   } catch {
-    S.searchHits = { q, hits: [], more: false };
+    res = { hits: [], total: 0, facets: { from: {}, rooms: {} } };
   }
-  renderConvs();
+  if (seq !== SP.seq) return; // 已经又改了关键词或筛选
+  SP.res = res;
+  renderSearch();
 }
 
-async function openSearchHit(li) {
-  const q = S.filter.trim();
+// 名字对得上的聊天（群名、私聊对象的名字）；选了「谁说的」就只留有它的聊天，选了群就只留那个群
+function searchConvs(q) {
+  const needle = q.toLowerCase();
+  const out = [];
+  for (const { group, dms } of groupedConversations()) {
+    if (SP.room && group.room.id !== SP.room) continue;
+    const groupHit = group.room.name.toLowerCase().includes(needle);
+    if (groupHit && (!SP.from || SP.from === 'user' || group.room.members.includes(SP.from))) out.push(group);
+    for (const d of dms) if ((groupHit || agentLabel(d.dm).toLowerCase().includes(needle)) && (!SP.from || SP.from === 'user' || d.dm === SP.from)) out.push(d);
+  }
+  return out;
+}
+
+// 筛选那一行：全部 / 消息 / 聊天，再加「谁说的」「哪个群」两个下拉（用系统自带的菜单，后面带着各有几条）
+function filtersHtml(convs) {
+  const res = SP.res || { total: 0, facets: { from: {}, rooms: {} } };
+  const tab = (id, label, n) => `<button type="button" class="spot-chip${SP.tab === id ? ' on' : ''}" data-tab="${id}">${esc(label)}${SP.q ? `<small>${n}</small>` : ''}</button>`;
+  const opt = (v, label, n, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}${n ? ` · ${n}` : ''}</option>`;
+  const people = ['user', ...AGENT_IDS].filter((a) => res.facets.from[a] || a === SP.from);
+  const fromLabel = SP.from ? (SP.from === 'user' ? tr('我') : agentName(SP.from)) : tr('谁说的');
+  const fromSel = `<label class="spot-chip pick${SP.from ? ' on' : ''}"><span>${esc(fromLabel)}</span>${CHEVRON}<select id="spot-from">${opt('', tr('所有人说的'), 0, SP.from)}${people.map((a) => opt(a, a === 'user' ? tr('我') : agentName(a), res.facets.from[a], SP.from)).join('')}</select></label>`;
+  const rooms = S.rooms.filter((r) => res.facets.rooms[r.id] || r.id === SP.room);
+  const roomLabel = SP.room ? roomById(SP.room)?.name || tr('哪个群') : tr('哪个群');
+  const roomSel = `<label class="spot-chip pick${SP.room ? ' on' : ''}"><span>${esc(roomLabel)}</span>${CHEVRON}<select id="spot-room">${opt('', tr('所有聊天'), 0, SP.room)}${rooms.map((r) => opt(r.id, r.name, res.facets.rooms[r.id], SP.room)).join('')}</select></label>`;
+  const reset = SP.from || SP.room ? `<button type="button" class="spot-reset" data-reset>${tr('清除筛选')}</button>` : '';
+  return `${tab('all', tr('全部'), res.total + convs.length)}${tab('msgs', tr('消息'), res.total)}${tab('convs', tr('聊天'), convs.length)}<span class="spot-sep"></span>${fromSel}${roomSel}${reset}`;
+}
+
+const CHEVRON = '<svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M2.2 3.8 5 6.6l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const GO_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M6.5 9.5 10 6M7 6h3v3"/></svg>';
+
+function convRowHtml(c, i) {
+  const name = c.dm ? `${highlight(agentLabel(c.dm), SP.q)}<span class="dm-tag">${tr('私聊')}</span>` : highlight(c.room.name, SP.q);
+  const sub = c.dm ? tr('来自「{room}」', { room: c.room.name }) : c.room.members.length > 1 ? tr('群聊 · {n} 位成员', { n: c.room.members.length }) : tr('单聊');
+  return `<li class="spot-row conv${i === SP.active ? ' active' : ''}" data-i="${i}" data-conv-key="${esc(c.key)}">
+    <div class="spot-avatar">${convAvatar(c)}</div>
+    <div class="spot-main"><div class="spot-name">${name}</div><div class="spot-where">${esc(sub)}</div></div>
+    <span class="spot-go">${GO_ICON}</span></li>`;
+}
+
+function hitRowHtml(h, i) {
+  const room = roomById(h.roomId);
+  if (!room) return '';
+  const key = convOf(h.roomId, h);
+  const dm = parseKey(key).dm && room.members.length > 1 ? parseKey(key).dm : null;
+  // 关键词前面只留一小段，免得被挤到两行以外看不见
+  let text = plainText(h.text);
+  const pos = text.toLowerCase().indexOf(SP.q.toLowerCase());
+  const cut = h.cut || pos > 30;
+  if (pos > 30) text = text.slice(pos - 30);
+  text = `${cut ? '…' : ''}${text}${h.tail ? '…' : ''}`;
+  const where = esc(room.name) + (dm ? `<span class="spot-dm">${esc(tr('私聊 {name}', { name: agentName(dm) }))}</span>` : '');
+  // 鼠标停一会儿，能看到同一个聊天里的上一条，知道当时在聊什么
+  const ctx = h.prev ? tr('上一条 · {name}：{text}', { name: speakerOf(h.prev), text: (h.prev.cut ? '…' : '') + plainText(h.prev.text) }) : '';
+  return `<li class="spot-row${i === SP.active ? ' active' : ''}" data-i="${i}" data-hit-key="${esc(key)}" data-hit-seq="${h.seq}"${ctx ? ` title="${esc(ctx)}"` : ''}>
+    <div class="spot-avatar">${convAvatar({ room, dm })}</div>
+    <div class="spot-main"><div class="spot-line"><span class="spot-where">${where}</span><span class="spot-time">${fmtShort(h.ts)}</span></div>
+    <div class="spot-text"><span class="spot-who">${esc(tr('{name}：', { name: speakerOf(h) }))}</span>${highlight(text, SP.q)}</div></div>
+    <span class="spot-go">${GO_ICON}</span></li>`;
+}
+
+function renderSearch() {
+  const body = $('#spot-body');
+  const q = SP.q;
+  const convs = q ? searchConvs(q) : [];
+  $('#spot-filters').innerHTML = filtersHtml(convs);
+  if (!q) {
+    body.innerHTML = `<div class="spot-empty">${tr('在所有群聊和私聊里找消息和聊天')}<small>${tr('↑↓ 选择 · 回车打开 · Esc 关闭')}</small></div>`;
+    return;
+  }
+  if (!SP.res) return void (body.innerHTML = `<div class="spot-empty">${tr('正在搜…')}</div>`);
+  const hits = SP.tab === 'convs' ? [] : SP.res.hits;
+  const shownConvs = SP.tab === 'msgs' ? [] : SP.tab === 'all' ? convs.slice(0, SHORT_CONVS) : convs;
+  let i = 0;
+  const out = [];
+  if (shownConvs.length) {
+    const all = SP.tab === 'all' && convs.length > SHORT_CONVS ? `<button type="button" class="spot-more" data-tab="convs">${tr('查看全部 {n} 个', { n: convs.length })}</button>` : '';
+    out.push(`<div class="spot-sec"><span>${tr('聊天')}</span>${all}</div><ul class="spot-list">${shownConvs.map((c) => convRowHtml(c, i++)).join('')}</ul>`);
+  }
+  if (hits.length) {
+    const more = SP.res.more ? `<span class="spot-note">${tr('只列出最近 {n} 条，共 {total} 条', { n: hits.length, total: SP.res.total })}</span>` : '';
+    out.push(`<div class="spot-sec"><span>${tr('消息')}</span>${more}</div><ul class="spot-list">${hits.map((h) => hitRowHtml(h, i++)).join('')}</ul>`);
+  }
+  body.innerHTML = out.join('') || `<div class="spot-empty">${SP.from || SP.room ? tr('这个筛选下没有找到，换个筛选试试') : tr('没有找到相关的聊天和消息')}</div>`;
+  body.scrollTop = 0;
+}
+
+function moveActive(d) {
+  const rows = [...$('#spot-body').querySelectorAll('.spot-row')];
+  if (!rows.length) return;
+  SP.active = (SP.active + d + rows.length) % rows.length;
+  rows.forEach((r, i) => r.classList.toggle('active', i === SP.active));
+  rows[SP.active].scrollIntoView({ block: 'nearest' });
+}
+
+async function openSearchRow(li) {
+  const q = SP.q;
+  closeDialog($('#dlg-search'));
+  if (li.dataset.convKey) return openConv(li.dataset.convKey);
   await openConv(li.dataset.hitKey);
   const el = jumpTo(Number(li.dataset.hitSeq));
   if (el) markFound(el, q);
+}
+
+function bindSearch() {
+  const dlg = $('#dlg-search');
+  const input = $('#spot-input');
+  // 侧栏的搜索框只是个入口：点一下（或者聚焦后直接打字）就打开面板
+  const side = $('#search');
+  side.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    openSearch();
+  });
+  side.addEventListener('focus', () => {
+    side.blur();
+    openSearch();
+  });
+  $('#search-key').textContent = IS_WIN ? 'Ctrl K' : '⌘K';
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'k' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (document.querySelector('dialog[open]:not(#dlg-search)')) return;
+    e.preventDefault();
+    openSearch();
+  });
+  input.addEventListener('input', () => {
+    clearTimeout(runSearch.timer);
+    runSearch.timer = setTimeout(runSearch, 150);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveActive(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const li = $('#spot-body').querySelectorAll('.spot-row')[SP.active];
+      if (li) openSearchRow(li);
+    }
+  });
+  $('#spot-clear').onclick = () => {
+    input.value = '';
+    input.focus();
+    runSearch();
+  };
+  $('#spot-close').onclick = () => closeDialog(dlg);
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) return closeDialog(dlg); // 点面板外面也关
+    const tab = e.target.closest('[data-tab]');
+    if (tab) {
+      SP.tab = tab.dataset.tab;
+      SP.active = 0;
+      renderSearch();
+      return input.focus();
+    }
+    if (e.target.closest('[data-reset]')) {
+      SP.from = SP.room = '';
+      return runSearch();
+    }
+    const row = e.target.closest('.spot-row');
+    if (row) openSearchRow(row);
+  });
+  dlg.addEventListener('change', (e) => {
+    if (e.target.id === 'spot-from') SP.from = e.target.value;
+    else if (e.target.id === 'spot-room') SP.room = e.target.value;
+    else return;
+    runSearch();
+    input.focus();
+  });
+  dlg.addEventListener('mousemove', (e) => {
+    const row = e.target.closest('.spot-row');
+    if (!row || Number(row.dataset.i) === SP.active) return;
+    SP.active = Number(row.dataset.i);
+    dlg.querySelectorAll('.spot-row').forEach((r) => r.classList.toggle('active', r === row));
+  });
+  dlg.addEventListener('close', reportDragRegions);
 }
 
 // 内容没变就不动它，免得正在打开的下拉框被刷新关掉
@@ -3829,13 +3984,6 @@ function bind() {
     }
   };
   $('#conv-list').addEventListener('click', (e) => {
-    const hit = e.target.closest('.search-hit');
-    if (hit) return void openSearchHit(hit);
-    const more = e.target.closest('[data-find-key]');
-    if (more) {
-      const q = S.filter.trim();
-      return void openConv(more.dataset.findKey).then(() => openFind(q));
-    }
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
       toggleCollapsed(toggle.dataset.toggle); // 小三角：只展开收起，不切换会话
@@ -3851,13 +3999,6 @@ function bind() {
     }
     openConv(li.dataset.key);
     if (li.classList.contains('has-children') && collapsed.has(roomId)) toggleCollapsed(roomId);
-  });
-  $('#search').addEventListener('input', (e) => {
-    S.filter = e.target.value;
-    renderConvs();
-    clearTimeout(searchMessages.timer);
-    const q = S.filter.trim().toLowerCase();
-    if (q) searchMessages.timer = setTimeout(() => searchMessages(q), 200);
   });
   // 点群里的头像（或右上角的头像）就去私聊
   document.addEventListener('click', (e) => {
@@ -4264,6 +4405,7 @@ async function init() {
   trackChrome();
   bindScrollbar();
   bindFind();
+  bindSearch();
   try {
     applyState(await api('GET', '/api/state'));
   } catch {
