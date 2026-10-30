@@ -1395,3 +1395,58 @@ test('中途插话要等回执的（ChatGPT）：收到了才推进读取进度�
   assert.ok(fourth.done);
   assert.ok(cursor() <= at, '停止以后晚到的回执不推进读取进度');
 });
+
+test('中途插话的两个边界：前一批被拒、后一批还在排队时，后一批也不送；私聊里干活时老板再私聊它，只插话不开分身', async () => {
+  const store = new Store();
+  const calls = [];
+  const answers = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, side: !!opts.side, prompt: opts.prompt, steered: [], done: false, finish: (text) => ((call.done = true), resolve({ ok: true, text, steps: [], session: `${agent}-s` })) };
+    calls.push(call);
+    const handle = { done, kill: () => ((call.done = true), resolve({ ok: false, error: 'killed', steps: [], session: null })) };
+    if (!opts.side) handle.steer = (prompt) => new Promise((r) => (call.steered.push(prompt), answers.push(r)));
+    return handle;
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+
+  // 第一批等回执时第二批排队；第一批被拒 → 第二批不送，两条都留到下一轮
+  hub.postUserMessage(room.id, '@ChatGPT 开始');
+  await tick();
+  const first = calls.at(-1);
+  hub.postUserMessage(room.id, '@ChatGPT 第一批');
+  await tick();
+  hub.postUserMessage(room.id, '@ChatGPT 第二批');
+  await tick();
+  assert.equal(first.steered.length, 1, '第二批在排队，还没送');
+  answers.shift()(false);
+  await tick();
+  await tick();
+  assert.equal(first.steered.length, 1, '第一批被拒，排队的第二批也不送');
+  first.finish('开始的做完了');
+  await tick();
+  await tick();
+  const next = calls.at(-1);
+  assert.notEqual(next, first);
+  assert.match(next.prompt, /第一批/);
+  assert.match(next.prompt, /第二批/);
+  next.finish('两批都做了');
+  await tick();
+
+  // 私聊里干活时老板再私聊它：只插话，不开分身
+  hub.postUserMessage(room.id, '私下帮我查个东西', [], 'claude');
+  await tick();
+  const dmRun = calls.at(-1);
+  assert.equal(dmRun.agent, 'claude');
+  hub.postUserMessage(room.id, '顺便把结果整理成表格', [], 'claude');
+  await tick();
+  assert.equal(calls.filter((c) => c.side).length, 0, '没有开分身');
+  assert.equal(dmRun.steered.length, 1);
+  answers.shift()(true);
+  dmRun.finish('查好了，表格也整理了');
+  await tick();
+  await tick();
+  assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude').length, 1, '只回了一条');
+});
