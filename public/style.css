@@ -340,6 +340,14 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 html.icon-glm .av-glm { background-color: #000; background-image: url("/icons/glm.png"); background-size: cover; box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22); } /* 深色模式下黑底不和背景糊在一起 */
 html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/icons/gemini.png"); background-size: cover; }
 .av-user { background-color: var(--accent); }
+/* 多开的成员（ChatGPT2 这类）：用本体的头像，右下角一个小圆标写着几号 */
+.avatar.clone { position: relative; }
+.avatar.clone::after {
+  content: attr(data-n); position: absolute; right: -3px; bottom: -3px; min-width: max(11px, 42%); height: max(11px, 42%); padding: 0 2px; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: 999px; background: var(--accent); color: #fff; font: 700 9px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+.members-more { margin-top: 8px; font-size: 12px; }
 
 /* ---------- 主区域 ---------- */
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }

@@ -8,7 +8,16 @@ const IS_WIN = document.documentElement.classList.contains('win');
 const REVEAL_LABEL = IS_WIN ? tr('在资源管理器中显示') : tr('在访达中显示');
 // 列举几位时的分隔符：中文用顿号，英文用逗号
 const LIST_SEP = tr('、');
-const AGENT_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini'];
+// 五位固定成员；AGENT_IDS 还包括多开的（比如 ChatGPT2），按服务端的成员表重算（rebuildMembers）
+const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini'];
+let AGENT_IDS = [...BASE_IDS];
+// 多开的那位是谁的几号：头像、配色、程序都跟本体一样。已经删掉的（老消息里还有）按 id 认：gpt2 就是 ChatGPT 的 2 号
+const cloneInfo = (a) => {
+  if (S.agents?.[a]) return S.agents[a].base ? { base: S.agents[a].base, n: S.agents[a].n } : null;
+  const m = String(a || '').match(/^(claude|gpt|deepseek|glm|gemini)([2-9])$/);
+  return m ? { base: m[1], n: Number(m[2]) } : null;
+};
+const baseOf = (a) => cloneInfo(a)?.base || a;
 const ALL_WORD = I18N.lang === 'zh' ? '所有人' : 'everyone'; // @所有人：英文界面插 @everyone（服务端两个都认）
 const IMAGE_EXT_TYPES = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
 
@@ -110,7 +119,7 @@ function applyTheme(mode) {
 // 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
 const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
 function detectIcons(bust = '') {
-  for (const a of AGENT_IDS) {
+  for (const a of BASE_IDS) {
     const img = new Image();
     img.onload = () => document.documentElement.classList.add(`icon-${a}`);
     img.onerror = () => document.documentElement.classList.remove(`icon-${a}`);
@@ -360,15 +369,19 @@ function firstLine(s) {
 }
 
 function agentLabel(id) {
-  return S.agents[id]?.label || id;
+  const c = !S.agents[id] && cloneInfo(id);
+  return S.agents[id]?.label || (c ? `${agentLabel(c.base)}${c.n}` : id);
 }
 
 function agentName(id) {
-  return S.agents[id]?.name || id;
+  const c = !S.agents[id] && cloneInfo(id);
+  return S.agents[id]?.name || (c ? `${agentName(c.base)}${c.n}` : id);
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
-const DEFAULT_HINT = { claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置') };
+// 每位用哪个程序；多开的（gpt2）查不到就用本体的
+const byBase = (map) => new Proxy(map, { get: (t, k) => (k in t ? t[k] : t[baseOf(k)]) });
+const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' });
+const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置') });
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
 // 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
@@ -405,7 +418,7 @@ const EFFORT_HINT = {
 
 function effortsFor(agent, modelId) {
   const e = S.engines[AGENT_ENGINE[agent]] || {};
-  if (agent === 'claude') return e.efforts || [];
+  if (baseOf(agent) === 'claude') return e.efforts || [];
   return e.models?.find((m) => m.id === (modelId || e.defaultModel))?.efforts || [];
 }
 
@@ -428,7 +441,7 @@ const CUSTOM_MODEL = '__custom__';
 // 返回这个模型快多少倍（模型目录里写着「2x speed」这样的说明，没写倍数就是空字符串）；不支持快速模式返回 null
 const BOLT_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M13.2 2.5 5.4 13.1c-.3.4 0 .9.5.9h5l-1.1 7.2c-.1.6.6.9 1 .4l7.8-10.6c.3-.4 0-.9-.5-.9h-5l1.1-7.2c.1-.6-.6-.9-1-.4z"/></svg>';
 function fastSpeed(agent, modelId) {
-  if (agent !== 'gpt') return null;
+  if (baseOf(agent) !== 'gpt') return null;
   const e = S.engines.codex || {};
   const desc = e.models?.find((m) => m.id === (modelId || e.defaultModel))?.fast;
   return desc ? desc.match(/([\d.]+)x speed/i)?.[1] || '' : null;
@@ -486,7 +499,9 @@ function modelSelectHtml(agent, current, attrs = '', allowCustom = false) {
 }
 
 function avatarHtml(who, extra = '') {
-  return who === 'user' ? `<span class="avatar av-user">${tr('我')}</span>` : `<span class="avatar av-${esc(who)}" ${extra}></span>`;
+  if (who === 'user') return `<span class="avatar av-user">${tr('我')}</span>`;
+  const n = cloneInfo(who)?.n; // 多开的：用本体的头像，右下角标上几号
+  return n ? `<span class="avatar av-${esc(baseOf(who))} clone" data-n="${n}" ${extra}></span>` : `<span class="avatar av-${esc(who)}" ${extra}></span>`;
 }
 
 // 让路径在「从右往左截断」的样式里保持原顺序
@@ -540,7 +555,7 @@ function inline(s) {
     .map((seg, j) =>
       j % 2 === 1
         ? seg
-        : seg.replace(/(^|[^A-Za-z0-9_.])@(Claude|克劳德|GPT|Codex|ChatGPT|DeepSeek|深度求索|GLM|智谱|Gemini|谷歌|所有人|全体成员|全体|大家|everyone)/gi, (_, pre, name) => {
+        : seg.replace(MENTION_MSG_RE, (_, pre, name) => {
             const who = MENTION_WHO[name.toLowerCase()];
             return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? avatarHtml(who) : '@'}${name}</span>`;
           }),
@@ -766,13 +781,106 @@ function engineState(e, key) {
     return `${esc(e.version || tr('已就绪'))}${e.authMode === 'api' ? tr(' · API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr(' · 用 Antigravity 订阅')}`;
   }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
+  if (e.ok && e.loggedIn === false) return `${esc(e.version || '')} · ${key === 'claude' ? tr('没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）') : tr('没登录 ChatGPT 账号')}`;
   return e.ok ? esc(e.version || tr('已就绪')) : tr('没找到，请先安装并登录');
 }
 
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
+// 这台电脑上能用的成员：程序装好了、登录了（DeepSeek、GLM 要填 Key）。还在检测时都算能用
+function memberReady(a) {
+  const b = baseOf(a);
+  const E = S.engines;
+  if (!Object.keys(E).length) return true;
+  if (b === 'claude') return !!E.claude?.path && E.claude.loggedIn !== false;
+  if (b === 'gpt') return !!E.codex?.path && E.codex.loggedIn !== false;
+  return !!E[b]?.ok;
+}
+
+// 成员表变了（多开了一位、删了一位）：AGENT_IDS、@ 识别、@ 菜单、群设置里的勾选框和模型行跟着变
+function rebuildMembers() {
+  const clones = Object.keys(S.agents || {}).filter((a) => S.agents[a].base);
+  AGENT_IDS = BASE_IDS.flatMap((b) => [b, ...clones.filter((a) => S.agents[a].base === b).sort((x, y) => S.agents[x].n - S.agents[y].n)]);
+  buildMentionRes();
+  buildMentionItems();
+  syncCloneFields();
+}
+
+// 页面里写死的是五位本体的勾选框、模型行、@ 按钮；多开的按需补在本体后面，删掉的就拿掉
+function syncCloneFields() {
+  const form = $('#room-form');
+  if (!form) return;
+  form.querySelectorAll('[data-clone]').forEach((el) => !S.agents[el.dataset.clone] && el.remove());
+  document.querySelectorAll('.mention-chip[data-who]').forEach((el) => !S.agents[el.dataset.who] && el.remove());
+  for (const a of AGENT_IDS) {
+    const ag = S.agents[a];
+    if (!ag?.base) continue;
+    const sub = esc(tr('{name} 的 {n} 号', { name: agentName(ag.base), n: ag.n }));
+    if (!formField(fieldName('member', a))) {
+      const after = [...form.querySelectorAll('.members .member')].filter((el) => baseOf(el.dataset.clone || el.querySelector('input').name.slice(6).toLowerCase()) === ag.base).at(-1);
+      after?.insertAdjacentHTML('afterend', `<label class="member" data-clone="${esc(a)}"><input type="checkbox" name="${fieldName('member', a)}">${avatarHtml(a)}<span class="member-name">${esc(ag.name)}<small>${sub}</small></span><span class="check-mark"></span></label>`);
+    }
+    if (!$(`#field-model-${a}`)) {
+      const after = [...form.querySelectorAll('#model-fields .form-row')].filter((el) => baseOf(el.id.replace('field-model-', '')) === ag.base).at(-1);
+      after?.insertAdjacentHTML(
+        'afterend',
+        `<div class="form-row" id="field-model-${esc(a)}" data-clone="${esc(a)}"><span class="with-icon">${avatarHtml(a)}${esc(ag.name)}</span><span class="model-pair"><select name="${fieldName('model', a)}" data-pair="${esc(a)}"></select><span class="pair-sep">${tr('思考')}</span><select name="${fieldName('effort', a)}"></select></span></div>`,
+      );
+    }
+    if (!document.querySelector(`.mention-chip[data-who="${a}"]`)) {
+      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[el.dataset.mention]) === ag.base).at(-1);
+      after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(ag.name)}" data-who="${esc(a)}" title="@${esc(ag.name)}">${avatarHtml(a)}<span class="chip-name">@${esc(ag.name)}</span></button>`);
+      const chip = document.querySelector(`.mention-chip[data-who="${a}"]`);
+      if (chip) chip.onclick = () => insertMention(ag.name);
+    }
+  }
+}
+
+// 设置 → 程序与模型 → 多开成员：已经开了的（可以删），以及「再开一位」
+function renderClones() {
+  const box = $('#set-clones');
+  if (!box) return;
+  const clones = AGENT_IDS.filter((a) => S.agents[a]?.base);
+  const rows = clones.map(
+    (a) =>
+      `<div class="list-row">${avatarHtml(a)}<span class="row-text"><b>${esc(agentName(a))}</b><small>${esc(tr('{name} 的 {n} 号：同一个程序和账号，自己的记忆和设置', { name: agentName(baseOf(a)), n: S.agents[a].n }))}</small></span><button class="secondary" data-clone-del="${esc(a)}">${tr('删除')}</button></div>`,
+  );
+  const bases = BASE_IDS.filter(memberReady);
+  rows.push(
+    `<div class="form-row"><span>${tr('再开一位')}</span><span class="row"><select id="clone-base">${(bases.length ? bases : BASE_IDS).map((b) => `<option value="${b}">${esc(agentName(b))}</option>`).join('')}</select><button class="secondary" id="btn-clone-add">${tr('开一个')}</button></span></div>`,
+  );
+  box.innerHTML = rows.join('');
+  $('#btn-clone-add').onclick = async () => {
+    try {
+      const { member } = await api('POST', '/api/members/extra', { base: $('#clone-base').value });
+      applyState(await api('GET', '/api/state'));
+      renderEngines();
+      renderShell();
+      toast(tr('开好了 {name}：建群或在群设置里勾上它，在群里用 @{name} 叫它', { name: member.name }), 5000);
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  box.querySelectorAll('[data-clone-del]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const a = b.dataset.cloneDel;
+        const ok = await askConfirm({ title: tr('删除 {name}？', { name: agentName(a) }), text: tr('它会从所有群里退出，手上的活也会停下；聊天记录还在。'), ok: tr('删除') });
+        if (!ok) return;
+        try {
+          await api('DELETE', `/api/members/extra/${encodeURIComponent(a)}`);
+          applyState(await api('GET', '/api/state'));
+          renderEngines();
+          renderShell();
+        } catch (err) {
+          toast(err.message);
+        }
+      }),
+  );
+}
+
 function renderEngines() {
   // 侧栏底部：一切正常时什么都不显示；有聊天用到的程序找不到（或者 DeepSeek 没填 Key）才亮一个黄色提醒
-  const used = new Set(S.rooms.flatMap((r) => r.members));
+  const used = new Set(S.rooms.flatMap((r) => r.members.map(baseOf)));
   const missing = ENGINE_INFO.filter(({ key, agent }) => S.engines[key] && !S.engines[key].ok && used.has(agent)).map(({ name }) => name);
   const warn = $('#engine-warn');
   warn.hidden = !missing.length;
@@ -816,6 +924,9 @@ function renderEngines() {
     return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>${tr('默认用 {model}', { model: esc(def) })}</small>
       <span class="model-list">${opts.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('')}</span></span></div>`;
   }).join('');
+  renderClones();
+  // 欢迎页「和 XX 单聊」：这台电脑上用不了的（没装、没登录、没填 Key）不出现
+  document.querySelectorAll('[data-solo]').forEach((b) => (b.hidden = !memberReady(b.dataset.solo)));
 }
 
 function convAvatar(c) {
@@ -945,7 +1056,7 @@ function renderShell() {
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[b.dataset.mention];
+    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   renderTargets(room, dm);
@@ -1114,7 +1225,7 @@ function messageHtml(roomId, m, prev, conv) {
   const who = m.pm
     ? `${esc(agentLabel(m.from))}<span class="pm-arrow">→</span>${esc(agentLabel(m.pm))}<span class="side-tag pm-tag" title="${tr('它们之间的私聊，群里其他成员看不到')}">${tr('AI 私聊')}</span><span class="pm-time">${esc(fmtPmTime(m.ts))}</span>`
     : esc(agentLabel(m.from));
-  return `${sep}<div class="msg agent from-${esc(m.from)}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
+  return `${sep}<div class="msg agent from-${esc(baseOf(m.from))}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
 }
@@ -1273,7 +1384,7 @@ function toTagForm(text) {
   const conv = currentConv();
   const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
   if (!members.length) return text;
-  return text.replace(/(^|[^A-Za-z0-9_.])@(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌)( ?)/gi, (all, pre, name, sp) =>
+  return text.replace(MENTION_TAG_RE, (all, pre, name, sp) =>
     members.includes(MENTION_WHO[name.toLowerCase()]) ? `${pre}@${MENTION_GAP}${name}${sp ? MENTION_SEP : ''}` : all,
   );
 }
@@ -1444,7 +1555,7 @@ function renderLive() {
       const sideTag = r.side ? `<span class="side-tag" title="${r.peer ? tr('本体在群里忙，分身先来回同事的私聊（只能看，不能改）') : tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
-      return `<div class="msg agent live from-${esc(r.agent)}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
+      return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? (r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
@@ -1611,6 +1722,7 @@ function keepBottom(fn) {
 function applyState(st) {
   S.rooms = st.rooms || [];
   S.agents = st.agents || {};
+  rebuildMembers();
   S.defaults = st.defaults || {};
   S.engines = st.engines || {};
   S.projectsDir = st.projectsDir || '';
@@ -1822,6 +1934,12 @@ function handleEvent(ev) {
       renderConvs();
       keepBottom(renderLive);
       break;
+    case 'agents':
+      S.agents = ev.agents || {};
+      rebuildMembers();
+      renderShell();
+      renderEngines();
+      break;
     case 'rooms':
       S.rooms = ev.rooms || [];
       if (S.current && !currentConv()) S.current = null;
@@ -1999,8 +2117,21 @@ const MENTION_GAP = '\u2002';
 const MENTION_SEP = '\u2003';
 // 发出去、复制出去的文字换回普通的写法：@Claude 后面一个普通空格
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
-const MENTION_SHOW_RE = /@(\s?)(claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌|所有人|全体成员|全体|大家|all|everyone)/gi;
-const MENTION_WHO = { claude: 'claude', 克劳德: 'claude', gpt: 'gpt', codex: 'gpt', chatgpt: 'gpt', deepseek: 'deepseek', 深度求索: 'deepseek', glm: 'glm', 智谱: 'glm', gemini: 'gemini', 谷歌: 'gemini' };
+// @ 谁认的写法：按成员表生成（多开的 ChatGPT2 也认，长的写法排前面），和 lib/hub.js 的 mentionTables 一致
+const ALL_WORDS = '所有人|全体成员|全体|大家|all|everyone';
+const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'] };
+let MENTION_WHO = {};
+let MENTION_SHOW_RE, MENTION_TAIL_RE, MENTION_MSG_RE, MENTION_TAG_RE;
+function buildMentionRes() {
+  MENTION_WHO = {};
+  for (const a of AGENT_IDS) for (const w of S.agents?.[a]?.aliases || BASE_ALIASES[a] || [a]) MENTION_WHO[w.toLowerCase()] = a;
+  const names = Object.keys(MENTION_WHO).sort((x, y) => y.length - x.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  MENTION_SHOW_RE = new RegExp(`@(\\s?)(${names}|${ALL_WORDS})`, 'gi');
+  MENTION_TAIL_RE = new RegExp(`(?:^|[^A-Za-z0-9_.])(@[ \\u2002]?(?:${names}|${ALL_WORDS})[ \\u2003]?)$`, 'i');
+  MENTION_MSG_RE = new RegExp(`(^|[^A-Za-z0-9_.])@(${names}|${ALL_WORDS.replace('|all', '')})`, 'gi');
+  MENTION_TAG_RE = new RegExp(`(^|[^A-Za-z0-9_.])@(${names})( ?)`, 'gi');
+}
+buildMentionRes();
 // 输入框里会显示成标签的 @成员：[{ start, end, who, gap, name }]（画标签、管光标都用这一份，判断一致）
 function mentionTokens(text) {
   const conv = currentConv();
@@ -2081,7 +2212,7 @@ async function sendMessage() {
 
 // ---------------- 输入 @ 时弹出的成员菜单 ----------------
 
-const MENTION_ITEMS = [
+const BASE_MENTION_ITEMS = [
   { id: 'claude', label: 'Claude', sub: 'Anthropic', insert: 'Claude', keys: ['claude', '克劳德'] },
   { id: 'gpt', label: 'ChatGPT', sub: 'OpenAI Codex', insert: 'ChatGPT', keys: ['chatgpt', 'gpt', 'codex', 'openai'] },
   { id: 'deepseek', label: 'DeepSeek', sub: tr('深度求索'), insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
@@ -2089,6 +2220,19 @@ const MENTION_ITEMS = [
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
   { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
+// 多开的排在本体后面
+let MENTION_ITEMS = BASE_MENTION_ITEMS;
+function buildMentionItems() {
+  const out = [];
+  for (const it of BASE_MENTION_ITEMS) {
+    out.push(it);
+    for (const a of AGENT_IDS.filter((x) => S.agents?.[x]?.base === it.id)) {
+      const ag = S.agents[a];
+      out.push({ id: a, label: ag.name, sub: tr('{name} 的 {n} 号', { name: S.agents[it.id]?.name || it.label, n: ag.n }), insert: ag.name, keys: ag.aliases || [a] });
+    }
+  }
+  MENTION_ITEMS = out;
+}
 
 // 正在用 @ 菜单的框：底部的输入框，或者正在改的那条消息的编辑框
 const fieldOf = (x) => (x instanceof HTMLTextAreaElement ? x : x?.target instanceof HTMLTextAreaElement ? x.target : null);
@@ -2264,7 +2408,6 @@ function snapToMentions(from) {
 
 // 光标紧跟在一个完整的 @提及后面（后面最多一个空格）时按退格：先把整个 @提及选中，再按一次才删掉。
 // 认的写法和 lib/hub.js 的 MENTION_RE 一样；返回 true 表示这个按键被用掉了
-const MENTION_TAIL_RE = /(?:^|[^A-Za-z0-9_.])(@[ \u2002]?(?:claude|克劳德|chatgpt|gpt|codex|deepseek|深度求索|glm|智谱|gemini|谷歌|所有人|全体成员|全体|大家|all|everyone)[ \u2003]?)$/i;
 function selectMentionOnBackspace(e) {
   const el = e.target;
   if (e.key !== 'Backspace' || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return false;
@@ -2429,7 +2572,7 @@ function modelChipHtml(a, room) {
   const warn = level
     ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(tr('会话里存了约 {size}MB 图片，越来越慢，点开换新会话', { size: (sessionImages(room.id, a) / 1048576).toFixed(1) }))}"></span>`
     : '';
-  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(a === 'gpt' ? tr('{name} 的模型、思考强度和速度，下一轮生效', { name: agentName(a) }) : tr('{name} 的模型和思考强度，下一轮生效', { name: agentName(a) }))}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
+  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(baseOf(a) === 'gpt' ? tr('{name} 的模型、思考强度和速度，下一轮生效', { name: agentName(a) }) : tr('{name} 的模型和思考强度，下一轮生效', { name: agentName(a) }))}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
     effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
@@ -3166,8 +3309,25 @@ function syncMemberFields() {
 
 // 新建聊天时默认勾上能用的成员；一个都不能用（比如还在检测）就勾 Claude 和 GPT
 function defaultMembers() {
-  const ready = AGENT_IDS.filter((a) => S.engines[AGENT_ENGINE[a]]?.ok);
+  const ready = AGENT_IDS.filter(memberReady);
   return ready.length ? ready : ['claude', 'gpt'];
+}
+
+// 成员勾选框：这台电脑上用不了的（比如没登录 Claude、没装 Codex）默认不出现；已经在群里的照常显示。
+// 想加还没装好的，点「显示全部」
+function applyMemberVisibility(showAll = false) {
+  const hidden = [];
+  for (const a of AGENT_IDS) {
+    const box = formField(fieldName('member', a));
+    if (!box) continue;
+    const hide = !showAll && !box.checked && !memberReady(a);
+    box.closest('.member').hidden = hide;
+    if (hide) hidden.push(agentName(a));
+  }
+  const more = $('#members-more');
+  more.hidden = !hidden.length;
+  more.textContent = tr('还有 {names} 没装好或没登录，显示出来', { names: hidden.join(LIST_SEP) });
+  more.onclick = () => applyMemberVisibility(true);
 }
 
 function openDialog(room, preset = null) {
@@ -3181,6 +3341,7 @@ function openDialog(room, preset = null) {
   del.dataset.armed = '';
   del.textContent = solo ? tr('删除聊天') : tr('删除群聊');
   for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
+  applyMemberVisibility();
   $('#perm-win-hint').hidden = !IS_WIN;
   $('#session-fields').hidden = !room;
   if (room) {

@@ -185,8 +185,10 @@ if ($linked) {
   }
 }
 
-# DeepSeek、GLM、Gemini 的官方头像：从官方账号下载一份（不放进代码仓库）；下载不到就用内置的简笔头像
+# Claude、ChatGPT、DeepSeek、GLM、Gemini 的官方头像：从官方下载一份（不放进代码仓库）；下载不到就用内置的简笔头像
 $icons = [ordered]@{
+  'claude'   = 'https://claude.ai/images/claude_app_icon.png'
+  'gpt'      = 'https://avatars.githubusercontent.com/u/14957082?s=256'
   'deepseek' = 'https://avatars.githubusercontent.com/u/148330874?s=256'
   'glm'      = 'https://avatars.githubusercontent.com/u/223098841?s=256'
   'gemini'   = 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png'

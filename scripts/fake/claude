@@ -1,6 +1,8 @@
 #!/bin/bash
 # 假的 Claude Code：只用来测 ClawChat 的界面和重启流程，不连任何 AI
 if [ "$1" = "--version" ]; then echo "9.9.9 (Claude Code 假的)"; exit 0; fi
+# 登录状态：FAKE_CLAUDE_LOGGED_OUT=1 时装作没登录（测「没登录 Claude 的电脑上群里默认不出现 Claude」）
+if [ "$1" = "auth" ]; then if [ -n "$FAKE_CLAUDE_LOGGED_OUT" ]; then echo '{"loggedIn": false}'; else echo '{"loggedIn": true, "authMethod": "fake"}'; fi; exit 0; fi
 cat > /dev/null &
 SID="fake-$(date +%s)"
 echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$SID\",\"model\":\"claude-fake\"}"

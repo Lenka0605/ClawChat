@@ -19,12 +19,14 @@ swiftc -O -swift-version 5 -o "$BUILD/ClawChat" "$ROOT/mac/main.swift" -framewor
 
 echo "→ 取 Claude / ChatGPT / Gemini 官方图标（来自本机装的官方应用，不放进仓库）"
 swift "$ROOT/mac/extract-icons.swift" "$ROOT/public/icons" || echo "  没取到官方图标，界面会用内置的简笔头像"
-# 本机没装官方应用的几位，从官方账号下载一份（DeepSeek、GLM 是官方 GitHub 账号的头像，Gemini 是 Google 官方的图标）
+# 本机没装官方应用的几位，从官方下载一份（Claude 是 claude.ai 上的应用图标，ChatGPT、DeepSeek、GLM 是官方 GitHub 账号的头像，Gemini 是 Google 官方的图标）
 download_icon() {
   [ -f "$ROOT/public/icons/$1.png" ] && return
   echo "→ 下载 $2 官方头像"
   curl -fsSL --max-time 20 -o "$ROOT/public/icons/$1.png" "$3" || { rm -f "$ROOT/public/icons/$1.png"; echo "  没下载到，界面会用内置的简笔头像"; }
 }
+download_icon claude Claude "https://claude.ai/images/claude_app_icon.png"
+download_icon gpt ChatGPT "https://avatars.githubusercontent.com/u/14957082?s=256"
 download_icon deepseek DeepSeek "https://avatars.githubusercontent.com/u/148330874?s=256"
 download_icon glm GLM "https://avatars.githubusercontent.com/u/223098841?s=256"
 download_icon gemini Gemini "https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png"

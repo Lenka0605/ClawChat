@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -114,15 +114,16 @@ function validModel(engine, id) {
   return !id || !models?.length || models.some((m) => m.id === id);
 }
 
-const AGENT_ENGINE = { claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
+// 成员用的是哪个程序（多开的 ChatGPT2 和 ChatGPT 一样用 codex）
+const engineOf = (a) => AGENTS[a]?.engine;
 // 存中文原文，用的时候再按当前语言翻译（模块加载时还不知道界面是什么语言）
 const EFFORT_LABEL = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' };
 const effortLabel = (id) => (EFFORT_LABEL[id] ? tr(EFFORT_LABEL[id]) : id);
 
 // 某位在某个模型下能选哪些思考强度：Claude 固定那几档；Codex、DeepSeek 看模型目录（「默认」就看默认模型）
 function effortsFor(agent, modelId) {
-  if (agent === 'claude') return engines.claude?.efforts || [];
-  const e = engines[AGENT_ENGINE[agent]] || {};
+  if (engineOf(agent) === 'claude') return engines.claude?.efforts || [];
+  const e = engines[engineOf(agent)] || {};
   const model = e.models?.find((m) => m.id === (modelId || e.defaultModel));
   return model?.efforts || [];
 }
@@ -142,12 +143,12 @@ function fastName(agent, on, modelId) {
 
 function effortName(agent, id) {
   if (id) return effortLabel(id);
-  const def = engines[AGENT_ENGINE[agent]]?.defaultEffort;
+  const def = engines[engineOf(agent)]?.defaultEffort;
   return def ? tr('默认（{label}）', { label: effortLabel(def) }) : tr('默认');
 }
 
 function modelName(agent, id) {
-  const e = engines[AGENT_ENGINE[agent]] || {};
+  const e = engines[engineOf(agent)] || {};
   if (!id) return e.defaultLabel ? tr('默认模型（{label}）', { label: e.defaultLabel }) : tr('默认模型');
   return e.models?.find((m) => m.id === id)?.name || id;
 }
@@ -239,7 +240,7 @@ function normalizeRoom(body, creating, room = null) {
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
     const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini' };
     for (const a of Object.keys(AGENTS)) {
-      if (!custom.includes(a) && !keep(a) && !validModel(AGENT_ENGINE[a], out.models[a])) {
+      if (!custom.includes(a) && !keep(a) && !validModel(engineOf(a), out.models[a])) {
         throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
       }
     }
@@ -283,7 +284,7 @@ function normalizeRoom(body, creating, room = null) {
       const cur = { ...next[a] };
       if (v.model !== undefined) {
         const m = String(v.model || '').trim().slice(0, 80);
-        if (!custom.includes(a) && m !== cur.model && !validModel(AGENT_ENGINE[a], m)) throw httpError(400, tr('{name} 用不了 {model} 这个模型，请从列表里选一个', { name: AGENTS[a].name, model: m }));
+        if (!custom.includes(a) && m !== cur.model && !validModel(engineOf(a), m)) throw httpError(400, tr('{name} 用不了 {model} 这个模型，请从列表里选一个', { name: AGENTS[a].name, model: m }));
         cur.model = m;
       }
       const model = cur.model ?? groupModels[a];
@@ -341,6 +342,9 @@ function pickFolder() {
 // DeepSeek、GLM 是官方 GitHub 账号（DeepSeek、智谱 Z.ai）的头像；Gemini 在 Mac 上打包时从 Gemini.app 取，取不到就用 Google 官方的图标。
 // Mac 打包、Windows 安装时也会下载；这里是兜底。下载不到就用界面里内置的简笔头像
 const ICON_URLS = {
+  // Claude、ChatGPT 在 Mac 上打包时从本机的 Claude.app、ChatGPT.app 取；Windows 和没装官方应用的电脑用这两张（claude.ai 上的 Claude 应用图标、OpenAI 官方 GitHub 头像）
+  claude: 'https://claude.ai/images/claude_app_icon.png',
+  gpt: 'https://avatars.githubusercontent.com/u/14957082?s=256',
   deepseek: 'https://avatars.githubusercontent.com/u/148330874?s=256',
   glm: 'https://avatars.githubusercontent.com/u/223098841?s=256',
   gemini: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
@@ -602,6 +606,37 @@ async function api(req, res, url) {
     await refreshEngines(true);
     return send(res, 200, { ok: true, warning: '', engines });
   }
+  // 多开成员：同一位再开一个独立的（比如 ChatGPT2），有自己的记忆和设置
+  if (parts[0] === 'members' && parts[1] === 'extra') {
+    if (method === 'POST' && !parts[2]) {
+      const { base } = await readBody(req);
+      let member;
+      try {
+        member = addExtraMember(base);
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
+      hub.emit('event', { type: 'agents', agents: AGENTS });
+      return send(res, 200, { member });
+    }
+    if (method === 'DELETE' && AGENTS[parts[2]]?.base) {
+      const id = parts[2];
+      // 和它的单聊删不了成员（删了就没人了）：先让老板自己删掉那个单聊
+      const solo = store.listRooms().find((r) => r.members.length === 1 && r.members[0] === id);
+      if (solo) return send(res, 400, { error: tr('还有和 {name} 的单聊「{room}」，先把那个单聊删掉再删 {name}', { name: AGENTS[id].name, room: solo.name }) });
+      // 已经在群里的先请出去（手上的活停掉），聊天记录还留着
+      for (const room of store.listRooms()) {
+        if (!room.members.includes(id)) continue;
+        hub.stop(room.id, id);
+        const members = room.members.filter((a) => a !== id);
+        if (members.length) store.updateRoom(room.id, { members });
+      }
+      removeExtraMember(id);
+      hub.emit('event', { type: 'agents', agents: AGENTS });
+      hub.emitRooms();
+      return send(res, 200, { ok: true });
+    }
+  }
   if (method === 'POST' && parts[0] === 'models' && parts[1] === 'check') {
     const { agent, id } = await readBody(req);
     const model = String(id || '').trim();
@@ -624,10 +659,10 @@ async function api(req, res, url) {
       const cwdChanged = patch.cwd && patch.cwd !== room.cwd;
       for (const a of room.members) if (patch.members && !patch.members.includes(a)) hub.stop(room.id, a);
       const switched = patch.models
-        ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.models[a] || '') !== (room.models?.[a] || ''))
+        ? Object.keys(AGENTS).filter((a) => (patch.members || room.members).includes(a) && (patch.models[a] || '') !== (room.models?.[a] || ''))
         : [];
       const effortSwitched = patch.efforts
-        ? Object.keys(AGENT_ENGINE).filter((a) => (patch.members || room.members).includes(a) && (patch.efforts[a] || '') !== (room.efforts?.[a] || ''))
+        ? Object.keys(AGENTS).filter((a) => (patch.members || room.members).includes(a) && (patch.efforts[a] || '') !== (room.efforts?.[a] || ''))
         : [];
       // 私聊里的设置：改之前每位实际用的是什么，改完对比，提示只发在私聊里
       // （复制一份：保存时房间对象会被原地改掉）

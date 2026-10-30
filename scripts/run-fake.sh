@@ -5,6 +5,7 @@
 # touch /tmp/clawchat-fake/compact.on 可以让假 Claude 每轮模拟一次自动压缩记忆。
 # 假 Claude、假 ChatGPT 都会回话；要它们回指定内容，写进 $CLAWCHAT_FAKE_HOME/fake-replies/claude.txt 或 codex.txt（用一次就删）。
 # 局限：DeepSeek / GLM 接口指向连不上的本地地址，只能测出错。
+# FAKE_CLAUDE_LOGGED_OUT=1 / FAKE_CODEX_LOGGED_OUT=1：装作没登录 Claude / ChatGPT（这两位在新建群里默认不出现）。
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAKE="$ROOT/scripts/fake"
 HOME_DIR="${CLAWCHAT_FAKE_HOME:-/tmp/clawchat-fake}"

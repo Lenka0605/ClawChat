@@ -152,6 +152,7 @@
             <label class="member"><input type="checkbox" name="memberGlm"><span class="avatar av-glm"></span><span class="member-name">GLM<small>智谱</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGemini"><span class="avatar av-gemini"></span><span class="member-name">Gemini<small>Google</small></span><span class="check-mark"></span></label>
           </div>
+          <button type="button" id="members-more" class="link-btn members-more" hidden></button>
           <p id="member-hint" class="hint warn-text" hidden></p>
         </section>
         <section class="form-section">
@@ -319,6 +320,11 @@
             <h3>程序</h3>
             <div class="group-box" id="set-engines"></div>
             <p class="hint">用的都是你电脑上装好的官方程序。新模型常常要新版本的程序才看得到；ClawChat 每 5 分钟会自动重新读一次模型列表。</p>
+          </section>
+          <section class="form-section">
+            <h3>多开成员</h3>
+            <div class="group-box" id="set-clones"></div>
+            <p class="hint">同一位可以再开一个独立的成员，比如没有 Claude 时多开一个 ChatGPT2：用同一个程序和账号，但有自己的记忆、模型设置和私聊，和本体分头干活。在群里用 @ChatGPT2 叫它。</p>
           </section>
           <section class="form-section">
             <h3>DeepSeek</h3>

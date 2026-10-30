@@ -2,6 +2,8 @@
 # 假的 Codex：照 codex exec --json 的格式回一段话，只用来测 ClawChat 的界面和流程，不连任何 AI。
 # 想让它回指定的话（比如测 AI 之间私聊）：把内容写进 $CLAWCHAT_HOME/fake-replies/codex.txt，用一次就删掉。
 if [ "$1" = "--version" ]; then echo "codex-cli 0.0.0-fake"; exit 0; fi
+# 登录状态：FAKE_CODEX_LOGGED_OUT=1 时装作没登录
+if [ "$1" = "login" ]; then if [ -n "$FAKE_CODEX_LOGGED_OUT" ]; then echo "Not logged in" >&2; exit 1; else echo "Logged in using ChatGPT (fake)"; exit 0; fi; fi
 if [ "$1" != "exec" ]; then echo "fake codex：只支持 exec" >&2; exit 1; fi
 cat > /dev/null # 读掉标准输入里的提示词
 SID=""

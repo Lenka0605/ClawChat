@@ -1,0 +1,18 @@
+{
+  "{name} 最多开到 9 号": "{name} can have up to 9 copies",
+  "不认识这位成员": "Unknown member",
+  "{name} 的 {n} 号": "{name} #{n}",
+  "{name} 的 {n} 号：同一个程序和账号，自己的记忆和设置": "{name} #{n}: same app and account, its own memory and settings",
+  "再开一位": "Add Another",
+  "删除": "Delete",
+  "删除 {name}？": "Delete {name}?",
+  "它会从所有群里退出，手上的活也会停下；聊天记录还在。": "It will leave every group chat and stop what it's doing. Chat history is kept.",
+  "开一个": "Add",
+  "开好了 {name}：建群或在群设置里勾上它，在群里用 @{name} 叫它": "{name} is ready. Add it when creating a group or in group settings, and call it with @{name}.",
+  "还有 {names} 没装好或没登录，显示出来": "{names} not installed or signed in yet. Show anyway",
+  "还有和 {name} 的单聊「{room}」，先把那个单聊删掉再删 {name}": "There's still a one-on-one chat with {name} (“{room}”). Delete that chat first, then delete {name}.",
+  "多开成员": "Extra Members",
+  "同一位可以再开一个独立的成员，比如没有 Claude 时多开一个 ChatGPT2：用同一个程序和账号，但有自己的记忆、模型设置和私聊，和本体分头干活。在群里用 @ChatGPT2 叫它。": "You can add another independent copy of a member — for example a ChatGPT2 if you don't have Claude. It uses the same app and account, but has its own memory, model settings, and private chats, and works separately from the original. Call it with @ChatGPT2 in a group.",
+  "没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）": "Not signed in to Claude (DeepSeek and GLM can still use it)",
+  "没登录 ChatGPT 账号": "Not signed in to ChatGPT"
+}
