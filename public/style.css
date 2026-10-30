@@ -925,6 +925,18 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
   #scroller, #composer { padding-left: 12px; padding-right: 12px; }
 }
 
+/* 再窄一档（390 左右）：顶栏只留最要紧的，搜索、设置不能被挤到窗口外面去 */
+@media (max-width: 560px) {
+  #sidebar { width: 150px; }
+  #room-head { padding-left: 8px; padding-right: 4px; gap: 4px; }
+  #room-icon { display: none; }
+  #room-count { display: none; }
+  .model-more .chip-model { display: none; }
+  #btn-find { display: none; } /* 还能用 ⌘F / Ctrl+F */
+  .composer-tools { margin-left: 36px; }
+  .room-sub { overflow: hidden; }
+}
+
 /* ---------- 应用设置（仿 macOS 的设置窗口：图标工具栏 + 分组列表） ---------- */
 dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .prefs-window { display: flex; flex-direction: column; max-height: calc(100vh - 56px); }

@@ -33,10 +33,11 @@ const S = {
   sessionImages: new Map(), // roomId -> { gpt: 会话里存的图片字节数 }（会话太重时顶部按钮上提醒）
   newBelow: 0, // 往上翻着的时候来了几条新消息（标在「回到最新」按钮上）
   pinned: true, // 是不是贴着最底下（消息列表变高时继续贴着；自己往上翻、跳到某条消息时就不贴了）
-  messages: new Map(), // roomId -> message[]
-  hasEarlier: new Map(), // roomId -> 服务器上还有没有更早的（打开大群时只取最近一段）
-  hasLater: new Map(), // roomId -> 跳到过很老的一段时，后面还有更新的没取下来
-  early: new Map(), // 消息列表还没加载完时收到的新消息
+  messages: new Map(), // 会话 key（g:群 / d:群:成员）-> message[]，每个会话各存各取，私聊不会被群消息挤掉
+  bounds: new Map(), // 会话 key -> { first, last, hasEarlier, hasLater }：这个会话已经取到哪一段
+  clearGen: new Map(), // roomId -> 清空过几次：清空之前发出去的取消息请求回来时，按代次丢掉（这个群里所有会话一起作废）
+  loadingEarlier: new Set(), // 正在问服务器要更早的一段（连着点、滚动触发两次时别重复取）
+  early: new Map(), // 消息列表还没加载完时收到的新消息（会话 key -> message[]）
   runs: [],
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
@@ -1893,9 +1894,11 @@ async function loadSteps(conv, seq, detailsEl) {
   };
   if (now?.steps?.length) return put(now.steps);
   stepsLoading.add(loadingKey);
+  const gen = S.clearGen.get(conv.roomId) || 0;
   try {
     const { steps } = await api('GET', `/api/rooms/${conv.roomId}/messages/${seq}/steps`);
     if (S.current !== conv.key) return;
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return; // 清空了：这个编号已经是别的消息
     put(steps || []);
   } catch (err) {
     detailsEl?.querySelector?.('.steps-loading')?.remove();
@@ -2049,7 +2052,7 @@ function messageHtml(roomId, m, prev, conv) {
 }
 
 function convMessages(conv) {
-  return (S.messages.get(conv.roomId) || []).filter((m) => inConv(conv, m));
+  return (S.messages.get(conv.key) || []).filter((m) => inConv(conv, m));
 }
 
 // 长对话只画最近的一段（PAGE 条），往上翻快到顶时再接上更早的：
@@ -2065,7 +2068,7 @@ function renderMessages() {
   const from = Math.min(S.rendered.from, Math.max(0, list.length - PAGE));
   S.rendered.from = from;
   const typing = document.activeElement?.classList.contains('edit-input');
-  const later = S.hasLater.get(conv.roomId) ? `<button class="load-earlier load-later" data-later>${tr('更新的消息')}</button>` : '';
+  const later = boundsOf(conv).hasLater ? `<button class="load-earlier load-later" data-later>${tr('更新的消息')}</button>` : '';
   $('#messages').innerHTML = earlierHtml(from) + list.slice(from).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('') + later;
   restoreEditor(typing);
   refreshFind();
@@ -2077,7 +2080,7 @@ function renderMessages() {
 function earlierHtml(from) {
   if (from > 0) return `<button class="load-earlier" data-earlier>${tr('更早的 {n} 条消息', { n: from })}</button>`;
   const conv = currentConv();
-  if (conv && S.hasEarlier.get(conv.roomId)) return `<button class="load-earlier" data-earlier>${tr('加载更早的消息')}</button>`;
+  if (conv && boundsOf(conv).hasEarlier) return `<button class="load-earlier" data-earlier>${tr('加载更早的消息')}</button>`;
   return '';
 }
 
@@ -2102,29 +2105,56 @@ async function loadEarlier(upTo = null) {
     s.scrollTop += s.scrollHeight - before;
     return;
   }
-  // 本地这一段已经到头了：问服务器要更早的一段，接在最上面
-  if (!S.hasEarlier.get(conv.roomId) || !list.length) return;
+  // 本地这一段已经到头了：问服务器要更早的一段，接在最上面。
+  // 边界按这个会话算（私聊有私聊自己的边界，不会被同群里后来的群消息挤掉）
+  const b = boundsOf(conv);
+  if (!b.hasEarlier || b.first === null) return;
+  if (S.loadingEarlier.has(conv.key)) return; // 连着点两下、或者滚动触发了两次：只取一次
+  S.loadingEarlier.add(conv.key);
+  const gen = S.clearGen.get(conv.roomId) || 0;
   try {
-    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&before=${list[0].seq}`);
+    const res = await api(
+      'GET',
+      `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}&before=${b.first}`,
+    );
     const older = Array.isArray(res) ? res : res.messages || [];
     if (S.current !== conv.key) return; // 等的这会儿已经点去别的聊天了
-    S.hasEarlier.set(conv.roomId, !!res.hasEarlier);
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return; // 等的这会儿清空了：这些旧消息不要了
+    if (older.length) {
+      b.first = older[0].seq;
+      b.last = b.last === null ? older[older.length - 1].seq : b.last;
+    }
+    b.hasEarlier = !!res.hasEarlier;
+    S.bounds.set(conv.key, b);
     if (!older.length) {
       box.querySelector('[data-earlier]')?.remove();
       box.insertAdjacentHTML('afterbegin', earlierHtml(0));
       return;
     }
     const before = s.scrollHeight;
-    S.messages.set(conv.roomId, mergeMessages(conv.roomId, older));
+    S.messages.set(conv.key, mergeMessages(conv.key, older));
     const merged = convMessages(conv);
-    const end = merged.findIndex((m) => m.seq === list[0].seq);
-    const start = Math.max(0, merged.findIndex((m) => m.seq === older[0].seq));
+    // 只画当前会话里的；同一个编号已经画在页面上的跳过（两次请求几乎同时回来时不会重复）
+    const shown = new Set([...box.querySelectorAll('.msg[data-seq]')].map((el) => Number(el.dataset.seq)));
+    const added = older.filter((m) => inConv(conv, m) && !shown.has(m.seq));
     box.querySelector('[data-earlier]')?.remove();
-    box.insertAdjacentHTML('afterbegin', earlierHtml(0) + merged.slice(start, end).map((m, i) => messageHtml(conv.roomId, m, merged[start + i - 1], conv)).join(''));
-    S.rendered.from = start;
+    if (added.length) {
+      const html = added
+        .map((m) => {
+          const i = merged.findIndex((x) => x.seq === m.seq);
+          return messageHtml(conv.roomId, m, merged[i - 1], conv);
+        })
+        .join('');
+      box.insertAdjacentHTML('afterbegin', earlierHtml(0) + html);
+      S.rendered.from = Math.max(0, merged.findIndex((m) => m.seq === added[0].seq));
+    } else {
+      box.insertAdjacentHTML('afterbegin', earlierHtml(0)); // 这一段里没有这个会话的消息：把按钮留在上面，接着翻
+    }
     s.scrollTop += s.scrollHeight - before;
   } catch (err) {
     toast(err.message);
+  } finally {
+    S.loadingEarlier.delete(conv.key);
   }
 }
 
@@ -2157,12 +2187,12 @@ function restoreEditor(typing) {
 
 // 私聊里的这条回复是不是已经转到群里了
 function isForwarded(roomId, seq) {
-  return (S.messages.get(roomId) || []).some((x) => x.forwardOf === seq);
+  return (S.messages.get(`g:${roomId}`) || []).some((x) => x.forwardOf === seq);
 }
 
 // 「让它接着做」按钮：提醒之后它们已经说过话了（接着做过了），按钮就灰掉
 function resumeButton(roomId, m) {
-  const done = (S.messages.get(roomId) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
+  const done = (S.messages.get(`g:${roomId}`) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
   const names = m.action.agents.map(agentName).join(LIST_SEP);
   return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? tr('已经接着做了') : esc(tr('让 {names} 接着做', { names }))}</button>`;
 }
@@ -2203,7 +2233,7 @@ async function forwardMessage(seq, btn) {
 
 function findMessage(seq) {
   const conv = currentConv();
-  return conv ? (S.messages.get(conv.roomId) || []).find((m) => m.seq === seq) : null;
+  return conv ? (S.messages.get(conv.key) || []).find((m) => m.seq === seq) : null;
 }
 
 // 复制出去的纯文字：去掉 Markdown 的记号（**加粗**、`代码`、# 标题、- 列表开头这些），像看到的那样干净；
@@ -2528,7 +2558,7 @@ function updateToBottom() {
 
 async function jumpToBottom() {
   const conv = currentConv();
-  if (conv && S.hasLater.get(conv.roomId)) await loadLatestWindow(); // 跳到过老消息：先把最新的一段取回来
+  if (conv && boundsOf(conv).hasLater) await loadLatestWindow(); // 跳到过老消息：先把最新的一段取回来
   const s = $('#scroller');
   S.newBelow = 0;
   const target = s.scrollHeight - s.clientHeight;
@@ -2658,24 +2688,58 @@ function setRuns(runs) {
   }
 }
 
+// 私聊里也要知道群里有没有这条（「发到群里」按钮转过的就不再显示）：后台把群里的最近一段取一份
+function primeGroupMessages(roomId) {
+  const key = `g:${roomId}`;
+  if (S.messages.has(key)) return;
+  loadMessages({ key, roomId, dm: null }).catch(() => {});
+}
+
 // 打开聊天时只取最近一段：大群有几 MB，全部取过来又慢又占内存。往上翻、跳到老消息时再补
 const MSG_PAGE = 150;
 
-function mergeMessages(roomId, incoming) {
-  const map = new Map((S.messages.get(roomId) || []).map((m) => [m.seq, m]));
+function mergeMessages(key, incoming) {
+  const map = new Map((S.messages.get(key) || []).map((m) => [m.seq, m]));
   for (const m of incoming) if (!map.has(m.seq)) map.set(m.seq, m);
   return [...map.values()].sort((a, b) => a.seq - b.seq);
 }
 
-async function loadMessages(roomId) {
-  if (S.messages.has(roomId)) return true;
+// 会话在接口里的名字：群里是 g，和某位的私聊是 d:<成员>（和搜索里的算法一样）
+const convTag = (conv) => (conv.dm ? `d:${conv.dm}` : 'g');
+// 一个群里所有会话的缓存 key（群 + 各个私聊）：清空、删群时一起清
+function convKeysOfRoom(roomId) {
+  const out = [`g:${roomId}`];
+  for (const map of [S.messages, S.bounds, S.early]) for (const k of map.keys()) if (k.startsWith(`d:${roomId}:`)) out.push(k);
+  return [...new Set(out)];
+}
+const boundsOf = (conv) => S.bounds.get(conv.key) || { first: null, last: null, hasEarlier: false, hasLater: false };
+function setBounds(conv, messages, res) {
+  const b = { ...boundsOf(conv) };
+  b.hasEarlier = !!res.hasEarlier;
+  b.hasLater = !!res.hasLater;
+  if (messages.length) {
+    b.first = messages[0].seq;
+    b.last = messages[messages.length - 1].seq;
+  }
+  S.bounds.set(conv.key, b);
+}
+// 来了新消息：这个会话已经取到的最新一条跟着往后挪（不然「更新的消息」会误判）
+function touchBounds(convKey, m) {
+  const b = S.bounds.get(convKey);
+  if (b && (b.last === null || m.seq > b.last)) b.last = m.seq;
+}
+
+async function loadMessages(conv) {
+  if (S.messages.has(conv.key)) return true;
+  const gen = S.clearGen.get(conv.roomId) || 0;
   try {
-    const res = await api('GET', `/api/rooms/${roomId}/messages?limit=${MSG_PAGE}`);
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}`);
     const messages = Array.isArray(res) ? res : res.messages || []; // 服务端不认识分页参数时会发来全部（老版本）
-    S.hasEarlier.set(roomId, !!res.hasEarlier);
-    const merged = mergeMessages(roomId, [...messages, ...(S.early.get(roomId) || [])]);
-    S.early.delete(roomId);
-    S.messages.set(roomId, merged);
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return true; // 等的这会儿清空了：空的就是对的
+    const merged = mergeMessages(conv.key, [...messages, ...(S.early.get(conv.key) || [])]);
+    S.early.delete(conv.key);
+    S.messages.set(conv.key, merged);
+    setBounds(conv, arrSorted(merged), res);
     return true;
   } catch (err) {
     toast(err.message);
@@ -2683,20 +2747,24 @@ async function loadMessages(roomId) {
   }
 }
 
+// 边界只跟这一段的最后一条有关：按编号排好再算（SSE 先到的消息可能排在后面）
+const arrSorted = (list) => list.slice().sort((a, b) => a.seq - b.seq);
+
 // 要跳到一条还没取下来的老消息：取它附近的一段，整段画出来再跳
 async function ensureSeqLoaded(seq) {
   const conv = currentConv();
   if (!conv) return false;
-  if ((S.messages.get(conv.roomId) || []).some((m) => m.seq === seq)) return true;
+  if ((S.messages.get(conv.key) || []).some((m) => m.seq === seq)) return true;
+  const gen = S.clearGen.get(conv.roomId) || 0;
   try {
-    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&around=${seq}`);
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}&around=${seq}`);
     const around = Array.isArray(res) ? res : res.messages || [];
-    if (!around.length) return false;
-    S.hasEarlier.set(conv.roomId, !!res.hasEarlier);
-    S.hasLater.set(conv.roomId, !!res.hasLater);
+    if (!around.length || S.current !== conv.key) return false;
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return false; // 等的这会儿清空了：旧消息不要了
     // 整段换掉：和原来那段之间隔着没取下来的消息，混在一起会跳号
     const map = new Map(around.map((m) => [m.seq, m]));
-    S.messages.set(conv.roomId, [...map.values()].sort((a, b) => a.seq - b.seq));
+    S.messages.set(conv.key, [...map.values()].sort((a, b) => a.seq - b.seq));
+    setBounds(conv, arrSorted(around), res);
     S.rendered = { key: conv.key, from: 0 };
     renderMessages();
     return true;
@@ -2709,13 +2777,20 @@ async function ensureSeqLoaded(seq) {
 async function loadLatestWindow() {
   const conv = currentConv();
   if (!conv) return false;
+  const gen = S.clearGen.get(conv.roomId) || 0;
+  const old = S.messages.get(conv.key) || [];
+  const tail = old.length ? old[old.length - 1].seq : -1;
   try {
-    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}`);
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}`);
     const latest = Array.isArray(res) ? res : res.messages || [];
     if (!latest.length || S.current !== conv.key) return false;
-    S.hasEarlier.set(conv.roomId, !!res.hasEarlier);
-    S.hasLater.delete(conv.roomId);
-    S.messages.set(conv.roomId, latest); // 整段换掉：中间没取下来的那段不用留
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return false;
+    // 等的时候真正收到的新消息（比原来最后一条还新）：留着，别被这一页盖掉
+    const arrived = (S.messages.get(conv.key) || []).filter((m) => m.seq > tail);
+    const merged = new Map([...latest, ...arrived].map((m) => [m.seq, m]));
+    // 整段换掉：中间没取下来的那段不用留
+    S.messages.set(conv.key, [...merged.values()].sort((a, b) => a.seq - b.seq));
+    setBounds(conv, arrSorted([...merged.values()]), res);
     const list = convMessages(conv);
     S.rendered = { key: conv.key, from: Math.max(0, list.length - PAGE) };
     renderMessages();
@@ -2781,8 +2856,9 @@ async function openConv(key, { keepFocus = false } = {}) {
   renderConvs();
   revealSideItem(key); // 群多的时候，打开的这个可能在侧栏下面看不见
   renderShell();
-  if (!S.messages.has(c.roomId)) $('#messages').innerHTML = '';
-  if (!(await loadMessages(c.roomId)) || S.current !== key) return;
+  if (!S.messages.has(c.key)) $('#messages').innerHTML = '';
+  if (!(await loadMessages(c)) || S.current !== key) return;
+  if (c.dm) primeGroupMessages(c.roomId); // 私聊里的「发到群里」要看群里有没有这段，顺手把群里的消息取一份
   if (currentConv()) renderTargets(currentConv().room, currentConv().dm); // 消息读到了，才知道「上一位」是谁
   renderMessages();
   renderLive();
@@ -2825,7 +2901,7 @@ window.__clawchatOpenConv = (key) => openConv(key);
 
 // 群里最后说话的那位 AI（不算私聊）：不 @ 人时「接着上一位」就发给它
 function lastSpeakerOf(room) {
-  const list = S.messages.get(room.id) || [];
+  const list = S.messages.get(`g:${room.id}`) || []; // 只看群里的消息，私聊里说的话不算
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i];
     if (!m.dm && !m.pm && room.members.includes(m.from)) return m.from;
@@ -2854,15 +2930,16 @@ function renderTargets(room, dm) {
 
 function onMessage(roomId, m) {
   if (m.from === 'gpt' || (m.from === 'system' && m.action?.type === 'fresh')) refreshSessionImages(roomId);
-  const list = S.messages.get(roomId);
+  const key = convOf(roomId, m); // 这条属于哪个会话：群、某人跟老板的私聊、或者两位 AI 之间的私聊
+  const list = S.messages.get(key);
   if (list) {
     if (list.some((x) => x.seq === m.seq)) return;
     list.push(m);
+    touchBounds(key, m);
   } else {
-    if (!S.early.has(roomId)) S.early.set(roomId, []);
-    S.early.get(roomId).push(m);
+    if (!S.early.has(key)) S.early.set(key, []);
+    S.early.get(key).push(m);
   }
-  const key = convOf(roomId, m);
   const conv = currentConv();
   if (conv && conv.roomId === roomId && !m.dm && !m.pm && conv.room.members.includes(m.from)) renderTargets(conv.room, conv.dm);
   if (list && conv && conv.roomId === roomId && inConv(conv, m)) {
@@ -2925,9 +3002,14 @@ function handleEvent(ev) {
       break;
     case 'cleared':
       // 这个群的聊天记录被清空了：本地的也清掉，正在看的话重画
-      S.messages.set(ev.roomId, []);
-      S.hasEarlier.delete(ev.roomId);
-      S.early.delete(ev.roomId);
+      for (const k of convKeysOfRoom(ev.roomId)) {
+        S.messages.delete(k);
+        S.bounds.delete(k);
+        S.early.delete(k);
+        S.loadingEarlier.delete(k);
+      }
+      S.clearGen.set(ev.roomId, (S.clearGen.get(ev.roomId) || 0) + 1); // 清空前发出去的取消息请求，回来也不要了
+      if (currentConv()) S.messages.set(S.current, []);
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
       for (const k of [...S.openedDms.keys()]) if (parseKey(k)?.roomId === ev.roomId && k !== S.current) S.openedDms.delete(k); // 没消息的私聊别留在侧栏
       if (currentConv()?.roomId === ev.roomId) {
@@ -2995,6 +3077,9 @@ function connect() {
     try {
       applyState(await api('GET', '/api/state'));
       S.messages.clear();
+      S.bounds.clear();
+      S.early.clear();
+      for (const r of S.rooms) S.clearGen.set(r.id, (S.clearGen.get(r.id) || 0) + 1);
       renderEngines();
       renderConvs();
       if (currentConv()) openConv(S.current);
@@ -3180,12 +3265,17 @@ async function sendMessage() {
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
   askNotifyPermission();
-  if (S.hasLater.get(conv.roomId)) await loadLatestWindow(); // 正在看很早的一段：新消息要接在最新那段后面
+  // 先把要发的内容和归属定下来：下面等「最新一段」回来的时候，可能已经切去别的聊天、在那边打字了
   const raw = el.value;
   const text = cleanMentions(raw).trim(); // 发出去的还是普通的 @Claude
   const draftKey = S.current;
   const sent = S.attachments.filter((a) => a.status === 'done' && a.roomId === conv.roomId);
   if (!text && !sent.length) return;
+  if (boundsOf(conv).hasLater) {
+    await loadLatestWindow(); // 正在看很早的一段：新消息要接在最新那段后面
+    if (S.current !== draftKey) return; // 等的时候切走了：这条先不发，两个会话的草稿都还在
+    if (el.value !== raw) return; // 等的时候又把字改了：别把这几个字清掉
+  }
   el.value = '';
   const kept = S.attachments;
   const reply = S.replyTo;
@@ -4777,7 +4867,11 @@ async function deleteRoom() {
   try {
     await api('DELETE', `/api/rooms/${S.editing}`);
     S.rooms = S.rooms.filter((r) => r.id !== S.editing);
-    S.messages.delete(S.editing);
+    for (const k of convKeysOfRoom(S.editing)) {
+      S.messages.delete(k);
+      S.bounds.delete(k);
+      S.early.delete(k);
+    }
     closeDialog($('#dlg-room'));
     const next = conversations()[0];
     S.current = next?.key || null;
