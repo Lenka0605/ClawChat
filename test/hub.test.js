@@ -57,6 +57,43 @@ test('Windows：从 npm 的 .cmd 包装脚本里找出真正要跑的 JS', () =>
   assert.equal(cmdShimTarget('"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'), 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe');
 });
 
+test('Windows：npm 10.9 的包装脚本开头先找 npm 目录里的 node.exe，不能把它当成要跑的程序', () => {
+  // npm 10.9（cmd-shim 7）生成的 codex.cmd 原文：以前取到了第一个匹配的 %dp0%\node.exe，那个文件根本不存在，ChatGPT 一启动就 ENOENT
+  const npm109 = [
+    '@ECHO off',
+    'GOTO start',
+    ':find_dp0',
+    'SET dp0=%~dp0',
+    'EXIT /b',
+    ':start',
+    'SETLOCAL',
+    'CALL :find_dp0',
+    '',
+    'IF EXIST "%dp0%\\node.exe" (',
+    '  SET "_prog=%dp0%\\node.exe"',
+    ') ELSE (',
+    '  SET "_prog=node"',
+    '  SET PATHEXT=%PATHEXT:;.JS;=;%',
+    ')',
+    '',
+    'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+  ].join('\r\n');
+  assert.equal(cmdShimTarget(npm109), 'node_modules\\@openai\\codex\\bin\\codex.js');
+  // 更早的 npm：IF EXIST 那一行直接写着 node.exe 和 JS
+  const older = [
+    '@IF EXIST "%~dp0\\node.exe" (',
+    '  "%~dp0\\node.exe"  "%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+    ') ELSE (',
+    '  @SETLOCAL',
+    '  @SET PATHEXT=%PATHEXT:;.JS;=;%',
+    '  node  "%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+    ')',
+  ].join('\r\n');
+  assert.equal(cmdShimTarget(older), 'node_modules\\@openai\\codex\\bin\\codex.js');
+  // 只有 node.exe、没有别的：找不到，交给 cmd.exe 照原样跑
+  assert.equal(cmdShimTarget('"%dp0%\\node.exe" %*'), null);
+});
+
 test('Codex 配置里自己选过 Windows 沙盒就不替它选', () => {
   assert.equal(codexPicksWindowsSandbox('model = "gpt-6"\n[windows]\nsandbox = "elevated"\n'), true);
   assert.equal(codexPicksWindowsSandbox('windows.sandbox = "elevated"\n'), true);
