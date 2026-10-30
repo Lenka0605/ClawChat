@@ -4253,7 +4253,8 @@ function openDialog(room, preset = null) {
   formField('name').focus();
 }
 
-// 群设置里填的东西（名字、成员、模型、收纳组……），用来看打开以后有没有改过
+// 群设置里填的东西（名字、成员、模型、收纳组……），用来看打开以后有没有改过。
+// 表单里带 name 的控件 FormData 会自动带上；不带 name 的（比如收纳组下拉框）要在这里手动补，以后加控件别漏了
 function roomFormSnapshot() {
   return JSON.stringify([...new FormData($('#room-form'))].concat([['folder', $('#set-folder').value]]));
 }
