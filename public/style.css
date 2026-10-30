@@ -519,6 +519,22 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
 .dm-btn { border: 0; padding: 0; background: none; border-radius: 50%; line-height: 0; }
 .dm-btn:hover .avatar { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
 .dm-entry .avatar { width: 24px; height: 24px; }
+/* 窗口窄：私聊头像收进一个按钮（点开是成员列表），给群名和模型按钮让出位置 */
+.dm-more { display: none; align-items: center; gap: 2px; height: 24px; padding: 0 4px; border-radius: 8px; line-height: normal; background: var(--glass); box-shadow: var(--glass-edge); }
+.dm-more .dm-stack { display: flex; }
+.dm-more .dm-stack .avatar { width: 17px; height: 17px; margin-left: -5px; box-shadow: 0 0 0 1.5px var(--side); }
+.dm-more .dm-stack .avatar:first-child { margin-left: 0; }
+.dm-more svg { color: var(--muted); flex: none; }
+@media (max-width: 900px) {
+  .dm-entry > .muted, .dm-entry .dm-btn:not(.dm-more) { display: none; }
+  .dm-entry .dm-more { display: inline-flex; }
+}
+
+/* 顶栏一行放不下（群成员多）：成员按钮收成一个「模型」按钮（点开是成员和各自的模型），顶栏不再变成两行 */
+.model-more { display: none; gap: 4px; }
+.model-more .chip-stack .avatar { width: 18px; height: 18px; }
+#room-head.compact .model-more { display: inline-flex; }
+#room-head.compact .model-chip[data-menu] { display: none; }
 
 #scroller { flex: 1; overflow-y: auto; padding: calc(var(--head-h, 52px) + 14px) 20px calc(var(--composer-h, 96px) + 8px); min-height: 0; -webkit-user-select: text; user-select: text; }
 .msg { display: flex; gap: 8px; margin: 0 0 4px; align-items: flex-start; }
@@ -594,6 +610,11 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
 .bubble blockquote { margin: 0 0 6px; padding-left: 10px; border-left: 3px solid var(--faint); color: var(--muted); }
 .bubble code { font: 12px/1.5 var(--mono); background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
 .msg.user .bubble code { background: rgba(255, 255, 255, 0.2); }
+/* 自己发的消息也会排版：代码块、表格在蓝色气泡里换成半透明白，别用浅色的底把字盖掉 */
+.msg.user .bubble pre { background: rgba(255, 255, 255, 0.18); }
+.msg.user .bubble th { background: rgba(255, 255, 255, 0.16); }
+.msg.user .bubble th, .msg.user .bubble td { border-color: rgba(255, 255, 255, 0.3); }
+.msg.user .bubble blockquote { border-left-color: rgba(255, 255, 255, 0.45); color: inherit; }
 .bubble pre { background: var(--code-bg); padding: 8px 10px; border-radius: 8px; overflow-x: auto; margin: 2px 0 6px; }
 .bubble pre code { background: none; padding: 0; white-space: pre; }
 .bubble a { color: var(--accent); text-decoration: none; }
@@ -636,7 +657,8 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; z-index: -1; pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--bg) 85%);
 }
-.composer-tools { display: flex; gap: 6px; align-items: center; margin: 0 0 8px 40px; flex-wrap: nowrap; min-height: 22px; }
+.composer-tools { display: flex; gap: 6px; align-items: center; margin: 0 0 8px 40px; flex-wrap: nowrap; min-height: 22px; overflow-x: auto; scrollbar-width: none; }
+.composer-tools::-webkit-scrollbar { display: none; }
 /* 一行放不下时（app.js 的 fitTools）：@ 按钮只留头像，「不 @ 时」收起来 */
 .composer-tools.compact .chip-name, .composer-tools.compact .target-label { display: none; }
 .composer-tools.compact .mention-chip { padding: 0 4px; }
@@ -878,17 +900,41 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
   display: grid; place-items: center; z-index: 5; pointer-events: none; font-size: 15px; color: var(--accent); font-weight: 600;
 }
 
+/* 提示条：和其他浮层一样用玻璃变量（以前底色、阴影是写死的深色，浅色模式下和别的浮层不是一套） */
 #toast {
-  position: fixed; left: 50%; top: 64px; transform: translateX(-50%); background: rgba(40, 40, 40, 0.86); color: #fff;
+  position: fixed; left: 50%; top: 64px; transform: translateX(-50%); background: var(--glass-strong); color: var(--text);
   padding: 7px 14px; border-radius: 10px; font-size: 12px; max-width: 80vw; z-index: 30;
-  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), 0 6px 20px rgba(0, 0, 0, 0.18);
 }
 
 @media (max-width: 760px) {
   #sidebar { width: 210px; }
+  #room-head { padding-left: 14px; padding-right: 8px; gap: 8px; }
   .msg-body { max-width: 86%; }
+  /* 正在干活的气泡也按 86%：以前它固定 70%，干完变宽，同一句话会跳一下 */
+  .msg.live .msg-body { width: min(86%, 680px); }
   #scroller, #composer { padding-left: 16px; padding-right: 16px; }
   .chip-model { max-width: 110px; }
+}
+
+/* Windows 上窗口可以比 Mac 更窄：侧栏再收一点，顶栏留白收紧 */
+@media (max-width: 680px) {
+  #sidebar { width: 188px; }
+  #room-head { padding-left: 12px; padding-right: 6px; gap: 6px; }
+  #scroller, #composer { padding-left: 12px; padding-right: 12px; }
+}
+
+/* 再窄一档（390 左右）：顶栏只留最要紧的，搜索、设置不能被挤到窗口外面去 */
+@media (max-width: 560px) {
+  #sidebar { width: 150px; }
+  #room-head { padding-left: 8px; padding-right: 4px; gap: 4px; }
+  #room-icon { display: none; }
+  #room-count { display: none; }
+  .model-more .chip-model { display: none; }
+  #btn-find { display: none; } /* 还能用 ⌘F / Ctrl+F */
+  .composer-tools { margin-left: 36px; }
+  .room-sub { overflow: hidden; }
 }
 
 /* ---------- 应用设置（仿 macOS 的设置窗口：图标工具栏 + 分组列表） ---------- */

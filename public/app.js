@@ -33,8 +33,11 @@ const S = {
   sessionImages: new Map(), // roomId -> { gpt: 会话里存的图片字节数 }（会话太重时顶部按钮上提醒）
   newBelow: 0, // 往上翻着的时候来了几条新消息（标在「回到最新」按钮上）
   pinned: true, // 是不是贴着最底下（消息列表变高时继续贴着；自己往上翻、跳到某条消息时就不贴了）
-  messages: new Map(), // roomId -> message[]
-  early: new Map(), // 消息列表还没加载完时收到的新消息
+  messages: new Map(), // 会话 key（g:群 / d:群:成员）-> message[]，每个会话各存各取，私聊不会被群消息挤掉
+  bounds: new Map(), // 会话 key -> { first, last, hasEarlier, hasLater }：这个会话已经取到哪一段
+  clearGen: new Map(), // roomId -> 清空过几次：清空之前发出去的取消息请求回来时，按代次丢掉（这个群里所有会话一起作废）
+  loadingEarlier: new Set(), // 正在问服务器要更早的一段（连着点、滚动触发两次时别重复取）
+  early: new Map(), // 消息列表还没加载完时收到的新消息（会话 key -> message[]）
   runs: [],
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
@@ -290,8 +293,11 @@ function toast(text, ms = 2600) {
   // 放在聊天区上方、顶栏下面，按聊天区居中（不算侧栏）
   const main = $('#main').getBoundingClientRect();
   const head = $('#chat').hidden ? 0 : $('#room-head').offsetHeight;
+  const find = $('#find');
+  // 群里的搜索条也在顶栏下面：它开着的时候把提示再往下让一让，免得盖住搜索框
+  const findBox = find && !find.hidden ? find.offsetHeight + 8 : 0;
   t.style.left = `${main.left + main.width / 2}px`;
-  t.style.top = `${main.top + head + 12}px`;
+  t.style.top = `${main.top + head + 12 + findBox}px`;
   t.textContent = text;
   t.classList.remove('leaving');
   t.hidden = false;
@@ -555,10 +561,13 @@ function looksLikeFile(s) {
 // 说不准是不是路径的：带 / 但没有扩展名（design-requests/dark-mode-art，也可能是分支名 fix/xxx），或者带中文的名字（现有图片(白底)）。
 // 先按普通代码显示，问过服务端、项目里真有才变成能点的
 const MAYBE_PATH_RE = /^[^\s`<>|*?"]{1,200}$/;
+// 带中文的也当文件名（现有图片(白底)），但要长得像文件名：有斜杠、扩展名或者括号。
+// 以前只要带中文就去问一遍，行内代码里的「代码」「参数」这种普通词也会被当成路径（每次问答都白花一次请求）
+const NAMEY_RE = /[\\/._()（）]/;
 function codeHtml(code) {
   const c = code.trim();
   if (looksLikeFile(c)) return `<code class="file-ref" data-path="${esc(c)}" title="${REVEAL_LABEL}">${esc(code)}</code>`;
-  if (MAYBE_PATH_RE.test(c) && (c.includes('/') || /[^\x00-\x7f]/.test(c)) && !/^[a-z]+:/i.test(c)) return `<code class="file-ref maybe" data-path="${esc(c)}">${esc(code)}</code>`;
+  if (MAYBE_PATH_RE.test(c) && (c.includes('/') || NAMEY_RE.test(c)) && !/^[a-z]+:/i.test(c)) return `<code class="file-ref maybe" data-path="${esc(c)}">${esc(code)}</code>`;
   return `<code>${esc(code)}</code>`;
 }
 
@@ -1136,13 +1145,35 @@ function folderColor(folder) {
 }
 
 // 自定义过的（右键「更换头像…」）优先：图片 > 自己写的字 > 组名的第一个字
+// 图片存在服务端，界面上只拿地址（以前是把 data URL 塞在列表里跟着每次推送一起发）
+function folderImageUrl(folder) {
+  const av = folder.avatar || {};
+  if (av.imageV) return `/api/folders/${encodeURIComponent(folder.id)}/avatar?v=${encodeURIComponent(av.imageV)}`;
+  return av.image || '';
+}
 function folderAvatar(folder) {
   const av = folder.avatar || {};
-  if (av.image) return `<span class="folder-avatar has-image" style="background-image:url('${esc(av.image)}')"></span>`;
+  const image = folderImageUrl(folder);
+  if (image) return `<span class="folder-avatar has-image" style="background-image:url('${esc(image)}')"></span>`;
   const [a, b] = FOLDER_COLORS[folderColor(folder)];
   const first = graphemes(String(folder.name || '').trim())[0] || '·';
   const text = av.text || (/[a-z]/.test(first) ? first.toUpperCase() : first);
-  return `<span class="folder-avatar${graphemes(text).length > 1 ? ' two' : ''}" style="background:linear-gradient(160deg,${a},${b})">${esc(text)}</span>`;
+  // 浅色的头像上白字看不清（尤其是浅色模式），按底色自动换成深色字
+  return `<span class="folder-avatar${graphemes(text).length > 1 ? ' two' : ''}" style="background:linear-gradient(160deg,${a},${b});color:${folderInk(a, b)}">${esc(text)}</span>`;
+}
+
+// 渐变中间那个颜色上，白字够不够清楚（对比度 3.2 是粗体大字的下限）；不够就用深色字
+function folderInk(a, b) {
+  const lum = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+  const mix = (lum(a) + lum(b)) / 2;
+  return 1.05 / (mix + 0.05) >= 3.2 ? '#fff' : 'rgba(20, 20, 22, 0.82)';
 }
 
 // 更换收纳组头像：颜色、文字、图片，改的时候上面实时预览
@@ -1153,7 +1184,7 @@ async function openAvatarDialog(folderId) {
   let draft = { ...(folder.avatar || {}) };
   const preview = () => {
     $('#avatar-preview').innerHTML = folderAvatar({ ...folder, avatar: draft });
-    $('#btn-avatar-remove').hidden = !draft.image;
+    $('#btn-avatar-remove').hidden = !draft.image && !draft.imageV;
     const cur = folderColor({ ...folder, avatar: draft });
     $('#avatar-colors').innerHTML = FOLDER_COLORS.map(
       ([a, b], i) => `<button type="button" class="avatar-color${i === cur ? ' on' : ''}" data-color="${i}" style="background:linear-gradient(160deg,${a},${b})" aria-label="${tr('颜色 {n}', { n: i + 1 })}"></button>`,
@@ -1171,6 +1202,7 @@ async function openAvatarDialog(folderId) {
     if (!b) return;
     draft.color = Number(b.dataset.color);
     delete draft.image; // 选了颜色就是不要图片了
+    delete draft.imageV;
     preview();
   };
   $('#btn-avatar-upload').onclick = () => $('#avatar-file').click();
@@ -1180,6 +1212,7 @@ async function openAvatarDialog(folderId) {
     if (!file) return;
     try {
       draft.image = await squareImage(file, 160);
+      delete draft.imageV; // 换新图
       preview();
     } catch {
       toast(tr('这张图片打不开，换一张试试'));
@@ -1187,6 +1220,7 @@ async function openAvatarDialog(folderId) {
   };
   $('#btn-avatar-remove').onclick = () => {
     delete draft.image;
+    delete draft.imageV;
     preview();
   };
   $('#btn-avatar-reset').onclick = () => {
@@ -1199,8 +1233,8 @@ async function openAvatarDialog(folderId) {
     e.preventDefault();
     const avatar = Object.keys(draft).filter((k) => draft[k] !== undefined && draft[k] !== '').length ? draft : null;
     try {
-      await api('PATCH', `/api/folders/${folderId}`, { avatar });
-      S.folders = S.folders.map((f) => (f.id === folderId ? { ...f, avatar: avatar || undefined } : f));
+      const { folder: saved } = await api('PATCH', `/api/folders/${folderId}`, { avatar });
+      S.folders = S.folders.map((f) => (f.id === folderId ? saved || { ...f, avatar: avatar || undefined } : f));
       renderConvs();
       closeDialog(dlg);
     } catch (err) {
@@ -1270,6 +1304,17 @@ function markSideNav() {
   const key = SIDE_NAV.key?.startsWith('f:') ? SIDE_NAV.key : null;
   $('#conv-list').querySelectorAll('.conv-item.kbd').forEach((li) => li.classList.remove('kbd'));
   if (key) $('#conv-list').querySelector(`[data-folder="${CSS.escape(key.slice(2))}"]`)?.classList.add('kbd');
+}
+
+// 侧栏滚到某一行（当前打开的聊天、键盘停下的那一行）：群多了以后它可能在下面看不见。
+// 每次都按 key 重新找：列表刚重画过，旧的那个元素已经不在页面上了
+function revealSideItem(key) {
+  if (!key) return;
+  const list = $('#conv-list');
+  const el = key.startsWith('f:')
+    ? list.querySelector(`.conv-item[data-folder="${CSS.escape(key.slice(2))}"]`)
+    : list.querySelector(`.conv-item[data-key="${CSS.escape(key)}"]`);
+  el?.scrollIntoView({ block: 'nearest' });
 }
 
 function toggleFolder(id) {
@@ -1633,7 +1678,7 @@ async function openSearchRow(li) {
   closeDialog($('#dlg-search'));
   if (li.dataset.convKey) return openConv(li.dataset.convKey);
   await openConv(li.dataset.hitKey);
-  const el = jumpTo(Number(li.dataset.hitSeq));
+  const el = await jumpTo(Number(li.dataset.hitSeq));
   if (el) markFound(el, q);
 }
 
@@ -1747,10 +1792,18 @@ function renderShell() {
   // 顶部的模型按钮：群里显示所有成员，私聊只显示对方
   if (!$('#model-menu').hidden && !conv.room.members.includes($('#model-menu').dataset.agent)) closeModelMenu();
   $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
-  setHtml($('#model-switch'), (dm ? [dm] : room.members).map((a) => modelChipHtml(a, dm ? dmView(room, a) : room)).join(''));
+  setHtml(
+    $('#model-switch'),
+    (dm ? [dm] : room.members).map((a) => modelChipHtml(a, dm ? dmView(room, a) : room)).join('') +
+      // 顶栏一行放不下时（窄窗口 + 成员多）只显示这一个按钮，点开是成员和各自的模型
+      (!dm && group ? `<button class="model-chip model-more" data-model-more aria-haspopup="menu" title="${esc(tr('成员和模型'))}"><span class="chip-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span><span class="chip-model">${tr('模型')}</span>${CHEVRON_SVG}</button>` : ''),
+  );
   const entry = $('#dm-entry');
   entry.hidden = dm || !group;
-  entry.innerHTML = group && !dm ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}` : '';
+  // 窄窗口下这些头像收进一个按钮里（CSS 换），顶栏才不会被挤成两行
+  entry.innerHTML = group && !dm
+    ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}<button class="dm-btn dm-more" data-dm-menu title="${tr('私聊')}" aria-label="${tr('私聊')}"><span class="dm-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span>${CHEVRON_SVG}</button>`
+    : '';
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
@@ -1773,7 +1826,7 @@ function renderShell() {
 
 // 顶部的几个模型按钮一样宽（按最宽的那个来），看起来整齐
 function equalizeChips() {
-  const chips = [...$('#model-switch').children];
+  const chips = [...$('#model-switch').children].filter((c) => c.dataset.menu);
   chips.forEach((c) => (c.style.width = ''));
   if (chips.length < 2) return;
   const w = Math.ceil(Math.max(...chips.map((c) => c.getBoundingClientRect().width)));
@@ -1785,12 +1838,33 @@ function equalizeChips() {
 function fitHead() {
   const head = $('#room-head');
   if ($('#chat').hidden) return;
-  equalizeChips();
-  const width = (el) => (el.hidden ? 0 : el.offsetWidth + 10); // 10 是顶栏各块之间的间距
-  const chips = [...$('#model-switch').children].reduce((w, el) => w + el.offsetWidth + 6, 0);
-  const need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-find')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
-  const was = head.classList.contains('stacked');
-  if (head.classList.toggle('stacked', need > head.clientWidth) !== was) requestAnimationFrame(reportDragRegions);
+  const conv = currentConv();
+  // 换了聊天、改了成员：重新按普通按钮量一次
+  const sig = conv ? `${conv.key}|${conv.room.members.join(',')}` : '';
+  if (head._sig !== sig) {
+    head._sig = sig;
+    head._need = null;
+    head.classList.remove('compact');
+  }
+  const compact = head.classList.contains('compact');
+  // 只有普通按钮才量：收成头像以后按钮宽度不一样了，沿用上次量到的数字，免得来回跳
+  if (!compact) {
+    equalizeChips();
+    const width = (el) => (el.hidden ? 0 : el.offsetWidth + 10); // 10 是顶栏各块之间的间距
+    const chips = [...$('#model-switch').children].filter((c) => c.dataset.menu).reduce((w, el) => w + el.offsetWidth + 6, 0);
+    head._need = 32 + 150 + chips + width($('#dm-entry')) + width($('#btn-find')) + width($('#btn-settings')); // 32 是左右留白，150 留给群名
+  }
+  const need = head._need || 0;
+  // 群聊一行放不下时，成员按钮收成一个「模型」按钮（点开是成员和各自的模型），顶栏不再变成两行；私聊只有一位，照旧
+  const canIcon = !!conv && !conv.dm && conv.room.members.length > 1;
+  const want = canIcon && need > head.clientWidth;
+  if (want !== compact) {
+    head.classList.toggle('compact', want);
+    [...$('#model-switch').children].forEach((c) => (c.style.width = ''));
+    if (!want) requestAnimationFrame(fitHead); // 展开以后重新按普通按钮量一次
+    requestAnimationFrame(reportDragRegions);
+  }
+  head.classList.toggle('stacked', !want && need > head.clientWidth);
 }
 
 // 输入框上面那一行：私聊、单聊又没在干活时整行收起来
@@ -1801,6 +1875,50 @@ function syncToolsRow() {
 }
 
 const stepsListHtml = (steps) => `<ol>${steps.map(stepHtml).join('')}</ol>`;
+// 分页取回来的消息只带步数，展开时再去取步骤
+const loadingStepsHtml = () => `<div class="steps-loading muted">${tr('正在取过程…')}</div>`;
+
+const stepsLoading = new Set(); // 同一条别同时取两遍（展开和重画会各触发一次）
+async function loadSteps(conv, seq, detailsEl) {
+  const loadingKey = `${conv.roomId}:${seq}`;
+  if (stepsLoading.has(loadingKey)) return;
+  const now = findMessage(seq);
+  const put = (steps) => {
+    const target = findMessage(seq);
+    if (target && steps) target.steps = steps;
+    const d = detailsEl?.isConnected ? detailsEl : document.querySelector(`#messages details[data-steps="${seq}"]`);
+    if (!d) return;
+    d.querySelector('.steps-loading')?.remove();
+    if (!d.querySelector('ol')) d.insertAdjacentHTML('beforeend', stepsListHtml(target?.steps || []));
+    d.removeAttribute('data-steps-lazy');
+  };
+  if (now?.steps?.length) return put(now.steps);
+  stepsLoading.add(loadingKey);
+  const gen = S.clearGen.get(conv.roomId) || 0;
+  try {
+    const { steps } = await api('GET', `/api/rooms/${conv.roomId}/messages/${seq}/steps`);
+    if (S.current !== conv.key) return;
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return; // 清空了：这个编号已经是别的消息
+    put(steps || []);
+  } catch (err) {
+    detailsEl?.querySelector?.('.steps-loading')?.remove();
+    toast(err.message);
+  } finally {
+    stepsLoading.delete(loadingKey);
+  }
+}
+
+// 重画以后，之前展开着的「过程」要接着去取
+function hydrateOpenSteps() {
+  const conv = currentConv();
+  if (!conv) return;
+  for (const d of document.querySelectorAll('#messages details[data-steps][open]:not([data-steps-lazy-loaded])')) {
+    const seq = Number(d.dataset.steps);
+    if (d.querySelector('ol') || !d.querySelector('.steps-loading')) continue;
+    d.dataset.stepsLazyLoaded = '1';
+    loadSteps(conv, seq, d);
+  }
+}
 
 // 排好版的 Markdown 记住不重算（同样的文字排出来总是一样的）
 const mdCache = new Map();
@@ -1894,7 +2012,8 @@ function messageHtml(roomId, m, prev, conv) {
         <div class="edit-actions"><span class="edit-hint">${tr('改好后会作为新消息发出，大家会知道你改了哪条')}</span><button class="secondary" data-edit-cancel>${tr('取消')}</button><button class="primary" data-edit-send>${tr('发送')}</button></div>
       </div></div></div>`;
     }
-    const text = m.text ? `<div class="bubble">${inline(m.text)}</div>` : '';
+    // 自己发的消息也按 Markdown 排版：粘贴进来的表格、代码块、列表不会原样显示成一堆竖线和星号
+    const text = m.text ? `<div class="bubble">${mdCached(m.text)}</div>` : '';
     const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
     const edited = m.editOf
       ? `<button class="quote edit-quote" data-jump="${m.editOf.seq}" title="${tr('跳到原消息')}"><b>${tr('修改了')}</b><span>${esc(String(m.editOf.text || '').replace(/\s+/g, ' '))}</span></button>`
@@ -1905,8 +2024,10 @@ function messageHtml(roomId, m, prev, conv) {
   const dur = m.durationMs ? tr('用时 {time}', { time: fmtDur(m.durationMs) }) : '';
   // 过程步骤展开时才画出来（长对话里攒了上千步，一直放在页面上会拖慢整个聊天记录）
   const stepsOpen = S.openSteps.has(`${roomId}:${m.seq}`);
-  const foot = m.steps?.length
-    ? `<details class="steps" data-steps="${m.seq}"${stepsOpen ? ' open' : ''}><summary>${tr('过程 · {n} 步', { n: m.steps.length })}${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? stepsListHtml(m.steps) : ''}</details>`
+  // 分页取回来的消息不带过程，只有步数；展开时再去取（长对话一次带上千步，光传过来就慢了）
+  const stepCount = m.steps?.length || m.stepCount || 0;
+  const foot = stepCount
+    ? `<details class="steps" data-steps="${m.seq}"${m.steps?.length ? '' : ' data-steps-lazy'}${stepsOpen ? ' open' : ''}><summary>${tr('过程 · {n} 步', { n: stepCount })}${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? (m.steps?.length ? stepsListHtml(m.steps) : loadingStepsHtml()) : ''}</details>`
     : dur;
   const canDm = !conv.dm && conv.room.members.length > 1;
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="${esc(tr('私聊 {name}', { name: agentLabel(m.from) }))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
@@ -1931,7 +2052,7 @@ function messageHtml(roomId, m, prev, conv) {
 }
 
 function convMessages(conv) {
-  return (S.messages.get(conv.roomId) || []).filter((m) => inConv(conv, m));
+  return (S.messages.get(conv.key) || []).filter((m) => inConv(conv, m));
 }
 
 // 长对话只画最近的一段（PAGE 条），往上翻快到顶时再接上更早的：
@@ -1947,31 +2068,94 @@ function renderMessages() {
   const from = Math.min(S.rendered.from, Math.max(0, list.length - PAGE));
   S.rendered.from = from;
   const typing = document.activeElement?.classList.contains('edit-input');
-  $('#messages').innerHTML = earlierHtml(from) + list.slice(from).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
+  const later = boundsOf(conv).hasLater ? `<button class="load-earlier load-later" data-later>${tr('更新的消息')}</button>` : '';
+  $('#messages').innerHTML = earlierHtml(from) + list.slice(from).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('') + later;
   restoreEditor(typing);
   refreshFind();
+  hydrateOpenSteps();
 }
 
-const earlierHtml = (from) => (from > 0 ? `<button class="load-earlier" data-earlier>${tr('更早的 {n} 条消息', { n: from })}</button>` : '');
+// 「更早的 N 条」：手边（已经取下来的）还有更早的就先接本地的；
+// 都接完了、服务器上还有，就变成「加载更早的消息」，再去取一段
+function earlierHtml(from) {
+  if (from > 0) return `<button class="load-earlier" data-earlier>${tr('更早的 {n} 条消息', { n: from })}</button>`;
+  const conv = currentConv();
+  if (conv && boundsOf(conv).hasEarlier) return `<button class="load-earlier" data-earlier>${tr('加载更早的消息')}</button>`;
+  return '';
+}
 
 // 接上更早的一段，滚动位置保持不动（不会跳）
-function loadEarlier(upTo = null) {
+async function loadEarlier(upTo = null) {
   const conv = currentConv();
-  if (!conv || !S.rendered?.from) return;
+  if (!conv || !S.rendered) return;
   const list = convMessages(conv);
   const old = S.rendered.from;
-  const from = upTo === null ? Math.max(0, old - PAGE) : Math.max(0, Math.min(old - PAGE, upTo));
   const box = $('#messages');
   const s = $('#scroller');
   S.pinned = false; // 在往上看，别被拽回最底下
-  const before = s.scrollHeight;
-  box.querySelector('[data-earlier]')?.remove();
-  // 每条的时间分隔都是按真正的上一条算的，接上更早的不用改原来那些
-  const tpl = document.createElement('template');
-  tpl.innerHTML = earlierHtml(from) + list.slice(from, old).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
-  box.prepend(tpl.content);
-  S.rendered.from = from;
-  s.scrollTop += s.scrollHeight - before;
+  if (old > 0) {
+    const from = upTo === null ? Math.max(0, old - PAGE) : Math.max(0, Math.min(old - PAGE, upTo));
+    const before = s.scrollHeight;
+    box.querySelector('[data-earlier]')?.remove();
+    // 每条的时间分隔都是按真正的上一条算的，接上更早的不用改原来那些
+    const tpl = document.createElement('template');
+    tpl.innerHTML = earlierHtml(from) + list.slice(from, old).map((m, i) => messageHtml(conv.roomId, m, list[from + i - 1], conv)).join('');
+    box.prepend(tpl.content);
+    S.rendered.from = from;
+    s.scrollTop += s.scrollHeight - before;
+    return;
+  }
+  // 本地这一段已经到头了：问服务器要更早的一段，接在最上面。
+  // 边界按这个会话算（私聊有私聊自己的边界，不会被同群里后来的群消息挤掉）
+  const b = boundsOf(conv);
+  if (!b.hasEarlier || b.first === null) return;
+  if (S.loadingEarlier.has(conv.key)) return; // 连着点两下、或者滚动触发了两次：只取一次
+  S.loadingEarlier.add(conv.key);
+  const gen = S.clearGen.get(conv.roomId) || 0;
+  try {
+    const res = await api(
+      'GET',
+      `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}&before=${b.first}`,
+    );
+    const older = Array.isArray(res) ? res : res.messages || [];
+    if (S.current !== conv.key) return; // 等的这会儿已经点去别的聊天了
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return; // 等的这会儿清空了：这些旧消息不要了
+    if (older.length) {
+      b.first = older[0].seq;
+      b.last = b.last === null ? older[older.length - 1].seq : b.last;
+    }
+    b.hasEarlier = !!res.hasEarlier;
+    S.bounds.set(conv.key, b);
+    if (!older.length) {
+      box.querySelector('[data-earlier]')?.remove();
+      box.insertAdjacentHTML('afterbegin', earlierHtml(0));
+      return;
+    }
+    const before = s.scrollHeight;
+    S.messages.set(conv.key, mergeMessages(conv.key, older));
+    const merged = convMessages(conv);
+    // 只画当前会话里的；同一个编号已经画在页面上的跳过（两次请求几乎同时回来时不会重复）
+    const shown = new Set([...box.querySelectorAll('.msg[data-seq]')].map((el) => Number(el.dataset.seq)));
+    const added = older.filter((m) => inConv(conv, m) && !shown.has(m.seq));
+    box.querySelector('[data-earlier]')?.remove();
+    if (added.length) {
+      const html = added
+        .map((m) => {
+          const i = merged.findIndex((x) => x.seq === m.seq);
+          return messageHtml(conv.roomId, m, merged[i - 1], conv);
+        })
+        .join('');
+      box.insertAdjacentHTML('afterbegin', earlierHtml(0) + html);
+      S.rendered.from = Math.max(0, merged.findIndex((m) => m.seq === added[0].seq));
+    } else {
+      box.insertAdjacentHTML('afterbegin', earlierHtml(0)); // 这一段里没有这个会话的消息：把按钮留在上面，接着翻
+    }
+    s.scrollTop += s.scrollHeight - before;
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    S.loadingEarlier.delete(conv.key);
+  }
 }
 
 // 只重画一条消息（编辑、朗读这些只影响一条的，不用整页重画）
@@ -2003,12 +2187,12 @@ function restoreEditor(typing) {
 
 // 私聊里的这条回复是不是已经转到群里了
 function isForwarded(roomId, seq) {
-  return (S.messages.get(roomId) || []).some((x) => x.forwardOf === seq);
+  return (S.messages.get(`g:${roomId}`) || []).some((x) => x.forwardOf === seq);
 }
 
 // 「让它接着做」按钮：提醒之后它们已经说过话了（接着做过了），按钮就灰掉
 function resumeButton(roomId, m) {
-  const done = (S.messages.get(roomId) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
+  const done = (S.messages.get(`g:${roomId}`) || []).some((x) => x.seq > m.seq && m.action.agents.includes(x.from));
   const names = m.action.agents.map(agentName).join(LIST_SEP);
   return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? tr('已经接着做了') : esc(tr('让 {names} 接着做', { names }))}</button>`;
 }
@@ -2049,7 +2233,7 @@ async function forwardMessage(seq, btn) {
 
 function findMessage(seq) {
   const conv = currentConv();
-  return conv ? (S.messages.get(conv.roomId) || []).find((m) => m.seq === seq) : null;
+  return conv ? (S.messages.get(conv.key) || []).find((m) => m.seq === seq) : null;
 }
 
 // 复制出去的纯文字：去掉 Markdown 的记号（**加粗**、`代码`、# 标题、- 列表开头这些），像看到的那样干净；
@@ -2372,7 +2556,9 @@ function updateToBottom() {
   btn.title = S.newBelow ? tr('有 {n} 条新消息，回到最新', { n: S.newBelow }) : tr('回到最新消息');
 }
 
-function jumpToBottom() {
+async function jumpToBottom() {
+  const conv = currentConv();
+  if (conv && boundsOf(conv).hasLater) await loadLatestWindow(); // 跳到过老消息：先把最新的一段取回来
   const s = $('#scroller');
   S.newBelow = 0;
   const target = s.scrollHeight - s.clientHeight;
@@ -2472,6 +2658,19 @@ function applyState(st) {
   S.projectsDir = st.projectsDir || '';
   setRuns(st.runs || []);
   if (st.restartPending) setRestartPending(st.restartPending, '', true);
+  showUpdateRollback(st.updateRollback);
+}
+
+// 升级以后新版本没起来、自动退回了旧版本：告诉老板一声（同一次回退只说一次）
+function showUpdateRollback(info) {
+  if (!info) return;
+  const short = (v) => String(v || '').slice(0, 7) || '?';
+  const to = info.toVersion || short(info.to);
+  const from = info.fromVersion || short(info.from);
+  const tag = `${info.from || ''}→${info.to || ''}`;
+  if (tag && storeGet('clawchat.rollbackSeen') === tag) return;
+  if (tag) storeSet('clawchat.rollbackSeen', tag);
+  toast(tr('升级到 {to} 后没能启动，已经自动退回 {from}', { to, from }), 8000);
 }
 
 function setRuns(runs) {
@@ -2489,14 +2688,115 @@ function setRuns(runs) {
   }
 }
 
-async function loadMessages(roomId) {
-  if (S.messages.has(roomId)) return true;
+// 私聊里也要知道群里有没有这条（「发到群里」按钮转过的就不再显示）：后台把群里的最近一段取一份
+function primeGroupMessages(roomId) {
+  const key = `g:${roomId}`;
+  if (S.messages.has(key)) return;
+  loadMessages({ key, roomId, dm: null }).catch(() => {});
+}
+
+// 打开聊天时只取最近一段：大群有几 MB，全部取过来又慢又占内存。往上翻、跳到老消息时再补
+const MSG_PAGE = 150;
+
+function mergeMessages(key, incoming) {
+  const map = new Map((S.messages.get(key) || []).map((m) => [m.seq, m]));
+  for (const m of incoming) if (!map.has(m.seq)) map.set(m.seq, m);
+  return [...map.values()].sort((a, b) => a.seq - b.seq);
+}
+
+// 会话在接口里的名字：群里是 g，和某位的私聊是 d:<成员>（和搜索里的算法一样）
+const convTag = (conv) => (conv.dm ? `d:${conv.dm}` : 'g');
+// 一个群里所有会话的缓存 key（群 + 各个私聊）：清空、删群时一起清
+function convKeysOfRoom(roomId) {
+  const out = [`g:${roomId}`];
+  for (const map of [S.messages, S.bounds, S.early]) for (const k of map.keys()) if (k.startsWith(`d:${roomId}:`)) out.push(k);
+  return [...new Set(out)];
+}
+const boundsOf = (conv) => S.bounds.get(conv.key) || { first: null, last: null, hasEarlier: false, hasLater: false };
+function setBounds(conv, messages, res) {
+  const b = { ...boundsOf(conv) };
+  b.hasEarlier = !!res.hasEarlier;
+  b.hasLater = !!res.hasLater;
+  if (messages.length) {
+    b.first = messages[0].seq;
+    b.last = messages[messages.length - 1].seq;
+  }
+  S.bounds.set(conv.key, b);
+}
+// 来了新消息：这个会话已经取到的最新一条跟着往后挪（不然「更新的消息」会误判）
+function touchBounds(convKey, m) {
+  const b = S.bounds.get(convKey);
+  if (b && (b.last === null || m.seq > b.last)) b.last = m.seq;
+}
+
+async function loadMessages(conv) {
+  if (S.messages.has(conv.key)) return true;
+  const gen = S.clearGen.get(conv.roomId) || 0;
   try {
-    const { messages } = await api('GET', `/api/rooms/${roomId}/messages`);
-    const seen = new Set(messages.map((m) => m.seq));
-    for (const m of S.early.get(roomId) || []) if (!seen.has(m.seq)) messages.push(m);
-    S.early.delete(roomId);
-    S.messages.set(roomId, messages);
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}`);
+    const messages = Array.isArray(res) ? res : res.messages || []; // 服务端不认识分页参数时会发来全部（老版本）
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return true; // 等的这会儿清空了：空的就是对的
+    const merged = mergeMessages(conv.key, [...messages, ...(S.early.get(conv.key) || [])]);
+    S.early.delete(conv.key);
+    S.messages.set(conv.key, merged);
+    setBounds(conv, arrSorted(merged), res);
+    return true;
+  } catch (err) {
+    toast(err.message);
+    return false;
+  }
+}
+
+// 边界只跟这一段的最后一条有关：按编号排好再算（SSE 先到的消息可能排在后面）
+const arrSorted = (list) => list.slice().sort((a, b) => a.seq - b.seq);
+
+// 要跳到一条还没取下来的老消息：取它附近的一段，整段画出来再跳
+async function ensureSeqLoaded(seq) {
+  const conv = currentConv();
+  if (!conv) return false;
+  if ((S.messages.get(conv.key) || []).some((m) => m.seq === seq)) return true;
+  const gen = S.clearGen.get(conv.roomId) || 0;
+  try {
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}&around=${seq}`);
+    const around = Array.isArray(res) ? res : res.messages || [];
+    if (!around.length || S.current !== conv.key) return false;
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return false; // 等的这会儿清空了：旧消息不要了
+    // 整段换掉：和原来那段之间隔着没取下来的消息，混在一起会跳号
+    const map = new Map(around.map((m) => [m.seq, m]));
+    S.messages.set(conv.key, [...map.values()].sort((a, b) => a.seq - b.seq));
+    setBounds(conv, arrSorted(around), res);
+    S.rendered = { key: conv.key, from: 0 };
+    renderMessages();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 跳到过很老的一段以后，再回到最新的这一段
+async function loadLatestWindow() {
+  const conv = currentConv();
+  if (!conv) return false;
+  const gen = S.clearGen.get(conv.roomId) || 0;
+  const old = S.messages.get(conv.key) || [];
+  const tail = old.length ? old[old.length - 1].seq : -1;
+  try {
+    const res = await api('GET', `/api/rooms/${conv.roomId}/messages?limit=${MSG_PAGE}&conv=${encodeURIComponent(convTag(conv))}`);
+    const latest = Array.isArray(res) ? res : res.messages || [];
+    if (!latest.length || S.current !== conv.key) return false;
+    if ((S.clearGen.get(conv.roomId) || 0) !== gen) return false;
+    // 等的时候真正收到的新消息（比原来最后一条还新）：留着，别被这一页盖掉
+    const arrived = (S.messages.get(conv.key) || []).filter((m) => m.seq > tail);
+    const merged = new Map([...latest, ...arrived].map((m) => [m.seq, m]));
+    // 整段换掉：中间没取下来的那段不用留
+    S.messages.set(conv.key, [...merged.values()].sort((a, b) => a.seq - b.seq));
+    setBounds(conv, arrSorted([...merged.values()]), res);
+    const list = convMessages(conv);
+    S.rendered = { key: conv.key, from: Math.max(0, list.length - PAGE) };
+    renderMessages();
+    S.newBelow = 0;
+    S.pinned = true;
+    scrollToBottom();
     return true;
   } catch (err) {
     toast(err.message);
@@ -2554,9 +2854,11 @@ async function openConv(key, { keepFocus = false } = {}) {
   storeSet('clawchat.current', key);
   S.unread.delete(key);
   renderConvs();
+  revealSideItem(key); // 群多的时候，打开的这个可能在侧栏下面看不见
   renderShell();
-  if (!S.messages.has(c.roomId)) $('#messages').innerHTML = '';
-  if (!(await loadMessages(c.roomId)) || S.current !== key) return;
+  if (!S.messages.has(c.key)) $('#messages').innerHTML = '';
+  if (!(await loadMessages(c)) || S.current !== key) return;
+  if (c.dm) primeGroupMessages(c.roomId); // 私聊里的「发到群里」要看群里有没有这段，顺手把群里的消息取一份
   if (currentConv()) renderTargets(currentConv().room, currentConv().dm); // 消息读到了，才知道「上一位」是谁
   renderMessages();
   renderLive();
@@ -2599,7 +2901,7 @@ window.__clawchatOpenConv = (key) => openConv(key);
 
 // 群里最后说话的那位 AI（不算私聊）：不 @ 人时「接着上一位」就发给它
 function lastSpeakerOf(room) {
-  const list = S.messages.get(room.id) || [];
+  const list = S.messages.get(`g:${room.id}`) || []; // 只看群里的消息，私聊里说的话不算
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i];
     if (!m.dm && !m.pm && room.members.includes(m.from)) return m.from;
@@ -2628,15 +2930,16 @@ function renderTargets(room, dm) {
 
 function onMessage(roomId, m) {
   if (m.from === 'gpt' || (m.from === 'system' && m.action?.type === 'fresh')) refreshSessionImages(roomId);
-  const list = S.messages.get(roomId);
+  const key = convOf(roomId, m); // 这条属于哪个会话：群、某人跟老板的私聊、或者两位 AI 之间的私聊
+  const list = S.messages.get(key);
   if (list) {
     if (list.some((x) => x.seq === m.seq)) return;
     list.push(m);
+    touchBounds(key, m);
   } else {
-    if (!S.early.has(roomId)) S.early.set(roomId, []);
-    S.early.get(roomId).push(m);
+    if (!S.early.has(key)) S.early.set(key, []);
+    S.early.get(key).push(m);
   }
-  const key = convOf(roomId, m);
   const conv = currentConv();
   if (conv && conv.roomId === roomId && !m.dm && !m.pm && conv.room.members.includes(m.from)) renderTargets(conv.room, conv.dm);
   if (list && conv && conv.roomId === roomId && inConv(conv, m)) {
@@ -2699,8 +3002,15 @@ function handleEvent(ev) {
       break;
     case 'cleared':
       // 这个群的聊天记录被清空了：本地的也清掉，正在看的话重画
-      S.messages.set(ev.roomId, []);
-      S.early.delete(ev.roomId);
+      for (const k of convKeysOfRoom(ev.roomId)) {
+        S.messages.delete(k);
+        S.bounds.delete(k);
+        S.early.delete(k);
+        S.loadingEarlier.delete(k);
+      }
+      S.clearGen.set(ev.roomId, (S.clearGen.get(ev.roomId) || 0) + 1); // 清空前发出去的取消息请求，回来也不要了
+      const cur = currentConv();
+      if (cur && cur.roomId === ev.roomId) S.messages.set(cur.key, []); // 正在看的不是被清的这个群时，别动它
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
       for (const k of [...S.openedDms.keys()]) if (parseKey(k)?.roomId === ev.roomId && k !== S.current) S.openedDms.delete(k); // 没消息的私聊别留在侧栏
       if (currentConv()?.roomId === ev.roomId) {
@@ -2768,6 +3078,9 @@ function connect() {
     try {
       applyState(await api('GET', '/api/state'));
       S.messages.clear();
+      S.bounds.clear();
+      S.early.clear();
+      for (const r of S.rooms) S.clearGen.set(r.id, (S.clearGen.get(r.id) || 0) + 1);
       renderEngines();
       renderConvs();
       if (currentConv()) openConv(S.current);
@@ -2953,11 +3266,17 @@ async function sendMessage() {
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
   askNotifyPermission();
+  // 先把要发的内容和归属定下来：下面等「最新一段」回来的时候，可能已经切去别的聊天、在那边打字了
   const raw = el.value;
   const text = cleanMentions(raw).trim(); // 发出去的还是普通的 @Claude
   const draftKey = S.current;
   const sent = S.attachments.filter((a) => a.status === 'done' && a.roomId === conv.roomId);
   if (!text && !sent.length) return;
+  if (boundsOf(conv).hasLater) {
+    await loadLatestWindow(); // 正在看很早的一段：新消息要接在最新那段后面
+    if (S.current !== draftKey) return; // 等的时候切走了：这条先不发，两个会话的草稿都还在
+    if (el.value !== raw) return; // 等的时候又把字改了：别把这几个字清掉
+  }
   el.value = '';
   const kept = S.attachments;
   const reply = S.replyTo;
@@ -3220,7 +3539,7 @@ function selectMentionOnBackspace(e) {
 
 function startReply(seq) {
   const conv = currentConv();
-  const m = conv && (S.messages.get(conv.roomId) || []).find((x) => x.seq === seq);
+  const m = conv && findMessage(seq); // 消息缓存是按会话存的，用 conv.roomId 找不到
   if (!m) return;
   S.replyTo = { seq: m.seq, from: m.from };
   $('#reply-who').textContent = tr('回复 {name}', { name: whoLabel(m.from) });
@@ -3237,16 +3556,21 @@ function cancelReply() {
   $('#reply-bar').hidden = true;
 }
 
-function jumpTo(seq) {
+async function jumpTo(seq) {
   S.pinned = false; // 要跳过去看那条，别被拽回最底下
   let el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
-  // 还没画出来（在更早的那段里）：先把它前面一点接上
+  // 还没画出来（在更早的那段里）：先把它前面一点接上；本地没有就问服务器要它附近的一段
   if (!el && S.rendered?.from) {
-    const i = convMessages(currentConv()).findIndex((m) => m.seq === seq);
+    const conv = currentConv();
+    const i = conv ? convMessages(conv).findIndex((m) => m.seq === seq) : -1;
     if (i >= 0 && i < S.rendered.from) {
-      loadEarlier(Math.max(0, i - 10));
+      await loadEarlier(Math.max(0, i - 10));
       el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
     }
+  }
+  if (!el) {
+    await ensureSeqLoaded(seq);
+    el = document.querySelector(`#messages .msg[data-seq="${seq}"]`);
   }
   if (!el) return toast(tr('原消息不在这个会话里了'));
   // 直接跳过去（平滑滚动会被图片加载等高度变化打断），下一帧再对准一次
@@ -3311,7 +3635,7 @@ function clearFoundMarks() {
 // ---------------- 在当前聊天里搜 ----------------
 // 顶栏的放大镜（或 ⌘F / Ctrl+F）打开：只搜这个群或这个私聊里看得到的消息，最新的在前；
 // 下面列出所有结果，点一条就跳过去；回车 / ↑ 往更早的找，Shift+回车 / ↓ 往更新的找，Esc 关掉
-const FIND = { q: '', hits: [], at: -1 };
+const FIND = { q: '', hits: [], at: -1, seq: 0 };
 
 function openFind(q = null) {
   if (!currentConv()) return;
@@ -3331,39 +3655,48 @@ function closeFind() {
   box.hidden = true;
   $('#btn-find').classList.remove('on');
   clearFoundMarks();
+  FIND.seq++; // 还在路上的搜索结果回来也不要了
   Object.assign(FIND, { q: '', hits: [], at: -1 });
 }
 
-// 这个聊天里命中的消息，最新的在前
-function findHits(conv, q) {
-  const needle = q.toLowerCase();
-  if (!conv || !needle) return [];
-  return convMessages(conv)
-    .filter((m) => m.from !== 'system' && m.text && m.text.toLowerCase().includes(needle))
-    .reverse();
+// 这个聊天里命中的消息，最新的在前。问服务端搜（只取最近一段消息以后，本地找不到更早的那些了），
+// 命中里带着会话归属，按当前是群还是私聊筛一下
+async function findHits(conv, q) {
+  if (!conv || !q) return [];
+  const params = new URLSearchParams({ q, room: conv.roomId });
+  const res = await api('GET', `/api/search?${params}`);
+  return (res.hits || []).filter((h) => inConv(conv, h));
 }
 
-// 消息整页重画以后（来了新消息、改了消息）：结果重新算，还停在原来那条上，那条里的标黄补回来
+// 消息整页重画以后（来了新消息、改了消息）：还停在原来那条上，那条里的标黄补回来
 function refreshFind() {
   if ($('#find').hidden || !FIND.q) return;
-  const conv = currentConv();
-  const cur = FIND.hits[FIND.at]?.seq;
-  FIND.hits = findHits(conv, FIND.q);
-  FIND.at = cur === undefined ? -1 : FIND.hits.findIndex((m) => m.seq === cur);
   renderFind(!$('#find-list').hidden);
-  const el = FIND.at >= 0 && document.querySelector(`#messages .msg[data-seq="${cur}"]`);
+  const cur = FIND.hits[FIND.at]?.seq;
+  const el = cur !== undefined && document.querySelector(`#messages .msg[data-seq="${cur}"]`);
   if (el) markFound(el, FIND.q);
 }
 
-function runFind(showList = false) {
+async function runFind(showList = false) {
   const conv = currentConv();
   const q = $('#find-input').value.trim();
+  const seq = ++FIND.seq;
   FIND.q = q;
   FIND.at = -1;
-  FIND.hits = findHits(conv, q);
+  FIND.hits = [];
   clearFoundMarks();
+  if (!conv || !q) return renderFind(showList);
+  try {
+    const hits = await findHits(conv, q);
+    if (seq !== FIND.seq) return; // 又改了关键词
+    FIND.hits = hits;
+  } catch {
+    if (seq !== FIND.seq) return;
+    FIND.hits = [];
+  }
   renderFind(showList);
 }
+
 
 function renderFind(showList) {
   const { q, hits, at } = FIND;
@@ -3381,7 +3714,8 @@ function renderFind(showList) {
       const text = plainText(m.text);
       const pos = text.toLowerCase().indexOf(needle);
       const start = Math.max(0, pos - 30);
-      const snippet = `${start > 0 ? '…' : ''}${text.slice(start, pos + needle.length + 120)}`;
+      // 服务端给的是一小段（开头被截过的话前面加个省略号）；万一关键词被 Markdown 去掉了就整段放出来
+      const snippet = pos < 0 ? text : `${start > 0 || m.cut ? '…' : ''}${text.slice(start, pos + needle.length + 120)}`;
       return `<li class="find-item${i === at ? ' active' : ''}" data-find-at="${i}">
         <div class="hit-line">${avatarHtml(m.from === 'user' ? 'user' : m.from)}<span class="hit-who">${esc(speakerOf(m))}</span><span class="time">${fmtShort(m.ts)}</span></div>
         <div class="hit-text">${highlight(snippet, q)}</div></li>`;
@@ -3390,12 +3724,13 @@ function renderFind(showList) {
 }
 
 // 跳到第 i 条结果；列表收起来，免得挡住消息（点一下输入框再展开）
-function gotoFind(i) {
+// 老消息可能还没取下来：jumpTo 会先把那一段取回来
+async function gotoFind(i) {
   if (!FIND.hits.length) return;
   FIND.at = Math.max(0, Math.min(FIND.hits.length - 1, i));
   renderFind(false);
-  const el = jumpTo(FIND.hits[FIND.at].seq);
-  if (el) markFound(el, FIND.q);
+  const el = await jumpTo(FIND.hits[FIND.at].seq);
+  if (el && FIND.q) markFound(el, FIND.q);
 }
 
 function bindFind() {
@@ -3553,7 +3888,12 @@ function modelChipHtml(a, room) {
   const warn = level
     ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(tr('会话里存了约 {size}MB 图片，越来越慢，点开换新会话', { size: (sessionImages(room.id, a) / 1048576).toFixed(1) }))}"></span>`
     : '';
-  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(baseOf(a) === 'gpt' ? tr('{name} 的模型、思考强度和速度，下一轮生效', { name: agentName(a) }) : tr('{name} 的模型和思考强度，下一轮生效', { name: agentName(a) }))}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
+  // 提示里写清楚现在用的是哪个模型（窄窗口下按钮只剩头像，靠这个也知道是谁、什么模型）
+  const tip = tr('{name}：{model}，下一轮生效', {
+    name: agentName(a),
+    model: `${modelShortName(a, model)}${effort ? ` · ${tr('思考 {level}', { level: effort })}` : ''}`,
+  });
+  return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(tip)}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
     effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
@@ -4528,7 +4868,11 @@ async function deleteRoom() {
   try {
     await api('DELETE', `/api/rooms/${S.editing}`);
     S.rooms = S.rooms.filter((r) => r.id !== S.editing);
-    S.messages.delete(S.editing);
+    for (const k of convKeysOfRoom(S.editing)) {
+      S.messages.delete(k);
+      S.bounds.delete(k);
+      S.early.delete(k);
+    }
     closeDialog($('#dlg-room'));
     const next = conversations()[0];
     S.current = next?.key || null;
@@ -4659,10 +5003,12 @@ function bind() {
       i = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
       const next = rows[i];
       if (!next) return;
-      SIDE_NAV.key = keyOf(next);
+      const nextKey = keyOf(next);
+      SIDE_NAV.key = nextKey;
       if (next.dataset.key) openConv(next.dataset.key, { keepFocus: true });
       else markSideNav();
-      next.scrollIntoView({ block: 'nearest' });
+      // openConv 会把整个列表重画，next 已经不在页面上了：按 key 找重画后的那一行再滚
+      revealSideItem(nextKey);
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
       const open = e.key === 'ArrowRight';
@@ -4742,9 +5088,39 @@ function bind() {
   });
   // 点群里的头像（或右上角的头像）就去私聊
   document.addEventListener('click', (e) => {
+    const modelMore = e.target.closest('[data-model-more]');
+    if (modelMore) {
+      const conv = currentConv();
+      if (conv && !conv.dm) {
+        const r = modelMore.getBoundingClientRect();
+        const room = conv.room;
+        openCtxMenu(
+          room.members.map((a) => ({
+            label: `${agentLabel(a)} · ${modelShortName(a, room.models?.[a] || '')}${room.efforts?.[a] ? ` · ${EFFORT_LABEL[room.efforts[a]] || room.efforts[a]}` : ''}`,
+            act: () => openModelMenu(a, modelMore),
+          })),
+          Math.round(r.left),
+          Math.round(r.bottom + 6),
+        );
+      }
+      return;
+    }
+    const more = e.target.closest('[data-dm-menu]');
+    if (more) {
+      const conv = currentConv();
+      const r = more.getBoundingClientRect();
+      if (conv && !conv.dm) {
+        openCtxMenu(
+          conv.room.members.map((a) => ({ label: tr('私聊 {name}', { name: agentLabel(a) }), act: () => openConv(`d:${conv.roomId}:${a}`) })),
+          Math.round(r.right),
+          Math.round(r.bottom + 6),
+        );
+      }
+      return;
+    }
     const b = e.target.closest('.dm-btn');
     const conv = currentConv();
-    if (b && conv) openConv(`d:${conv.roomId}:${b.dataset.dm}`);
+    if (b && conv && b.dataset.dm) openConv(`d:${conv.roomId}:${b.dataset.dm}`);
     const img = e.target.closest('img.zoomable');
     if (img) openLightbox(img.src);
     const reply = e.target.closest('[data-reply]');
@@ -4879,7 +5255,10 @@ function bind() {
       const k = `${conv.roomId}:${seq}`;
       if (!d.open) return void S.openSteps.delete(k);
       S.openSteps.add(k);
-      if (!d.querySelector('ol')) d.insertAdjacentHTML('beforeend', stepsListHtml(findMessage(seq)?.steps || []));
+      if (!d.querySelector('ol')) {
+        d.insertAdjacentHTML('beforeend', loadingStepsHtml());
+        loadSteps(conv, seq, d);
+      }
     },
     true,
   );
@@ -4952,7 +5331,10 @@ function bind() {
   new MutationObserver(checkFileRefs).observe($('#chat'), { childList: true, subtree: true });
   // 往上翻快到顶了：接上更早的一段；也可以点最上面的「更早的 N 条消息」
   $('#scroller').addEventListener('scroll', () => S.rendered?.from && $('#scroller').scrollTop < 400 && !$('#scrollbar').dragging?.() && loadEarlier(), { passive: true });
-  $('#messages').addEventListener('click', (e) => e.target.closest('[data-earlier]') && loadEarlier());
+  $('#messages').addEventListener('click', (e) => {
+    if (e.target.closest('[data-earlier]')) loadEarlier();
+    else if (e.target.closest('[data-later]')) loadLatestWindow();
+  });
   // 消息列表变高了（比如图片慢慢加载出来）：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
   $('#scroller').addEventListener('scroll', () => (S.pinned = nearBottom()), { passive: true });
   $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && S.pinned && scrollToBottom(), true);
