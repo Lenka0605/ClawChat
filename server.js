@@ -794,8 +794,10 @@ async function api(req, res, url) {
       return send(res, 200, { room });
     }
     if (!sub && method === 'DELETE') {
+      const oldSessions = Object.values(store.getState(room.id).sessions);
       hub.stop(room.id);
       store.deleteRoom(room.id);
+      hub.cleanupCodexUsage(oldSessions);
       pruneExtraMembers();
       hub.emitRooms();
       return send(res, 200, { ok: true });

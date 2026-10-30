@@ -216,9 +216,9 @@ test('Codex 分页用量：继承旧 JSONL 图片，累加新附件和看图，�
   assert.equal((await sessionUsage('gpt', sid)).images, 12);
   process.env.FAKE_CODEX_RPC_SCENARIO = 'usage';
   assert.equal((await start({ session: sid, images: [{ path: image }] }).done).ok, true);
-  assert.deepEqual(await sessionUsage('gpt', sid), { images: 20, used: 42, window: 65536 });
+  assert.deepEqual(await sessionUsage('gpt', sid), { images: 28, used: 42, window: 65536 });
   const file = path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${sid}.json`);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { images: 20, used: 42, window: 65536 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { images: 28, used: 42, window: 65536 });
   process.env.FAKE_CODEX_RPC_SCENARIO = 'compact';
   assert.equal((await start({ session: sid }).done).ok, true);
   assert.deepEqual(await sessionUsage('gpt', sid), { images: 0, used: 42, window: 65536 });
@@ -231,7 +231,7 @@ test('Codex 结构化上下文错误：保留 contextWindowExceeded 标记，不
   assert.match(res.error, /contextWindowExceeded/);
 });
 
-test('Codex 图片估算：附件和插话的 imageView 回报不重复算，同图再次发送仍计入新输入', async () => {
+test('Codex 图片估算：主动重看同图仍增加用量，同一工具事件重发只算一次', async () => {
   const image = path.join(root, 'repeated.png');
   fs.writeFileSync(image, '123456');
   process.env.FAKE_CODEX_RPC_SCENARIO = 'usage';
@@ -240,7 +240,7 @@ test('Codex 图片估算：附件和插话的 imageView 回报不重复算，同
   assert.equal(await h.steer('同图再发一次', [{ path: image }]), true);
   const res = await h.done;
   assert.equal(res.ok, true);
-  assert.equal((await sessionUsage('gpt', res.session)).images, 16);
+  assert.equal((await sessionUsage('gpt', res.session)).images, 32);
   // 新一轮单独调用查看工具，没有新附件时仍应计数。
   const toolImage = path.join(root, 'tool-view.png');
   fs.writeFileSync(toolImage, '123');
@@ -276,7 +276,56 @@ test('Codex 旧版本没有 app-server：明确提示升级，不伪装成普通
   process.env.FAKE_CODEX_RPC_SCENARIO = 'old-cli';
   const res = await start().done;
   assert.equal(res.ok, false);
-  assert.match(res.error, /请先升级 Codex/);
+  assert.match(res.error, /设置.*Codex 的更新/);
+});
+
+test('Codex 经 Hub：续接编号异常先停掉错误回合，再自动带记录开新会话，保留原始会话文件', async () => {
+  const previous = await start().done;
+  const oldFile = path.join(process.env.CLAWCHAT_HOME, 'fake-codex', `${previous.session}.json`);
+  const content = fs.readFileSync(oldFile, 'utf8');
+  const store = new Store();
+  const r = store.createRoom({ ...room, name: '编号异常恢复', members: ['gpt'], collab: false });
+  store.getState(r.id).sessions.gpt = previous.session;
+  store.saveState(r.id);
+  clearLog();
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'wrong-session';
+  const hub = new Hub(store, { imageBytes: async () => 0 });
+  hub.postUserMessage(r.id, '从最近记录继续处理');
+  await until(() => !hub.runs.size);
+  const messages = logs();
+  assert.equal(messages.filter((m) => m.method === 'thread/resume').length, 1);
+  assert.equal(messages.filter((m) => m.method === 'thread/start').length, 1);
+  assert.equal(messages.filter((m) => m.method === 'turn/start').length, 1);
+  assert.notEqual(store.getState(r.id).sessions.gpt, previous.session);
+  assert.match(JSON.stringify(messages.find((m) => m.method === 'turn/start')), /从最近记录继续处理/);
+  assert.equal(fs.readFileSync(oldFile, 'utf8'), content);
+  assert.equal(store.getMessages(r.id).filter((m) => m.from === 'gpt').length, 1);
+});
+
+test('Codex 用量清理：换会话、删群后清估算，其他群仍在引用的记录和真实会话都保留', async () => {
+  const previous = await start().done;
+  const usageFile = path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${previous.session}.json`);
+  const realFile = path.join(process.env.CLAWCHAT_HOME, 'fake-codex', `${previous.session}.json`);
+  const store = new Store();
+  const rooms = ['引用一', '引用二'].map((name) => store.createRoom({ ...room, name, members: ['gpt'], collab: false }));
+  for (const r of rooms) {
+    store.getState(r.id).sessions.gpt = previous.session;
+    store.saveState(r.id);
+  }
+  const hub = new Hub(store, { imageBytes: async () => 0 });
+  assert.equal(hub.resetAgent(rooms[0].id, 'gpt', 'boss'), 'reset');
+  assert.equal(fs.existsSync(usageFile), true);
+  const candidates = Object.values(store.getState(rooms[1].id).sessions);
+  store.deleteRoom(rooms[1].id);
+  hub.cleanupCodexUsage(candidates);
+  assert.equal(fs.existsSync(usageFile), false);
+  assert.equal(fs.existsSync(realFile), true);
+  const next = await start().done;
+  const nextUsage = path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${next.session}.json`);
+  store.getState(rooms[0].id).sessions.gpt = next.session;
+  store.saveState(rooms[0].id);
+  hub.resetSessions(rooms[0].id);
+  assert.equal(fs.existsSync(nextUsage), false);
 });
 
 test('Codex 经 Hub：结构化上下文超限会自动换会话恢复，不需要真的耗尽模型上下文', async () => {

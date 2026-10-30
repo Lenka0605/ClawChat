@@ -53,7 +53,8 @@ rl.on('line', (line) => {
     event('item/started', { item: { id: 'cmd', type: 'commandExecution', command: 'echo 假的 ChatGPT 在干活' } });
     if (scenario === 'usage') {
       const img = p.input.find((x) => x.type === 'localImage');
-      if (img) event('item/completed', { item: { id: 'view', type: 'imageView', path: img.path } });
+      // 模拟工具主动重看同图，随后同一事件重发；后者只按 item.id 去重，前者必须计入新图片。
+      if (img) for (let i = 0; i < 2; i++) event('item/completed', { item: { id: 'view', type: 'imageView', path: img.path } });
     }
     if (scenario === 'compact') event('item/completed', { item: { id: 'compact', type: 'contextCompaction' } });
     if (scenario === 'events') {
