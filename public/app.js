@@ -1034,9 +1034,12 @@ async function runSearch() {
   const seq = ++SP.seq;
   if (!q) {
     SP.res = null;
+    SP.loading = false;
+    $('#spot-body').classList.remove('stale');
     return renderSearch();
   }
-  SP.loading = true; // 新结果回来之前，列表上的旧结果不算数（回车不会打开它们）
+  SP.loading = true; // 新结果回来之前，列表上的旧结果不算数（回车、点击都不会打开它们）
+  $('#spot-body').classList.add('stale');
   const params = new URLSearchParams({ q });
   if (SP.from) params.set('from', SP.from);
   if (SP.room) params.set('room', SP.room);
@@ -1049,6 +1052,7 @@ async function runSearch() {
   if (seq !== SP.seq) return; // 已经又改了关键词或筛选
   SP.res = res;
   SP.loading = false;
+  $('#spot-body').classList.remove('stale');
   renderSearch();
 }
 
@@ -1159,7 +1163,11 @@ function moveActive(d) {
   rows[SP.active].scrollIntoView({ block: 'nearest' });
 }
 
+// 换了关键词或筛选、新结果还没回来时，列表上的是旧结果：键盘、鼠标都不让打开（列表也淡下去）
+const searchStale = () => SP.loading || $('#spot-input').value.trim() !== SP.q;
+
 async function openSearchRow(li) {
+  if (searchStale()) return;
   const q = SP.q;
   closeDialog($('#dlg-search'));
   if (li.dataset.convKey) return openConv(li.dataset.convKey);
@@ -1190,6 +1198,7 @@ function bindSearch() {
   });
   input.addEventListener('input', () => {
     SP.loading = true; // 刚改了字：等新结果
+    $('#spot-body').classList.add('stale');
     clearTimeout(runSearch.timer);
     runSearch.timer = setTimeout(runSearch, 150);
   });
@@ -1200,7 +1209,6 @@ function bindSearch() {
       moveActive(e.key === 'ArrowDown' ? 1 : -1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (SP.loading || input.value.trim() !== SP.q) return; // 新结果还没回来，别打开旧的
       const li = $('#spot-body').querySelectorAll('.spot-row')[SP.active];
       if (li) openSearchRow(li);
     }
