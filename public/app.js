@@ -836,7 +836,7 @@ async function offerClaudeCode(reason = 'start', who = []) {
   const names = (who.length ? who : NEEDS_CLAUDE_CODE).map(agentName).join(LIST_SEP);
   const ok = await askConfirm({
     title: tr('这台电脑还没装 Claude Code'),
-    text: tr('{names} 都要借 Claude Code 干活（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）。没装的话，它们在群里会直接报错。现在帮你装上吗？会用 Anthropic 官方的安装程序，装在你自己的用户目录里，不用管理员密码，大概一两分钟。', { names }),
+    text: tr('Claude Code 是 {names} 干活必需的（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）。没装的话，在群里就用不了。现在帮你装上吗？会用 Anthropic 官方的安装程序，装在你自己的用户目录里，不用管理员密码，大概一两分钟。', { names }),
     ok: tr('帮我安装'),
   });
   S.offeringInstall = false;
@@ -3373,9 +3373,11 @@ function syncMemberFields() {
   return members;
 }
 
-// 新建聊天时默认勾上能用的成员；一个都不能用（比如还在检测）就勾 Claude 和 GPT
+// 新建聊天时默认勾上能用的成员；一个都不能用（比如还在检测）就勾 Claude 和 GPT。
+// 多开的（ChatGPT2 这类）不默认勾：它们是老板自己加进来的，要用就在群设置里勾上，
+// 不然每建一个群都会多出一位同账号的 AI，不 @ 的时候容易和本体一起开工
 function defaultMembers() {
-  const ready = AGENT_IDS.filter(memberReady);
+  const ready = BASE_IDS.filter(memberReady);
   return ready.length ? ready : ['claude', 'gpt'];
 }
 
@@ -3443,6 +3445,8 @@ async function submitDialog(e) {
     fast: { gpt: !$('#speed-fields').hidden && formField('fastGpt').value === '1' },
   };
   const btn = $('#btn-save');
+  // 保存前先记下原来有哪些成员：改个群名、换个设置不该反复问「要不要装 Claude Code」
+  const before = S.editing ? roomById(S.editing)?.members || [] : [];
   btn.disabled = true;
   try {
     if (S.editing) {
@@ -3458,7 +3462,8 @@ async function submitDialog(e) {
       await openConv(`g:${room.id}`);
     }
     closeDialog($('#dlg-room'));
-    const who = (body.members || []).filter(needsClaudeCode);
+    // 新建群、或者这次新加了要借 Claude Code 的成员时才问
+    const who = (body.members || []).filter((a) => needsClaudeCode(a) && !before.includes(a));
     if (who.length) setTimeout(() => offerClaudeCode('room', who), 400);
   } catch (err) {
     $('#form-error').textContent = err.message;
