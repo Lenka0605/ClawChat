@@ -1603,7 +1603,9 @@ function mdToPlain(text) {
       return line
         .replace(/^(\s{0,3})#{1,6}\s+/, '$1') // 标题
         .replace(/^(\s*)>\s?/, '$1') // 引用
-        .replace(/^(\s*)[-*+]\s+(\[[ xX]\]\s+)?/, '$1• '); // 列表
+        .replace(/^(\s*)[-*+]\s+\[[xX]\]\s+/, '$1☑ ') // 任务清单：做完的
+        .replace(/^(\s*)[-*+]\s+\[ \]\s+/, '$1☐ ') // 任务清单：没做的
+        .replace(/^(\s*)[-*+]\s+/, '$1• '); // 列表
     })
     .join('\n');
   const codes = [];
@@ -1626,7 +1628,7 @@ async function copyMessage(seq, btn) {
   let html = '';
   if (bubble) {
     const box = bubble.cloneNode(true);
-    box.querySelectorAll('button, .avatar').forEach((el) => el.remove()); // 代码块上的按钮、@ 标签里的头像不要
+    box.querySelectorAll('button, .avatar, img').forEach((el) => el.remove()); // 代码块上的按钮、@ 标签里的头像、图片（地址是本机的，粘到别处会裂）不要
     html = box.innerHTML;
   }
   try {
