@@ -2429,7 +2429,7 @@ function lastSpeakerOf(room) {
     const m = list[i];
     if (!m.dm && !m.pm && room.members.includes(m.from)) return m.from;
   }
-  return null;
+  return room.members.includes(room.lastAgent) ? room.lastAgent : null; // 聊天记录刚清空过：用清空前记下的那位
 }
 
 // 「不 @ 时」下拉框和输入框里的提示：接着上一位时写明现在是谁，打字前、打字时都看得到这条会发给谁
@@ -2527,8 +2527,11 @@ function handleEvent(ev) {
       S.messages.set(ev.roomId, []);
       S.early.delete(ev.roomId);
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
+      for (const k of [...S.openedDms.keys()]) if (parseKey(k)?.roomId === ev.roomId && k !== S.current) S.openedDms.delete(k); // 没消息的私聊别留在侧栏
       if (currentConv()?.roomId === ev.roomId) {
         closeFind();
+        cancelReply(); // 正在回复、正在改的那条已经没了
+        S.editMsg = null;
         S.rendered = null;
         renderMessages();
       }

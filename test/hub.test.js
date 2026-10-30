@@ -1529,8 +1529,47 @@ test('清空聊天记录：消息清掉、读取进度从头算；默认留着 A
   assert.doesNotMatch(calls.at(-1).prompt, /帮我做件事/);
   calls.at(-1).finish('好');
   await settle(hub);
+  // 清空后第一句不 @ 人：交给清空前的上一位，不会把全群叫醒
+  hub.clearRoom(room.id);
+  hub.postUserMessage(room.id, '不 @ 人的第一句');
+  await tick();
+  assert.equal(calls.at(-1).agent, 'claude');
+  assert.equal(hub.runs.size, 1, '只叫了上一位');
+  calls.at(-1).finish('好');
+  await settle(hub);
   // 选「让 AI 也忘掉」：会话清掉
   hub.clearRoom(room.id, true);
   assert.deepEqual(store.getState(room.id).sessions, {});
   assert.match(store.getMessages(room.id)[0].text, /记忆也清掉了/);
+});
+
+test('清空聊天记录的两个时序：清空后马上发消息，新消息马上开工；清空后马上退出，旧的读取进度不写回', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@Claude 做件事');
+  await tick();
+  const old = calls.at(-1);
+  hub.clearRoom(room.id);
+  assert.equal(hub.runs.size, 0, '旧任务马上从表里拿掉');
+  hub.postUserMessage(room.id, '@Claude 清空后的新消息');
+  await tick();
+  const fresh = calls.at(-1);
+  assert.notEqual(fresh, old, '新消息马上开工，不用等旧任务');
+  assert.match(fresh.prompt, /清空后的新消息/);
+  old.finish('旧任务晚到的结果');
+  await tick();
+  assert.ok(!store.getMessages(room.id).some((m) => m.text === '旧任务晚到的结果'), '旧结果不写回');
+  fresh.finish('好');
+  await settle(hub);
+
+  // 清空后马上退出：退出时只处理还在表里的任务，旧任务的读取进度不会写回
+  hub.postUserMessage(room.id, '@Claude 再做一件');
+  await tick();
+  hub.clearRoom(room.id);
+  hub.shutdown();
+  const state = store.getState(room.id);
+  assert.deepEqual(state.cursors, {});
+  assert.deepEqual(state.interrupted, {});
 });
