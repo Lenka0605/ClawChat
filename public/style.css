@@ -1106,9 +1106,10 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .steps ol { list-style: none; padding: 8px 10px; }
 /* 正在干活：收起时最近 3 步各占一行；展开后显示全部、完整文字、可以滚动 */
 .live .bubble { min-width: 240px; }
-.live-steps { margin: 6px 0 0; padding: 0; list-style: none; font-size: 11px; color: var(--muted); display: grid; gap: 3px; }
+.live-steps { margin: 8px 0 0; padding: 0; list-style: none; font-size: 11px; color: var(--muted); display: grid; gap: 3px; }
 .live-steps:not(.open) .step-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; flex: 1; }
-.live-steps.open { max-height: 320px; overflow-y: auto; padding: 8px 10px; background: var(--fill); border-radius: 10px; }
+/* 展开后的过程框和上面「收起过程」那个小圆角按钮都有底色：多留点空，免得两块贴在一起 */
+.live-steps.open { max-height: 320px; overflow-y: auto; padding: 10px 12px; margin-top: 12px; background: var(--fill); border-radius: 10px; }
 .live-toggle {
   border: 0; background: var(--fill); color: var(--muted); font-size: 11px; padding: 1px 8px; border-radius: 10px;
   display: inline-flex; align-items: center; gap: 4px; margin-left: 4px;
