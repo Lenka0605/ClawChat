@@ -253,7 +253,10 @@ html.native .logo { visibility: hidden; }
 .folder-avatar.has-image { background-size: cover; background-position: center; }
 /* 侧栏可以用键盘上下切：焦点框不画，停在收纳组上时那一行淡淡地亮一下 */
 #conv-list:focus { outline: none; }
-#conv-list:focus .conv-item.kbd { background: var(--fill); }
+#sidebar.nav-on .conv-item.kbd { background: var(--fill); }
+/* 侧栏里看不见的小输入框：接键盘（上下切换、打字先打在这里再搬到输入框），不占位置 */
+#sidebar { position: relative; }
+.side-sink { position: absolute; left: 16px; top: 96px; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; pointer-events: none; overflow: hidden; }
 /* 收纳组头像编辑 */
 .avatar-editor { justify-items: stretch; }
 .avatar-preview { display: grid; place-items: center; padding: 6px 0 4px; }

@@ -1124,6 +1124,9 @@ const FOLDER_COLORS = [
   ['#8C9AAE', '#6B7A90'],
   ['#C9A45C', '#A8843E'],
 ];
+// 按「看到的一个字」切：👨‍👩‍👧 这种组合表情算一个字，不会被切成几个
+const graphemes = (s) => (window.Intl?.Segmenter ? [...new Intl.Segmenter().segment(s)].map((x) => x.segment) : [...s]);
+
 function folderColor(folder) {
   const pick = folder.avatar?.color;
   if (Number.isInteger(pick) && FOLDER_COLORS[pick]) return pick;
@@ -1137,9 +1140,9 @@ function folderAvatar(folder) {
   const av = folder.avatar || {};
   if (av.image) return `<span class="folder-avatar has-image" style="background-image:url('${esc(av.image)}')"></span>`;
   const [a, b] = FOLDER_COLORS[folderColor(folder)];
-  const first = [...String(folder.name || '').trim()][0] || '·';
+  const first = graphemes(String(folder.name || '').trim())[0] || '·';
   const text = av.text || (/[a-z]/.test(first) ? first.toUpperCase() : first);
-  return `<span class="folder-avatar${[...text].length > 1 ? ' two' : ''}" style="background:linear-gradient(160deg,${a},${b})">${esc(text)}</span>`;
+  return `<span class="folder-avatar${graphemes(text).length > 1 ? ' two' : ''}" style="background:linear-gradient(160deg,${a},${b})">${esc(text)}</span>`;
 }
 
 // 更换收纳组头像：颜色、文字、图片，改的时候上面实时预览
@@ -1160,7 +1163,7 @@ async function openAvatarDialog(folderId) {
   $('#avatar-text').placeholder = tr('默认用组名的第一个字');
   preview();
   $('#avatar-text').oninput = (e) => {
-    draft.text = [...e.target.value.trim()].slice(0, 2).join('');
+    draft.text = graphemes(e.target.value.trim()).slice(0, 2).join('');
     preview();
   };
   $('#avatar-colors').onclick = (e) => {
@@ -4618,10 +4621,31 @@ function bind() {
     saveSideOrder(scope, keys);
     renderConvs();
   });
-  // 键盘：点过侧栏以后按上下在收纳组、群、私聊之间移动（移到聊天上就打开它）；→ / ← 展开、收起；
-  // 回车跳到输入框（停在收纳组上是展开收起）；直接打字也会跳到输入框，字照样打进去
-  list.addEventListener('keydown', (e) => {
-    if (e.isComposing || e.metaKey && e.key !== 'v' || e.ctrlKey && e.key !== 'v' || e.altKey) return;
+  // 键盘：点过侧栏以后按上下在收纳组、群、私聊之间移动（移到聊天上就打开它）；→ / ← 展开、收起；回车跳到输入框
+  // （停在收纳组上是展开收起）。焦点其实落在侧栏里一个看不见的小输入框上：直接打字（包括拼音组字）先在它里面打，
+  // 打完整段搬到真正的输入框。以前是按下字母再把焦点挪过去，拼音的第一下会变成一个裸字母
+  const sink = $('#side-sink');
+  const sidebar = $('#sidebar');
+  list.addEventListener('focusin', () => sink.focus()); // 点侧栏里任何地方，焦点都交给它
+  sink.addEventListener('focus', () => {
+    sidebar.classList.add('nav-on');
+    markSideNav();
+  });
+  sink.addEventListener('blur', () => sidebar.classList.remove('nav-on'));
+  const flushSink = () => {
+    const text = sink.value;
+    if (!text) return;
+    sink.value = '';
+    const el = $('#input');
+    el.focus();
+    editInput(el, el.value.length, el.value.length, text);
+  };
+  sink.addEventListener('compositionend', () => setTimeout(flushSink));
+  sink.addEventListener('input', (e) => {
+    if (!e.isComposing) flushSink();
+  });
+  sink.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
     const rows = [...list.querySelectorAll('.conv-item')];
     const keyOf = (li) => li.dataset.key || `f:${li.dataset.folder}`;
     let i = rows.findIndex((li) => keyOf(li) === (SIDE_NAV.key || S.current));
@@ -4646,8 +4670,6 @@ function bind() {
       e.preventDefault();
       if (folderId) toggleFolder(folderId);
       else $('#input').focus();
-    } else if (e.key.length === 1 || e.key === 'Process' || e.key === 'v') {
-      $('#input').focus(); // 直接打字：跳到输入框，这个字照样打进去
     }
   });
   list.addEventListener('dragend', () => {

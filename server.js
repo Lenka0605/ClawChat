@@ -700,7 +700,7 @@ async function api(req, res, url) {
       if (!v) return null;
       const out = {};
       if (Number.isInteger(v.color) && v.color >= 0 && v.color < 8) out.color = v.color;
-      const text = [...String(v.text || '').trim()].slice(0, 2).join('');
+      const text = [...new Intl.Segmenter().segment(String(v.text || '').trim())].map((x) => x.segment).slice(0, 2).join(''); // 按字切，组合表情算一个
       if (text) out.text = text;
       if (v.image) {
         if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v.image) || v.image.length > 400000) throw httpError(400, tr('头像图片不对，换一张试试'));
