@@ -1,5 +1,12 @@
 {
   "{name} 最多开到 9 号": "{name} can have up to 9 copies",
+  "没装": "Not installed",
+  "没登录": "Not signed in",
+  "没装 Claude Code": "No Claude Code",
+  "还没配好": "Not set up yet",
+  "多开一位": "Add a Copy",
+  "在这个群里再多一位同账号的 AI，有自己的记忆和设置": "Add another copy of an AI to this group. It uses the same app and account, with its own memory and settings.",
+  "{name} 现在用不了：{reason}。可以先勾上建群，装好、登录或填上 Key 之后就能用。": "{name} can't be used right now: {reason}. You can still add it now; it will work once it's installed, signed in, or given an API key.",
   "不认识这位成员": "Unknown member",
   "{name} 的 {n} 号": "{name} #{n}",
   "{name} 的 {n} 号：同一个程序和账号，自己的记忆和设置": "{name} #{n}: same app and account, its own memory and settings",
