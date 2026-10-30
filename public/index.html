@@ -195,6 +195,7 @@
               <span>项目文件夹</span>
               <span class="row"><input name="cwd" placeholder="留空就自动新建一个" autocomplete="off" spellcheck="false"><button type="button" id="btn-pick" class="secondary">选择…</button></span>
             </div>
+            <label class="form-row" id="folder-field"><span>收纳组</span><select id="set-folder"></select></label>
           </div>
           <p class="hint">它们会在这个文件夹里读写文件、运行命令。</p>
         </section>
@@ -453,6 +454,8 @@
   </dialog>
 
   <div id="model-menu" class="menu" role="menu" hidden></div>
+  <div id="ctx-menu" class="menu" role="menu" hidden></div>
+  <div id="ctx-sub" class="menu" role="menu" hidden></div>
   <div id="file-preview" class="file-preview" hidden><img alt=""><span class="fp-name"></span></div>
 
   <dialog id="dlg-confirm" class="sheet small">
@@ -465,6 +468,23 @@
           <button type="button" id="btn-confirm-cancel" class="secondary">取消</button>
           <button type="button" id="btn-confirm-alt" class="secondary" hidden></button>
           <button type="submit" id="btn-confirm-ok" class="primary"></button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 新建 / 重命名收纳组：只有一个输入框 -->
+  <dialog id="dlg-text" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2 id="text-title"></h2></header>
+      <div class="sheet-body">
+        <label class="form-row"><span id="text-label"></span><input id="text-input" type="text" maxlength="30" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions">
+          <span class="spacer"></span>
+          <button type="button" id="btn-text-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-text-ok" class="primary"></button>
         </div>
       </footer>
     </form>

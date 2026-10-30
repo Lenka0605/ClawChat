@@ -1,0 +1,20 @@
+{
+  "收纳组": "Folder",
+  "不放进收纳组": "No folder",
+  "新建收纳组": "New Folder",
+  "新建收纳组…": "New Folder…",
+  "重命名收纳组": "Rename Folder",
+  "移到收纳组": "Move to Folder",
+  "移出收纳组": "Remove from Folder",
+  "重命名": "Rename",
+  "解散收纳组": "Dissolve Folder",
+  "解散「{name}」？": "Dissolve “{name}”?",
+  "里面的群会回到最外层，群本身和聊天记录都不会删掉。": "Its chats move back out of the folder. No chat or chat history is deleted.",
+  "解散": "Dissolve",
+  "名字": "Name",
+  "创建": "Create",
+  "{n} 个群": "{n} chats",
+  "展开收纳组": "Expand Folder",
+  "收起收纳组": "Collapse Folder",
+  "一个群": "1 chat"
+}

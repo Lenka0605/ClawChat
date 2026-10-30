@@ -123,6 +123,6 @@
   "{size} 上下文": "{size} context",
   "{name}：{warning}": "{name}: {warning}",
   "{name} 的分身：{warning}": "{name}'s clone: {warning}",
-  "这个收纳组不存在了": "This collection no longer exists",
-  "收纳组的名字不能为空": "The collection needs a name"
+  "这个收纳组不存在了": "This folder no longer exists",
+  "收纳组的名字不能为空": "The folder needs a name"
 }

@@ -46,6 +46,7 @@ const S = {
   attachments: [], // 待发送的图片
   engines: {},
   agents: {},
+  folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
   defaults: {},
   projectsDir: '',
   editing: null,
@@ -481,6 +482,33 @@ function askConfirm({ title, text, ok, alt = '' }) {
   $('#btn-confirm-cancel').onclick = () => closeDialog(dlg);
   dlg.showModal();
   reportDragRegions();
+  return new Promise((resolve) =>
+    dlg.addEventListener('close', () => {
+      reportDragRegions();
+      resolve(answer);
+    }, { once: true }),
+  );
+}
+
+// 带一个输入框的小弹窗（新建 / 重命名收纳组）：点确定返回输入的文字，取消、Esc 返回 null
+function askText({ title, label, value = '', ok }) {
+  const dlg = $('#dlg-text');
+  $('#text-title').textContent = title;
+  $('#text-label').textContent = label;
+  $('#text-input').value = value;
+  $('#btn-text-ok').textContent = ok;
+  let answer = null;
+  dlg.querySelector('form').onsubmit = (e) => {
+    e.preventDefault();
+    const v = $('#text-input').value.trim();
+    if (!v) return void $('#text-input').focus();
+    answer = v;
+    closeDialog(dlg);
+  };
+  $('#btn-text-cancel').onclick = () => closeDialog(dlg);
+  dlg.showModal();
+  reportDragRegions();
+  setTimeout(() => $('#text-input').select(), 30);
   return new Promise((resolve) =>
     dlg.addEventListener('close', () => {
       reportDragRegions();
@@ -969,7 +997,7 @@ function convItemHtml(c, extra = {}) {
         <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : '';
   const name = c.dm ? `${agentLabel(c.dm)}<span class="dm-tag">${tr('私聊')}</span>` : esc(convTitle(c));
-  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}">
+  return `<li class="conv-item${c.dm ? ' child' : ''}${extra.dmCount ? ' has-children' : ''}${extra.inFolder ? ' in-folder' : ''}${c.key === S.current ? ' active' : ''}" data-key="${esc(c.key)}"${extra.inFolder ? ` data-parent-folder="${esc(extra.folderId)}"` : ''}>
     ${toggle}${convAvatar(c)}
     <div class="conv-meta">
       <div class="conv-line"><span class="name">${name}</span><span class="time">${last ? fmtShort(last.ts) : ''}</span></div>
@@ -977,18 +1005,276 @@ function convItemHtml(c, extra = {}) {
     </div></li>`;
 }
 
+// ---------------- 收纳组（侧栏） ----------------
+// 收纳组只是把几个群在侧栏里收在一起，群的项目文件夹、成员和记忆都不变。
+// 组和群排在同一层，按组里最近的动静排序；展开以后组里的群（连同它们的私聊）缩进显示
+const collapsedFolders = new Set((() => {
+  try {
+    return JSON.parse(storeGet('clawchat.folderCollapsed') || '[]');
+  } catch {
+    return [];
+  }
+})());
+
+const FOLDER_ICON =
+  '<svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true"><path d="M2 5.4h16.2v6.7c0 1.1-.9 1.9-1.9 1.9H3.9c-1 0-1.9-.8-1.9-1.9z" fill="currentColor" opacity=".3"/><path d="M2 5.4V4.2c0-1.1.9-1.9 1.9-1.9h3c.5 0 1 .2 1.4.6l1 1c.3.4.8.6 1.3.6h5.7c1 0 1.9.8 1.9 1.9v1z" fill="currentColor" opacity=".48"/></svg>';
+
+// 组里最新的一条消息（群消息和群里的私聊都算）
+function folderLatest(list) {
+  let best = null;
+  for (const e of list) {
+    const cands = [{ last: e.group.last, conv: e.group }];
+    for (const d of e.dms) cands.push({ last: d.last, conv: d });
+    for (const c of cands) if (c.last && (!best || c.last.ts > best.last.ts)) best = c;
+  }
+  return best;
+}
+
+// 这条消息在侧栏里怎么写：AI 之间私聊写「A → B：」，群里 AI 说的话前面带名字，老板说的不带
+function lastLine(last, conv) {
+  if (!last) return '';
+  const who = last.pm ? tr('{name}：', { name: `${agentName(last.from)} → ${agentName(last.pm)}` }) : !(last.from === 'user' || conv.dm || conv.room?.members?.length === 1) ? tr('{name}：', { name: agentName(last.from) }) : '';
+  return who + String(last.text || '').replace(/\s+/g, ' ');
+}
+
+function folderIt(container, open) {
+  const { folder, list } = container;
+  const unread = list.reduce((n, e) => n + (S.unread.get(e.group.key) || 0) + e.dms.reduce((m, d) => m + (S.unread.get(d.key) || 0), 0), 0);
+  const busy = S.runs
+    .filter((x) => list.some((e) => [e.group, ...e.dms].some((c) => runInConv(x, c))))
+    .map((x) => (x.side ? tr('{name} 分身', { name: agentName(x.agent) }) : agentName(x.agent)));
+  const latest = folderLatest(list);
+  const preview = busy.length
+    ? `<span class="busy">${esc(tr('{names} 正在干活…', { names: [...new Set(busy)].join(LIST_SEP) }))}</span>`
+    : latest
+      ? esc(lastLine(latest.last, latest.conv))
+      : '';
+  const label = list.length === 1 ? tr('一个群') : tr('{n} 个群', { n: list.length });
+  return `<li class="conv-item folder has-children${open ? ' open' : ''}" data-folder="${esc(folder.id)}">
+    <button class="disclosure${open ? ' open' : ''}" data-folder-toggle="${esc(folder.id)}" title="${open ? tr('收起收纳组') : tr('展开收纳组')}" aria-label="${open ? tr('收起收纳组') : tr('展开收纳组')}">
+      <svg viewBox="0 0 10 10" width="9" height="9"><path d="M3.2 1.8 6.6 5 3.2 8.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <span class="folder-avatar">${FOLDER_ICON}</span>
+    <div class="conv-meta">
+      <div class="conv-line"><span class="name folder-name">${esc(folder.name)}</span><span class="time">${latest ? fmtShort(latest.last.ts) : ''}</span></div>
+      <div class="conv-line"><span class="tag folder-count">${label}</span><span class="conv-preview">${preview}</span>${unread ? `<span class="unread">${unread > 99 ? '99+' : unread}</span>` : ''}</div>
+    </div></li>`;
+}
+
+// 一个群连同它的私聊；在收纳组里就缩进
+function roomItemsHtml({ group, dms }, inFolder = false, folderId = null) {
+  const open = !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
+  const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
+  const extra = { dmCount: dms.length, open, hiddenUnread, inFolder, folderId };
+  const out = [convItemHtml(group, extra)];
+  if (open) for (const d of dms) out.push(convItemHtml(d, extra));
+  return out;
+}
+
 function renderConvs() {
+  const entries = groupedConversations();
+  const boxes = new Map(S.folders.map((f) => [f.id, { folder: f, list: [], ts: 0 }]));
+  const items = [];
+  for (const e of entries) {
+    const box = e.group.room.folder && boxes.get(e.group.room.folder);
+    if (box) {
+      box.list.push(e);
+      box.ts = Math.max(box.ts, e.ts || 0);
+    } else items.push({ type: 'room', entry: e, ts: e.ts || 0 });
+  }
+  for (const box of boxes.values()) items.push({ type: 'folder', ...box, ts: box.ts || box.folder.createdAt || 0 });
+  items.sort((a, b) => b.ts - a.ts); // 组里一直没有动静的放到最后；空组按建组时间
   const html = [];
-  for (const { group, dms } of groupedConversations()) {
-    // 正在看其中一个私聊时，自动展开
-    const open = !collapsed.has(group.room.id) || dms.some((d) => d.key === S.current);
-    const hiddenUnread = open ? 0 : dms.reduce((n, d) => n + (S.unread.get(d.key) || 0), 0);
-    if (html.length) html.push('<li class="conv-sep" aria-hidden="true"></li>'); // 不同的群（连同它下面的私聊）之间一条细线
-    html.push(convItemHtml(group, { dmCount: dms.length, open, hiddenUnread }));
-    if (open) for (const d of dms) html.push(convItemHtml(d));
+  for (const it of items) {
+    if (html.length) html.push('<li class="conv-sep" aria-hidden="true"></li>'); // 不同的群 / 收纳组之间一条细线
+    if (it.type === 'room') {
+      html.push(...roomItemsHtml(it.entry));
+      continue;
+    }
+    const hasCurrent = it.list.some((e) => e.group.key === S.current || e.dms.some((d) => d.key === S.current));
+    const open = hasCurrent || !collapsedFolders.has(it.folder.id); // 正在看的群在这个组里：自动展开
+    html.push(folderIt(it, open));
+    if (open) for (const e of it.list) html.push(...roomItemsHtml(e, true, it.folder.id));
   }
   $('#conv-list').innerHTML = html.join('');
   updateBadge();
+}
+
+function toggleFolder(id) {
+  if (toggleFolder.busy) return; // 动画没放完又点了一下：忽略，免得抖
+  const closing = !collapsedFolders.has(id);
+  const childrenOf = () => [...document.querySelectorAll(`.conv-item[data-parent-folder="${CSS.escape(id)}"]`)];
+  const apply = () => {
+    if (closing) collapsedFolders.add(id);
+    else collapsedFolders.delete(id);
+    storeSet('clawchat.folderCollapsed', JSON.stringify([...collapsedFolders]));
+    renderConvs();
+  };
+  if (reduceMotion()) return apply();
+  toggleFolder.busy = true;
+  const done = () => (toggleFolder.busy = false);
+  if (closing) {
+    Promise.all(childrenOf().map((li) => slideItem(li, false))).then(apply).finally(done);
+  } else {
+    apply();
+    Promise.all(childrenOf().map((li) => slideItem(li, true))).finally(done);
+  }
+}
+
+// ---------------- 收纳组：右键菜单和接口 ----------------
+// 群上：「移到收纳组 ▸」「新建收纳组…」，已经在组里的还有「移出收纳组」；组上：「重命名」「解散收纳组」。
+// 菜单沿用模型菜单那套 .menu 样式，子菜单在右边展开
+function closeMenus() {
+  $('#ctx-menu').hidden = true;
+  $('#ctx-sub').hidden = true;
+}
+
+function placeMenu(el, x, y) {
+  el.hidden = false;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  el.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(y, window.innerHeight - h - 8))}px`;
+}
+
+function ctxItemHtml(label, item) {
+  const arrow = item.sub
+    ? '<svg class="menu-arrow" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M3.6 2 7 5l-3.4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    : '';
+  return `<button type="button" class="menu-item${item.danger ? ' danger' : ''}"><span class="menu-check"></span><span class="menu-text"><span class="menu-label">${esc(label)}</span></span>${arrow}</button>`;
+}
+
+function openCtxMenu(items, x, y) {
+  const menu = $('#ctx-menu');
+  const sub = $('#ctx-sub');
+  sub.hidden = true;
+  menu.innerHTML = items.map((it) => ctxItemHtml(it.label, it)).join('');
+  menu.querySelectorAll('.menu-item').forEach((btn, i) => {
+    const it = items[i];
+    btn.onmouseenter = () => {
+      if (!it.sub) return void (sub.hidden = true);
+      sub.innerHTML = it.sub.map((s) => ctxItemHtml(s.label, s)).join('');
+      sub.style.left = '-9999px';
+      sub.style.top = '0px';
+      sub.hidden = false;
+      sub.querySelectorAll('.menu-item').forEach((b, j) => (b.onclick = () => {
+        closeMenus();
+        it.sub[j].act?.();
+      }));
+      const r = btn.getBoundingClientRect();
+      const w = sub.offsetWidth;
+      const left = r.right + 2 + w > window.innerWidth - 8 ? r.left - w - 2 : r.right + 2;
+      sub.style.left = `${Math.max(8, left)}px`;
+      sub.style.top = `${Math.max(8, Math.min(r.top - 5, window.innerHeight - sub.offsetHeight - 8))}px`;
+    };
+    btn.onclick = () => {
+      if (it.sub) return; // 有子菜单的：鼠标移上去展开
+      closeMenus();
+      it.act?.();
+    };
+  });
+  sub.onmouseleave = () => (sub.hidden = true);
+  placeMenu(menu, x, y);
+}
+
+async function setRoomFolder(roomId, folderId) {
+  try {
+    const { room } = await api('PATCH', `/api/rooms/${roomId}`, { folder: folderId });
+    S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
+    if (folderId) collapsedFolders.delete(folderId); // 刚移进去的组要展开，不然看着像「不见了」
+    renderConvs();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function createFolder(name, roomId = null) {
+  try {
+    const { folder } = await api('POST', '/api/folders', roomId ? { name, rooms: [roomId] } : { name });
+    S.folders = [...S.folders, folder];
+    if (roomId) S.rooms = S.rooms.map((r) => (r.id === roomId ? { ...r, folder: folder.id } : r));
+    collapsedFolders.delete(folder.id);
+    renderConvs();
+    return folder;
+  } catch (err) {
+    toast(err.message);
+    return null;
+  }
+}
+
+async function renameFolderApi(id, name) {
+  try {
+    await api('PATCH', `/api/folders/${id}`, { name });
+    S.folders = S.folders.map((f) => (f.id === id ? { ...f, name } : f));
+    renderConvs();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function deleteFolderApi(id) {
+  try {
+    await api('DELETE', `/api/folders/${id}`);
+    S.folders = S.folders.filter((f) => f.id !== id);
+    S.rooms = S.rooms.map((r) => (r.folder === id ? { ...r, folder: undefined } : r));
+    renderConvs();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function openRoomMenu(roomId, x, y) {
+  const room = roomById(roomId);
+  if (!room) return;
+  const move = S.folders
+    .filter((f) => f.id !== room.folder)
+    .map((f) => ({ label: f.name, act: () => setRoomFolder(roomId, f.id) }));
+  const items = [
+    {
+      label: tr('移到收纳组'),
+      sub: [
+        ...move,
+        {
+          label: tr('新建收纳组…'),
+          act: async () => {
+            const name = await askText({ title: tr('新建收纳组'), label: tr('名字'), ok: tr('创建') });
+            if (name) createFolder(name, roomId);
+          },
+        },
+      ],
+    },
+  ];
+  if (room.folder) items.push({ label: tr('移出收纳组'), act: () => setRoomFolder(roomId, null) });
+  openCtxMenu(items, x, y);
+}
+
+function openFolderMenu(folderId, x, y) {
+  const folder = S.folders.find((f) => f.id === folderId);
+  if (!folder) return;
+  openCtxMenu(
+    [
+      {
+        label: tr('重命名'),
+        act: async () => {
+          const name = await askText({ title: tr('重命名收纳组'), label: tr('名字'), value: folder.name, ok: tr('保存') });
+          if (name && name !== folder.name) renameFolderApi(folderId, name);
+        },
+      },
+      {
+        label: tr('解散收纳组'),
+        danger: true,
+        act: async () => {
+          const ok = await askConfirm({
+            title: tr('解散「{name}」？', { name: folder.name }),
+            text: tr('里面的群会回到最外层，群本身和聊天记录都不会删掉。'),
+            ok: tr('解散'),
+          });
+          if (ok === true) deleteFolderApi(folderId);
+        },
+      },
+    ],
+    x,
+    y,
+  );
 }
 
 // ---------------- 搜索面板 ----------------
@@ -2004,6 +2290,7 @@ function keepBottom(fn) {
 function applyState(st) {
   S.rooms = st.rooms || [];
   S.agents = st.agents || {};
+  S.folders = st.folders || [];
   rebuildMembers();
   S.defaults = st.defaults || {};
   S.engines = st.engines || {};
@@ -2229,6 +2516,10 @@ function handleEvent(ev) {
       renderConvs();
       renderShell();
       renderEngines(); // 侧栏的黄色提醒只管有聊天用到的程序
+      break;
+    case 'folders':
+      S.folders = ev.folders || [];
+      renderConvs();
       break;
     case 'engines':
       S.engines = ev.engines || {};
@@ -3817,6 +4108,7 @@ async function switchModel(agent, id, custom = false) {
 function syncMemberFields() {
   const members = AGENT_IDS.filter((a) => formField(fieldName('member', a)).checked);
   $('#group-fields').hidden = members.length < 2;
+
   for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
   refreshSpeedField();
   formField('name').placeholder = members.length === 1 ? tr('留空就叫「{name}」', { name: agentLabel(members[0]) }) : tr('比如：今天争取不加班');
@@ -3936,6 +4228,14 @@ function openDialog(room, preset = null) {
   formField('permission').value = d.permission || 'project';
   formField('collab').checked = d.collab !== false;
   formField('maxAutoTurns').value = d.maxAutoTurns || 8;
+  // 收纳组：只有群能放（单聊勾一位成员的时候不显示）
+  const folderSel = $('#set-folder');
+  folderSel.innerHTML = [
+    `<option value="">${tr('不放进收纳组')}</option>`,
+    ...S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`),
+    `<option value="__new__">${tr('新建收纳组…')}</option>`,
+  ].join('');
+  folderSel.value = room?.folder && S.folders.some((f) => f.id === room.folder) ? room.folder : '';
   fillModelOptions(room);
   syncMemberFields();
   $('#form-error').hidden = true;
@@ -3958,6 +4258,7 @@ async function submitDialog(e) {
     efforts: Object.fromEntries(AGENT_IDS.map((a) => [a, formField(fieldName('effort', a)).value])),
     fast: { gpt: !$('#speed-fields').hidden && formField('fastGpt').value === '1' },
   };
+  body.folder = $('#set-folder').value || null; // 传 null 就是移出收纳组
   const btn = $('#btn-save');
   // 保存前先记下原来有哪些成员：改个群名、换个设置不该反复问「要不要装 Claude Code」
   const before = S.editing ? roomById(S.editing)?.members || [] : [];
@@ -4054,6 +4355,16 @@ function bind() {
     }
   };
   $('#conv-list').addEventListener('click', (e) => {
+    const folderToggle = e.target.closest('[data-folder-toggle]');
+    if (folderToggle) {
+      toggleFolder(folderToggle.dataset.folderToggle); // 收纳组的小三角：只展开收起
+      return;
+    }
+    const folderRow = e.target.closest('.conv-item[data-folder]');
+    if (folderRow) {
+      toggleFolder(folderRow.dataset.folder); // 点整行也是展开 / 收起
+      return;
+    }
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
       toggleCollapsed(toggle.dataset.toggle); // 小三角：只展开收起，不切换会话
@@ -4069,6 +4380,38 @@ function bind() {
     }
     openConv(li.dataset.key);
     if (li.classList.contains('has-children') && collapsed.has(roomId)) toggleCollapsed(roomId);
+  });
+  // 右键：群和收纳组都有菜单（私聊不参与收纳组）
+  $('#conv-list').addEventListener('contextmenu', (e) => {
+    const folderRow = e.target.closest('.conv-item[data-folder]');
+    if (folderRow) {
+      e.preventDefault();
+      closeModelMenu();
+      return void openFolderMenu(folderRow.dataset.folder, e.clientX, e.clientY);
+    }
+    const roomRow = e.target.closest('.conv-item[data-key]');
+    const conv = roomRow && parseKey(roomRow.dataset.key);
+    if (!conv || conv.dm) return;
+    e.preventDefault();
+    closeModelMenu();
+    openRoomMenu(conv.roomId, e.clientX, e.clientY);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub')) closeMenus();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMenus();
+  });
+  window.addEventListener('blur', closeMenus);
+  // 群设置里的「收纳组」：选「新建…」就先建一个组，保存群设置时再放进去
+  $('#set-folder').addEventListener('change', async (e) => {
+    if (e.target.value !== '__new__') return;
+    const name = await askText({ title: tr('新建收纳组'), label: tr('名字'), ok: tr('创建') });
+    if (!name) return void (e.target.value = '');
+    const folder = await createFolder(name);
+    if (!folder) return void (e.target.value = '');
+    e.target.insertAdjacentHTML('beforeend', `<option value="${esc(folder.id)}">${esc(folder.name)}</option>`);
+    e.target.value = folder.id;
   });
   // 点群里的头像（或右上角的头像）就去私聊
   document.addEventListener('click', (e) => {

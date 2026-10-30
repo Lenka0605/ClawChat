@@ -242,6 +242,12 @@ html.native .logo { visibility: hidden; }
   background: linear-gradient(90deg, transparent, var(--sep-line) 14%, var(--sep-line) 86%, transparent); }
 .conv-item.active, .conv-item.active:hover { background: var(--select); }
 .conv-avatar { position: relative; width: 40px; height: 40px; flex: none; }
+/* 侧栏的收纳组：和群排在同一层；组里的群（连同私聊）缩进一格 */
+.folder-avatar { width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; color: var(--muted); background: var(--fill); }
+.conv-item.in-folder { margin-left: 16px; }
+.conv-item.child.in-folder { margin-left: 46px; }
+.conv-item.folder .folder-name { flex: 1; }
+.folder-count { flex: none; }
 .conv-avatar > .avatar { width: 40px; height: 40px; }
 .conv-avatar.stack .avatar { position: absolute; width: 27px; height: 27px; box-shadow: 0 0 0 1.5px var(--side); }
 html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.14); }
@@ -468,6 +474,12 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
 .menu-fast { display: inline-flex; align-items: center; gap: 3px; }
 .menu-fast svg { color: var(--fast); }
 .menu-item:hover .menu-fast svg, .menu-item:focus-visible .menu-fast svg { color: #fff; }
+/* 收纳组的右键菜单：有子菜单的右边一个小箭头；「解散」用红色 */
+.menu-arrow { margin-left: auto; align-self: center; flex: none; opacity: 0.55; }
+.menu-item:hover .menu-arrow { opacity: 0.9; }
+.menu-item.danger .menu-label { color: var(--danger); }
+.menu-item.danger:hover { background: var(--danger); }
+.menu-item.danger:hover .menu-label { color: #fff; }
 
 .field select, .target select, .group-box select {
   -webkit-appearance: none; appearance: none; border: 0; background-color: transparent; font-size: 12px; max-width: 150px;
