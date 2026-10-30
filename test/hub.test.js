@@ -1305,4 +1305,22 @@ test('中途插话：Claude 正在干活时老板又发一条，直接塞进这�
   assert.equal(calls.filter((c) => c.agent === 'gpt').length, gptCount + 1, '干完以后再来一轮看新消息');
   assert.match(calls.filter((c) => c.agent === 'gpt').at(-1).prompt, /日志也看看/);
   await drain();
+
+  // 同事 @ 它也算：Claude 在干活时，ChatGPT 干完回了一句 @Claude，直接塞进 Claude 这一轮
+  hub.postUserMessage(room.id, '@所有人 一起查下这个 bug');
+  await tick();
+  const claudeRun = calls.filter((c) => c.agent === 'claude').at(-1);
+  calls.filter((c) => c.agent === 'gpt').at(-1).finish('@Claude 我查到是缓存的问题，你那边顺便看下 cache.js');
+  await tick();
+  await tick();
+  assert.equal(claudeRun.steered.length, 1, '同事 @ 它的话也插进了这一轮');
+  assert.match(claudeRun.steered[0], /ChatGPT又发来了新消息/);
+  assert.match(claudeRun.steered[0], /cache\.js/);
+  assert.equal(hub.runs.get(hub.key(room.id, 'claude')).steps.at(-1).text, '收到 ChatGPT 的新消息，接着一起干');
+  const before = calls.filter((c) => c.agent === 'claude').length;
+  claudeRun.finish('缓存那边也改好了');
+  await tick();
+  await tick();
+  assert.equal(calls.filter((c) => c.agent === 'claude').length, before, '做完不会为这句再来一轮');
+  await drain();
 });
