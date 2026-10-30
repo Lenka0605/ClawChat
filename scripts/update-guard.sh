@@ -23,6 +23,8 @@ roll_back() {
   local from
   from="$(field from)"
   [ -n "$from" ] || return 1
+  # 程序目录已经不是这次升级到的版本（比如有人手动动过）：不自动回退
+  [ "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" = "$(field to)" ] || { echo "[$(date '+%F %T')] 程序目录不是这次升级到的版本，不自动退回"; return 1; }
   echo "[$(date '+%F %T')] 新版本 $(field to) 90 秒内没起来，退回 $from"
   git -C "$ROOT" reset --hard "$from" || return 1
   mv -f "$PREV" "$DATA/update-rollback.json"
