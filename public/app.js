@@ -3009,7 +3009,8 @@ function handleEvent(ev) {
         S.loadingEarlier.delete(k);
       }
       S.clearGen.set(ev.roomId, (S.clearGen.get(ev.roomId) || 0) + 1); // 清空前发出去的取消息请求，回来也不要了
-      if (currentConv()) S.messages.set(S.current, []);
+      const cur = currentConv();
+      if (cur && cur.roomId === ev.roomId) S.messages.set(cur.key, []); // 正在看的不是被清的这个群时，别动它
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
       for (const k of [...S.openedDms.keys()]) if (parseKey(k)?.roomId === ev.roomId && k !== S.current) S.openedDms.delete(k); // 没消息的私聊别留在侧栏
       if (currentConv()?.roomId === ev.roomId) {
@@ -3538,7 +3539,7 @@ function selectMentionOnBackspace(e) {
 
 function startReply(seq) {
   const conv = currentConv();
-  const m = conv && (S.messages.get(conv.roomId) || []).find((x) => x.seq === seq);
+  const m = conv && findMessage(seq); // 消息缓存是按会话存的，用 conv.roomId 找不到
   if (!m) return;
   S.replyTo = { seq: m.seq, from: m.from };
   $('#reply-who').textContent = tr('回复 {name}', { name: whoLabel(m.from) });
