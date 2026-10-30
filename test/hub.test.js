@@ -1324,3 +1324,74 @@ test('中途插话：Claude 正在干活时老板又发一条，直接塞进这�
   assert.equal(calls.filter((c) => c.agent === 'claude').length, before, '做完不会为这句再来一轮');
   await drain();
 });
+
+test('中途插话要等回执的（ChatGPT）：收到了才推进读取进度；被拒就排到下一轮；等回执时被停止，什么都不写回', async () => {
+  const store = new Store();
+  const calls = [];
+  let answer = null; // 测试里决定这次插话的回执：true 收到、false 被拒
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, prompt: opts.prompt, steered: [], done: false, finish: (text) => ((call.done = true), resolve({ ok: true, text, steps: [], session: `${agent}-s` })) };
+    calls.push(call);
+    return {
+      done,
+      kill: () => ((call.done = true), resolve({ ok: false, error: 'killed', steps: [], session: null })),
+      steer: (prompt) => new Promise((r) => (call.steered.push(prompt), (answer = r))),
+    };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  const cursor = () => store.getState(room.id).cursors.gpt;
+
+  // 收到回执才推进
+  hub.postUserMessage(room.id, '@ChatGPT 先跑一下测试');
+  await tick();
+  const first = calls.at(-1);
+  const before = cursor();
+  hub.postUserMessage(room.id, '@ChatGPT 顺便看下日志');
+  await tick();
+  assert.equal(first.steered.length, 1);
+  assert.equal(cursor(), before, '还没回执，读取进度不动');
+  answer(true);
+  await tick();
+  assert.equal(cursor(), store.getMessages(room.id).length - 1, '收到了才推进');
+  first.finish('测试和日志都看了');
+  await tick();
+  assert.equal(calls.length, 1, '已经插进去的，做完不再来一轮');
+
+  // 被拒：这一轮做完以后再来一轮，带上被拒的那条
+  hub.postUserMessage(room.id, '@ChatGPT 再跑一遍');
+  await tick();
+  const second = calls.at(-1);
+  hub.postUserMessage(room.id, '@ChatGPT 记得截图');
+  await tick();
+  answer(false);
+  await tick();
+  hub.postUserMessage(room.id, '@ChatGPT 还有一件事');
+  await tick();
+  assert.equal(second.steered.length, 1, '被拒以后这一轮不再往里塞');
+  second.finish('跑完了');
+  await tick();
+  await tick();
+  const third = calls.at(-1);
+  assert.notEqual(third, second, '做完以后另开一轮');
+  assert.match(third.prompt, /记得截图/);
+  assert.match(third.prompt, /还有一件事/);
+  third.finish('都处理了');
+  await tick();
+
+  // 等回执时被停止：读取进度不往前推
+  hub.postUserMessage(room.id, '@ChatGPT 最后看一眼');
+  await tick();
+  const fourth = calls.at(-1);
+  hub.postUserMessage(room.id, '@ChatGPT 算了不用看了');
+  await tick();
+  const at = cursor();
+  hub.stop(room.id, 'gpt');
+  answer(true);
+  await tick();
+  await tick();
+  assert.ok(fourth.done);
+  assert.ok(cursor() <= at, '停止以后晚到的回执不推进读取进度');
+});
