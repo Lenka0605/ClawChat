@@ -1,0 +1,10 @@
+{
+  "等待 ClawChat 启动超过了 90 秒": "ClawChat did not start within 90 seconds",
+  "旧的 ClawChat 服务还没退出，请稍后再试，或查看 server.log": "The previous ClawChat server has not exited. Try again later or check server.log.",
+  "新服务没能启动，且无法确认它已经退出，未自动覆盖程序文件：{error}": "The new server did not start, and its exit could not be confirmed. Program files were left unchanged: {error}",
+  "升级回退记录不完整，未自动修改程序文件": "The update recovery record is incomplete. Program files were left unchanged.",
+  "程序目录有改动，或已不是这次升级的版本，未自动回退，请保留日志后处理": "The program folder has local changes or is no longer at the updated revision. Automatic rollback was skipped. Keep the logs for troubleshooting.",
+  "自动退回旧版本失败：{error}": "Automatic rollback failed: {error}",
+  "已经退回旧版本，但仍然无法启动：{error}": "The previous version was restored, but it still could not start: {error}",
+  "ClawChat 服务退出了（{code}）": "The ClawChat server exited ({code})"
+}
