@@ -730,6 +730,7 @@ async function api(req, res, url) {
       if (patch.dmSettings && room.members.length > 1) {
         for (const a of room.members) {
           const was = dmBefore[a];
+          if (!was) continue; // 这次才加进群的成员：之前没有私聊设置可比，不用提示
           const now = dmRoom(room, a);
           const name = AGENTS[a].name;
           const tail = when(a) + tr('（只改私聊，群里不变）');
