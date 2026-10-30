@@ -2900,7 +2900,7 @@ async function updateFromBadge() {
   if (res.dirty) return toast(tr('本地有没提交的改动，先处理掉才能升级'), 5000);
   const restartOnly = !res.behind && res.needsRestart;
   const busy = busyNames();
-  const changes = (res.changes || []).slice(0, 4).map((c) => `· ${c.subject}`).join('\n');
+  const changes = (res.changes || []).slice(0, 4).map((c) => `· ${splitChange(c.subject).title}`).join('\n'); // 确认框里只列标题，细节在设置页里看
   const ok = await askConfirm({
     title: restartOnly ? tr('新版本已经下载好') : tr('有新版本 {version}', { version: res.latest || '' }),
     text: `${changes ? `${changes}\n\n` : ''}${restartOnly ? tr('重启 ClawChat 后生效。聊天记录和记忆都不受影响。') : tr('会从 GitHub 拉取最新代码，然后自动重启。聊天记录和记忆都不受影响。')}${busy.length ? `\n\n${busyText(busy)}` : ''}`,
@@ -2954,6 +2954,34 @@ async function askCancelPending() {
   }
 }
 
+// 一条更新：提交说明写的是「这一版做了什么：细节……（0.7.13）」。拆成版本号标签、标题（冒号前那句）、
+// 细节（默认两行，点一下展开）；时间按界面语言显示成「4 分钟前」
+function splitChange(subject) {
+  let text = String(subject || '').trim();
+  const ver = text.match(/[（(](\d+\.\d+\.\d+)[）)]\s*$/)?.[1] || '';
+  if (ver) text = text.replace(/[（(]\d+\.\d+\.\d+[）)]\s*$/, '').trim();
+  const cut = text.search(/[：:]/);
+  if (cut > 0 && cut <= 60) return { ver, title: text.slice(0, cut), detail: text.slice(cut + 1).trim() };
+  return { ver, title: text, detail: '' };
+}
+
+function agoText(iso) {
+  const t = Date.parse(iso);
+  if (!t) return '';
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (min < 1) return tr('刚刚');
+  if (min < 60) return tr('{n} 分钟前', { n: min });
+  if (min < 24 * 60) return tr('{n} 小时前', { n: Math.round(min / 60) });
+  return fmtTime(t);
+}
+
+function changeItemHtml(c) {
+  const { ver, title, detail } = splitChange(c.subject);
+  return `<li><div class="uc-head">${ver ? `<span class="uc-ver">${esc(ver)}</span>` : ''}<span class="uc-title" title="${esc(title)}">${esc(title)}</span><time class="uc-time" datetime="${esc(c.at || '')}">${esc(c.at ? agoText(c.at) : c.when || '')}</time></div>${
+    detail ? `<div class="uc-detail" title="${esc(tr('点一下展开 / 收起'))}">${esc(detail)}</div>` : ''
+  }</li>`;
+}
+
 // 检查更新：show=true 时把结果显示在设置页里；启动时也会悄悄查一次，有新版就在「设置」上亮个小点
 async function checkForUpdate(show = false) {
   const status = $('#update-status');
@@ -2993,7 +3021,8 @@ async function checkForUpdate(show = false) {
     return;
   }
   status.innerHTML = `<span class="new-text">${tr('有新版本 {version} 可以升级', { version: esc(res.latest) })}</span><span class="muted"> · ${tr('{n} 处更新', { n: res.behind })}</span>`;
-  list.innerHTML = res.changes.map((c) => `<li><span>${esc(c.subject)}</span><span class="muted">${esc(c.when)}</span></li>`).join('');
+  list.innerHTML = res.changes.map(changeItemHtml).join('');
+  list.querySelectorAll('.uc-detail').forEach((el) => (el.onclick = () => el.classList.toggle('open')));
   box.hidden = !res.changes.length;
   btn.hidden = false;
   btn.disabled = !!res.dirty;

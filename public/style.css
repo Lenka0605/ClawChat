@@ -706,8 +706,6 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 .update-card { background: var(--fill); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
 .update-status { font-size: 13px; line-height: 1.6; }
 .update-status .ok-text { color: var(--green); font-weight: 500; }
-.update-changes { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; max-height: 180px; overflow-y: auto; }
-.update-changes li { display: flex; justify-content: space-between; gap: 12px; }
 .about { text-align: center; padding: 12px 0; display: grid; gap: 6px; justify-items: center; }
 .about h3 { margin: 4px 0 0; font-size: 17px; }
 .about p { margin: 0; font-size: 12px; line-height: 1.7; }
@@ -887,9 +885,22 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .update-status .ok-text { color: var(--green); font-weight: 500; }
 .update-status .ok-text::before { content: "✓ "; }
 .update-status .new-text { color: var(--accent); font-weight: 500; }
-.update-changes { margin: 0; padding: 4px 0; list-style: none; display: grid; font-size: 12px; max-height: 180px; overflow-y: auto; }
-.update-changes li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.update-changes { margin: 0; padding: 2px 0; list-style: none; display: grid; max-height: 320px; overflow-y: auto; }
+.update-changes li { display: grid; gap: 3px; padding: 9px 0; min-width: 0; }
 .update-changes li + li { border-top: 0.5px solid var(--line); }
+/* 一条更新：版本号小标签 + 标题（最多两行）+ 右边的时间（不换行）；下面是灰色的细节，默认两行，点一下展开 */
+.uc-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.uc-ver {
+  flex: none; font-size: 11px; font-weight: 600; line-height: 16px; padding: 0 6px; border-radius: 999px;
+  color: var(--accent); background: var(--accent-soft); font-variant-numeric: tabular-nums;
+}
+.uc-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.uc-time { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.uc-detail {
+  font-size: 12px; line-height: 1.55; color: var(--muted); cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.uc-detail.open { display: block; }
 
 /* 关于 */
 .prefs .about { padding: 22px 0 8px; gap: 8px; }
