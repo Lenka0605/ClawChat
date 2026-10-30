@@ -2399,12 +2399,25 @@ function placeMentionMenu() {
 }
 
 // 改输入框里的一段字，并且能用 ⌘Z 撤销、⇧⌘Z 重做：直接给 value 赋值会把浏览器记的撤销记录整个清掉
-// 粘贴进输入框的文字里有「@Claude」这类手打的写法（比如从别的消息复制来的），换成和点 @ 按钮插入的一样：带头像的标签
+// 粘贴进输入框的文字里有「@Claude」这类手打的写法（比如从别的消息复制来的），换成和点 @ 按钮插入的一样：带头像的标签。
+// 只换「@」后面那个看不见的空隙，后面紧跟的普通空格换成全角空格；cleanMentions 还原后和粘贴的原文一字不差
 function pastedMentions(text) {
   const conv = currentConv();
   const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
   if (!members.length) return text;
-  return text.replace(MENTION_TAG_RE, (all, pre, name) => (members.includes(MENTION_WHO[name.toLowerCase()]) ? `${pre}@${MENTION_GAP}${name}${MENTION_SEP}` : all));
+  const names = Object.keys(MENTION_WHO).sort((x, y) => y.length - x.length).map(escRe).join('|');
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(`@(${names})`, 'gi'))) {
+    const end = m.index + m[0].length;
+    if (m.index > 0 && /[A-Za-z0-9_.]/.test(text[m.index - 1])) continue; // me@claude 这种不算
+    if (/[A-Za-z0-9_]/.test(text[end] || '')) continue; // @Claudex 不是 @Claude
+    if (!members.includes(MENTION_WHO[m[1].toLowerCase()])) continue;
+    const space = text[end] === ' ';
+    out += `${text.slice(last, m.index)}@${MENTION_GAP}${m[1]}${space ? MENTION_SEP : ''}`;
+    last = end + (space ? 1 : 0);
+  }
+  return out + text.slice(last);
 }
 
 function editInput(el, start, end, text) {
