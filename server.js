@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, installClaudeCode } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installClaudeCode } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -192,9 +192,24 @@ function safeName(name) {
   return name.replace(/[\/\\:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
 }
 
+// 多开成员只活在群里：哪个群都没有它了（群里取消勾选、群删了），就把它清掉，免得越积越多。
+// 它在各群里的记忆、设置一起清；聊天记录留着
+function pruneExtraMembers(before = null) {
+  const used = new Set(store.listRooms().flatMap((r) => r.members));
+  const gone = Object.keys(AGENTS).filter((id) => AGENTS[id].base && !used.has(id));
+  for (const id of gone) {
+    hub.forgetMember(id);
+    removeExtraMember(id);
+  }
+  // 成员表变了（开出了新的、清掉了旧的）就告诉界面
+  if (gone.length || (before !== null && before !== Object.keys(AGENTS).join())) hub.emit('event', { type: 'agents', agents: AGENTS });
+}
+
 function normalizeRoom(body, creating, room = null) {
   const out = {};
   if (body.members !== undefined || creating) {
+    // 多开成员是在群里勾出来的：勾上的 ChatGPT2 这类还没开出来，就先开出来
+    if (Array.isArray(body.members)) for (const id of body.members) ensureExtraMember(id);
     const members = Object.keys(AGENTS).filter((id) => (Array.isArray(body.members) ? body.members : Object.keys(AGENTS)).includes(id));
     if (!members.length) throw httpError(400, tr('至少要选一位成员'));
     out.members = members;
@@ -663,7 +678,13 @@ async function api(req, res, url) {
 
   if (parts[0] === 'rooms') {
     if (parts.length === 1 && method === 'POST') {
-      const room = store.createRoom(normalizeRoom(await readBody(req), true));
+      const before = Object.keys(AGENTS).join();
+      let room;
+      try {
+        room = store.createRoom(normalizeRoom(await readBody(req), true));
+      } finally {
+        pruneExtraMembers(before); // 建群失败时，刚开出来的多开成员也别留着
+      }
       hub.notice(room.id, room.members.length > 1 ? tr('群聊已创建。项目文件夹：{cwd}', { cwd: room.cwd }) : tr('聊天已创建。项目文件夹：{cwd}', { cwd: room.cwd }));
       hub.emitRooms();
       return send(res, 201, { room });
@@ -672,7 +693,14 @@ async function api(req, res, url) {
     if (!room) return send(res, 404, { error: tr('群聊不存在') });
     const sub = parts[2];
     if (!sub && method === 'PATCH') {
-      const patch = normalizeRoom(await readBody(req), false, room);
+      const before = Object.keys(AGENTS).join();
+      let patch;
+      try {
+        patch = normalizeRoom(await readBody(req), false, room);
+      } catch (err) {
+        pruneExtraMembers(before);
+        throw err;
+      }
       const cwdChanged = patch.cwd && patch.cwd !== room.cwd;
       for (const a of room.members) if (patch.members && !patch.members.includes(a)) hub.stop(room.id, a);
       const switched = patch.models
@@ -693,6 +721,7 @@ async function api(req, res, url) {
         ? Object.keys(ROOM_DEFAULTS.fast).filter((a) => (patch.members || room.members).includes(a) && !!patch.fast[a] !== !!room.fast?.[a])
         : [];
       store.updateRoom(room.id, patch);
+      pruneExtraMembers(before);
       // 什么时候生效（「，下一轮开始生效」这样的半句，拼在提示后面）
       const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? tr('，它手上这一轮做完后开始生效') : tr('，下一轮开始生效'));
       for (const a of switched) hub.notice(room.id, tr('{name} 换成了 {model}{when}', { name: AGENTS[a].name, model: modelName(a, patch.models[a]), when: when(a) }));
@@ -722,6 +751,7 @@ async function api(req, res, url) {
     if (!sub && method === 'DELETE') {
       hub.stop(room.id);
       store.deleteRoom(room.id);
+      pruneExtraMembers();
       hub.emitRooms();
       return send(res, 200, { ok: true });
     }
@@ -902,6 +932,7 @@ setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   hub.noticeInterrupted();
+  pruneExtraMembers(); // 以前在设置里开了、但哪个群都没用上的多开成员
   ensureIcons();
   refreshEngines().then(() => console.log(`[clawchat] 程序：${engineSummary()}`));
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
