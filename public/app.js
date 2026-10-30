@@ -557,7 +557,8 @@ function inline(s) {
         ? seg
         : seg.replace(MENTION_MSG_RE, (_, pre, name) => {
             const who = MENTION_WHO[name.toLowerCase()];
-            return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? avatarHtml(who) : '@'}${name}</span>`;
+            // 头像前面藏一个看不见的「@」：选中复制出去还是「@Claude」，不会只剩「Claude」
+            return `${pre}<span class="mention${who ? ' has-icon' : ''}" data-who="${who || 'all'}">${who ? `<span class="mention-at-text">@</span>${avatarHtml(who)}` : '@'}${name}</span>`;
           }),
     )
     .join('');
@@ -2398,6 +2399,14 @@ function placeMentionMenu() {
 }
 
 // 改输入框里的一段字，并且能用 ⌘Z 撤销、⇧⌘Z 重做：直接给 value 赋值会把浏览器记的撤销记录整个清掉
+// 粘贴进输入框的文字里有「@Claude」这类手打的写法（比如从别的消息复制来的），换成和点 @ 按钮插入的一样：带头像的标签
+function pastedMentions(text) {
+  const conv = currentConv();
+  const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
+  if (!members.length) return text;
+  return text.replace(MENTION_TAG_RE, (all, pre, name) => (members.includes(MENTION_WHO[name.toLowerCase()]) ? `${pre}@${MENTION_GAP}${name}${MENTION_SEP}` : all));
+}
+
 function editInput(el, start, end, text) {
   el.focus();
   // 先把光标挪开一下：不然浏览器会把这次插入和前面刚打的字算成同一步，撤销时一起没了
@@ -4095,6 +4104,16 @@ function bind() {
     renderAttachments();
   });
   const input = $('#input');
+  // 粘贴的文字里有 @成员：换成带头像的标签再放进去（输入框和改消息的框都一样）
+  document.addEventListener('paste', (e) => {
+    const el = e.target;
+    if (!(el === input || el.classList?.contains('edit-input')) || [...(e.clipboardData?.files || [])].length) return;
+    const text = e.clipboardData?.getData('text/plain') || '';
+    const fixed = pastedMentions(text);
+    if (fixed === text) return;
+    e.preventDefault();
+    editInput(el, el.selectionStart, el.selectionEnd, fixed);
+  });
   input.addEventListener('paste', (e) => {
     const files = [...(e.clipboardData?.files || [])].filter((f) => imageType(f));
     if (!files.length) return;
