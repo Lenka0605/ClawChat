@@ -35,5 +35,7 @@
   "刚刚": "Just now",
   "{n} 分钟前": "{n} min ago",
   "{n} 小时前": "{n} hr ago",
-  "点一下展开 / 收起": "Click to expand / collapse"
+  "点一下展开 / 收起": "Click to expand / collapse",
+  "要升级 Codex": "Update Codex",
+  "版本太旧": "Too old"
 }

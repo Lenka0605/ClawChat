@@ -812,6 +812,7 @@ function engineState(e, key) {
   }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
   if (e.ok && e.loggedIn === false) return `${esc(e.version || '')} · ${key === 'claude' ? tr('没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）') : tr('没登录 ChatGPT 账号')}`;
+  if (!e.ok && e.error) return esc(e.error); // 比如 Codex 太旧：说清楚要升级，别写成「没找到」
   return e.ok ? esc(e.version || tr('已就绪')) : tr('没找到，请先安装并登录');
 }
 
@@ -879,7 +880,7 @@ function memberReady(a) {
   const E = S.engines;
   if (!Object.keys(E).length) return true;
   if (b === 'claude') return !!E.claude?.path && E.claude.loggedIn !== false;
-  if (b === 'gpt') return !!E.codex?.path && E.codex.loggedIn !== false;
+  if (b === 'gpt') return !!E.codex?.path && E.codex.ok !== false && E.codex.loggedIn !== false;
   return !!E[b]?.ok;
 }
 
@@ -941,7 +942,7 @@ function renderEngines() {
   const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}` };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    const bad = BYOK[key] ? (!e?.path ? tr('缺 Claude Code') : !e?.hasKey ? tr('没填 Key') : tr('Key 不对')) : tr('没找到');
+    const bad = BYOK[key] ? (!e?.path ? tr('缺 Claude Code') : !e?.hasKey ? tr('没填 Key') : tr('Key 不对')) : !e?.path ? tr('没找到') : e.error ? tr('版本太旧') : tr('没找到');
     const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
@@ -4148,7 +4149,7 @@ function memberIssue(a) {
   const E = S.engines;
   if (!Object.keys(E).length) return '';
   if (b === 'claude') return !E.claude?.path ? tr('没装') : E.claude.loggedIn === false ? tr('没登录') : '';
-  if (b === 'gpt') return !E.codex?.path ? tr('没装') : E.codex.loggedIn === false ? tr('没登录') : '';
+  if (b === 'gpt') return !E.codex?.path ? tr('没装') : E.codex.error ? tr('要升级 Codex') : E.codex.loggedIn === false ? tr('没登录') : '';
   if (b === 'gemini') return E.gemini?.ok ? '' : E.gemini?.path ? tr('还没配好') : tr('没装');
   const e = E[b];
   if (!e?.hasKey) return tr('还没填 API Key');
