@@ -23,5 +23,6 @@
   "Claude Code 没装上：{output}": "Couldn't install Claude Code: {output}",
   "这台电脑还没装 Claude Code": "Claude Code Isn't Installed",
   "{names} 都要借 Claude Code 干活（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）。没装的话，它们在群里会直接报错。现在帮你装上吗？会用 Anthropic 官方的安装程序，装在你自己的用户目录里，不用管理员密码，大概一两分钟。": "{names} all work through Claude Code (DeepSeek and GLM only use its tools and don't need a Claude account). Without it, they'll fail in group chats. Install it now? It uses Anthropic's official installer, installs into your own user folder, needs no admin password, and takes a minute or two.",
-  "帮我安装": "Install"
+  "帮我安装": "Install",
+  "装了 10 分钟还没装完，先停下了，可以再点一次「安装 Claude Code」重试": "Installation was still running after 10 minutes, so it was stopped. Click “Install Claude Code” to try again."
 }

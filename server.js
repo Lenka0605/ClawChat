@@ -634,13 +634,7 @@ async function api(req, res, url) {
       // 和它的单聊删不了成员（删了就没人了）：先让老板自己删掉那个单聊
       const solo = store.listRooms().find((r) => r.members.length === 1 && r.members[0] === id);
       if (solo) return send(res, 400, { error: tr('还有和 {name} 的单聊「{room}」，先把那个单聊删掉再删 {name}', { name: AGENTS[id].name, room: solo.name }) });
-      // 已经在群里的先请出去（手上的活停掉），聊天记录还留着
-      for (const room of store.listRooms()) {
-        if (!room.members.includes(id)) continue;
-        hub.stop(room.id, id);
-        const members = room.members.filter((a) => a !== id);
-        if (members.length) store.updateRoom(room.id, { members });
-      }
+      hub.forgetMember(id); // 从所有群里请出去，记忆和进度清掉，聊天记录留着
       removeExtraMember(id);
       hub.emit('event', { type: 'agents', agents: AGENTS });
       hub.emitRooms();

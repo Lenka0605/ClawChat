@@ -830,7 +830,7 @@ async function installClaudeCode() {
 async function offerClaudeCode(reason = 'start', who = []) {
   if (!claudeMissing() || S.installing || S.offeringInstall) return;
   if (reason === 'start' && storeGet('clawchat.claudeCodeAsked')) return;
-  if ($('dialog[open]')) return; // 别的窗口开着时先不打扰
+  if (reason === 'start' && $('dialog[open]')) return; // 启动时别的窗口开着就先不打扰；填完 Key（设置窗口还开着）、建完群时照样问，确认框盖在上面
   S.offeringInstall = true;
   storeSet('clawchat.claudeCodeAsked', '1');
   const names = (who.length ? who : NEEDS_CLAUDE_CODE).map(agentName).join(LIST_SEP);

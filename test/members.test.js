@@ -65,3 +65,59 @@ test('多开：本体和 2 号各有各的会话，@ 谁谁干活', async () => 
   assert.equal(st.sessions.gpt2, 'gpt2-session');
   assert.equal(st.sessions.gpt, 'gpt-session');
 });
+
+// 可控的假 AI：每次调用都挂起，测试里手动结束；被停止时返回失败
+function heldRunner() {
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    calls.push({ agent, side: !!opts.side, session: opts.session, prompt: opts.prompt, finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }) });
+    return { done, kill: () => resolve({ ok: false, error: 'killed', steps: [], session: null }) };
+  };
+  return { run, calls };
+}
+const tick = () => new Promise((r) => setTimeout(r, 20));
+
+test('多开：正在干活的 ChatGPT2 被删掉，不抛异常；再开一个 2 号是全新的，不接回旧记忆', async () => {
+  if (!AGENTS.gpt2) addExtraMember('gpt');
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = store.createRoom({ name: 't', cwd: os.tmpdir(), members: ['gpt', 'gpt2'] });
+  // 先让 2 号有一个会话
+  hub.postUserMessage(room.id, '@ChatGPT2 你好');
+  await tick();
+  calls.at(-1).finish('你好');
+  await tick();
+  assert.equal(store.getState(room.id).sessions.gpt2, 'gpt2-s');
+  // 2 号正在干活时删掉它（跟服务端的删除接口一样：先 forgetMember，再从成员表里拿掉）
+  hub.postUserMessage(room.id, '@ChatGPT2 干一件很久的活');
+  await tick();
+  const running = calls.at(-1);
+  assert.equal(running.agent, 'gpt2');
+  const errors = [];
+  const onErr = (e) => errors.push(e);
+  process.on('unhandledRejection', onErr);
+  hub.forgetMember('gpt2');
+  removeExtraMember('gpt2');
+  running.finish('做完了'); // 被停掉之后才结束也不能出错
+  await tick();
+  await tick();
+  process.off('unhandledRejection', onErr);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(store.getRoom(room.id).members, ['gpt']);
+  const st = store.getState(room.id);
+  assert.equal(st.sessions.gpt2, undefined);
+  assert.equal(st.cursors.gpt2, undefined);
+  assert.ok(store.getMessages(room.id).some((m) => m.from === 'gpt2')); // 聊天记录还在
+  // 再开一个 2 号、拉回群里：是全新的会话
+  addExtraMember('gpt');
+  store.updateRoom(room.id, { members: ['gpt', 'gpt2'] });
+  hub.postUserMessage(room.id, '@ChatGPT2 你是谁');
+  await tick();
+  assert.equal(calls.at(-1).agent, 'gpt2');
+  assert.equal(calls.at(-1).session, null);
+  calls.at(-1).finish('我是新来的');
+  await tick();
+});
