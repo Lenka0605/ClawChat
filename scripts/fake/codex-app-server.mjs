@@ -19,8 +19,10 @@ const event = (method, data) => send({ method, params: { threadId: sid, turnId: 
 const finish = (status = 'completed') => {
   if (!turn) return;
   const extra = extras.length ? `\n（中途收到 ${extras.length} 条新消息，最后一条：${extras.at(-1).slice(0, 3000)}）` : '';
+  if (['usage', 'compact'].includes(scenario)) event('thread/tokenUsage/updated', { tokenUsage: { last: { totalTokens: 42 }, total: { totalTokens: 100 }, modelContextWindow: 65536 } });
   if (status === 'completed' && scenario !== 'no-final') event('item/completed', { item: { type: 'agentMessage', id: 'final', phase: 'final_answer', text: text + extra } });
-  event('turn/completed', { turn: { id: turn, status, items: [], error: status === 'failed' ? { message: '假 Codex 这一轮失败' } : null } });
+  const error = scenario === 'context-exceeded' ? { message: '发生错误', codexErrorInfo: 'contextWindowExceeded' } : { message: '假 Codex 这一轮失败' };
+  event('turn/completed', { turn: { id: turn, status, items: [], error: status === 'failed' ? error : null } });
   turn = null;
 };
 const rl = readline.createInterface({ input: process.stdin });
@@ -32,11 +34,14 @@ rl.on('line', (line) => {
   if (!m.method) return;
   if (m.method === 'initialize') reply(m.id, { userAgent: 'clawchat-fake' });
   else if (m.method === 'initialized') return;
-  else if (m.method === 'thread/start' || m.method === 'thread/resume') {
-    if (m.method === 'thread/resume' && (!fs.existsSync(path.join(dir, `${p.threadId}.json`)) || scenario === 'missing-session')) return reject(m.id, 'session not found');
-    sid = p.threadId || `fake-codex-${crypto.randomUUID()}`;
-    if (!p.threadId) fs.writeFileSync(path.join(dir, `${sid}.json`), JSON.stringify(p));
-    reply(m.id, { thread: { id: sid }, model: p.model || 'gpt-fake', reasoningEffort: 'medium' });
+  else if (['thread/start', 'thread/resume', 'thread/fork'].includes(m.method)) {
+    if ('historyMode' in p) return reject(m.id, 'historyMode is not a ThreadStartParams field');
+    if (p.threadId && (!fs.existsSync(path.join(dir, `${p.threadId}.json`)) || scenario === 'missing-session')) return reject(m.id, 'session not found');
+    sid = m.method === 'thread/resume' ? p.threadId : `fake-codex-${crypto.randomUUID()}`;
+    if (scenario === 'wrong-session') sid = `fake-codex-${crypto.randomUUID()}`;
+    if (scenario === 'fork-reuses-parent' && m.method === 'thread/fork') sid = p.threadId;
+    if (!p.ephemeral && m.method === 'thread/start') fs.writeFileSync(path.join(dir, `${sid}.json`), JSON.stringify(p));
+    reply(m.id, { thread: { id: sid, historyMode: 'paginated' }, model: p.model || 'gpt-fake', reasoningEffort: 'medium' });
   } else if (m.method === 'turn/start') {
     turn = crypto.randomUUID();
     extras = [];
@@ -46,6 +51,11 @@ rl.on('line', (line) => {
     reply(m.id, { turn: { id: turn, status: 'inProgress', items: [] } });
     event('turn/started', { turn: { id: turn, status: 'inProgress', items: [] } });
     event('item/started', { item: { id: 'cmd', type: 'commandExecution', command: 'echo 假的 ChatGPT 在干活' } });
+    if (scenario === 'usage') {
+      const img = p.input.find((x) => x.type === 'localImage');
+      if (img) event('item/completed', { item: { id: 'view', type: 'imageView', path: img.path } });
+    }
+    if (scenario === 'compact') event('item/completed', { item: { id: 'compact', type: 'contextCompaction' } });
     if (scenario === 'events') {
       event('item/completed', { item: { id: 'thinking', type: 'reasoning', summary: ['正在检查要求'] } });
       event('item/completed', { item: { id: 'edit', type: 'fileChange', changes: [{ path: path.join(p.cwd, 'a.js') }] } });
@@ -63,7 +73,7 @@ rl.on('line', (line) => {
       const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' });
       fs.writeFileSync(path.join(dir, 'child.pid'), String(child.pid));
     }
-    timer = setTimeout(() => finish(scenario === 'fail-turn' ? 'failed' : 'completed'), Number(process.env.FAKE_CODEX_SECS || process.env.FAKE_SECS || 6) * 1000);
+    timer = setTimeout(() => finish(['fail-turn', 'context-exceeded'].includes(scenario) ? 'failed' : 'completed'), Number(process.env.FAKE_CODEX_SECS || process.env.FAKE_SECS || 6) * 1000);
   } else if (m.method === 'turn/steer') {
     if (!turn || p.expectedTurnId !== turn) return reject(m.id, 'no active turn');
     if (scenario === 'reject-steer') return reject(m.id, 'no active turn');

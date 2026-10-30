@@ -19,7 +19,7 @@ process.env.FAKE_CODEX_RPC_LOG = path.join(root, 'rpc.jsonl');
 process.env.FAKE_CODEX_SECS = '0.25';
 fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
 fs.writeFileSync(path.join(process.env.CODEX_HOME, 'config.toml'), 'service_tier = "priority"\n');
-const { runAgent, codexServerArgs } = await import('../lib/agents.js');
+const { runAgent, codexServerArgs, sessionUsage } = await import('../lib/agents.js');
 const { Store } = await import('../lib/store.js');
 const { Hub } = await import('../lib/hub.js');
 after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -60,7 +60,7 @@ test('Codex app-server：同一回合接收多次插话和图片，最终只交�
   assert.equal(messages.filter((m) => m.method === 'turn/start').length, 1);
   const setup = messages.find((m) => m.method === 'thread/start').params;
   assert.equal(setup.developerInstructions, '只在新会话传的群规');
-  assert.equal(setup.historyMode, 'legacy');
+  assert.equal('historyMode' in setup, false);
   assert.equal(setup.ephemeral, false);
   assert.equal(setup.approvalPolicy, 'never');
   assert.equal(setup.sandbox, 'workspace-write');
@@ -91,6 +91,16 @@ test('Codex app-server：标准档不继承用户快速档，完全开放和只�
     assert.equal(turn.sandboxPolicy.type, permission === 'full' ? 'dangerFullAccess' : 'readOnly');
   }
   assert.equal(fs.readFileSync(path.join(process.env.CODEX_HOME, 'config.toml'), 'utf8'), 'service_tier = "priority"\n');
+});
+
+test('Codex app-server：初始化期间收到补充，等回合就绪后插入同一轮，不另开一轮', async () => {
+  clearLog();
+  const h = start();
+  assert.equal(await h.steer('卡片刚出现时的补充'), true);
+  const res = await h.done;
+  assert.equal(res.ok, true);
+  assert.match(res.text, /卡片刚出现时的补充/);
+  assert.equal(logs().filter((m) => m.method === 'turn/start').length, 1);
 });
 
 test('Codex app-server：插话被拒绝返回 false；收尾通知先到也等回执，不把消息误认成已接收', async () => {
@@ -136,11 +146,30 @@ test('Codex app-server：停止会结束单独进程组里的子进程，停止�
   await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } });
 });
 
-test('Codex 分身保留原来的临时只读 fork，不向本体的 app-server 会话写入', async () => {
+test('Codex 分身：分页会话用临时只读 fork，保留本体历史和用量，不收中途插话', async () => {
+  const primary = await start().done;
+  const parent = path.join(process.env.CLAWCHAT_HOME, 'fake-codex', `${primary.session}.json`);
+  const before = fs.readFileSync(parent, 'utf8');
+  const count = fs.readdirSync(path.dirname(parent)).length;
+  const usage = await sessionUsage('gpt', primary.session);
   clearLog();
-  const res = await start({ side: true, session: 'fake-source' }).done;
+  const h = start({ side: true, session: primary.session, room: { ...room, permission: 'full' } });
+  await until(() => h.steps.some((s) => s.kind === 'run'));
+  assert.equal(await h.steer('分身不收插话'), false);
+  const res = await h.done;
   assert.equal(res.ok, true);
-  assert.equal(logs().length, 0);
+  assert.notEqual(res.session, primary.session);
+  const fork = logs().find((m) => m.method === 'thread/fork').params;
+  assert.equal(fork.threadId, primary.session);
+  assert.equal(fork.ephemeral, true);
+  assert.equal(fork.excludeTurns, true);
+  assert.equal(fork.sandbox, 'read-only');
+  assert.equal(logs().find((m) => m.method === 'turn/start').params.sandboxPolicy.type, 'readOnly');
+  assert.equal(fs.readFileSync(parent, 'utf8'), before);
+  assert.equal(fs.readdirSync(path.dirname(parent)).length, count);
+  assert.deepEqual(await sessionUsage('gpt', primary.session), usage);
+  assert.equal(await sessionUsage('gpt', res.session), null);
+  assert.ok(codexServerArgs(room, true).includes('sandbox_mode="read-only"'));
 });
 
 test('Codex app-server：思考、命令、修改、搜索、计划、压缩和最终回复分开；审批不挂起也不自动放权', async () => {
@@ -162,6 +191,61 @@ test('Codex app-server：有成功终态但没有最终文字，不重跑已做�
   const res = await start().done;
   assert.equal(res.ok, true);
   assert.equal(res.text, '');
+});
+
+test('Codex 会话隔离：续聊返回错误编号、分身返回本体编号时，停止且不发送任何模型回合', async () => {
+  const primary = await start().done;
+  for (const scenario of ['wrong-session', 'fork-reuses-parent']) {
+    clearLog();
+    process.env.FAKE_CODEX_RPC_SCENARIO = scenario;
+    const res = await start({ session: primary.session, side: scenario === 'fork-reuses-parent' }).done;
+    assert.equal(res.ok, false);
+    assert.equal(logs().filter((m) => m.method === 'turn/start').length, 0);
+  }
+});
+
+test('Codex 分页用量：继承旧 JSONL 图片，累加新附件和看图，重开后保留；压缩清零，不复活旧图', async () => {
+  const sid = 'legacy-codex-history';
+  const dir = path.join(process.env.CODEX_HOME, 'sessions', '2026', '10', '31');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `rollout-${sid}.jsonl`), `${JSON.stringify({ type: 'response_item', payload: { image_url: 'data:image/png;base64,AAAAAAAAAAAA' } })}\n`);
+  const fakeDir = path.join(process.env.CLAWCHAT_HOME, 'fake-codex');
+  fs.writeFileSync(path.join(fakeDir, `${sid}.json`), '{}');
+  const image = path.join(root, 'usage.png');
+  fs.writeFileSync(image, '123456');
+  assert.equal((await sessionUsage('gpt', sid)).images, 12);
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'usage';
+  assert.equal((await start({ session: sid, images: [{ path: image }] }).done).ok, true);
+  assert.deepEqual(await sessionUsage('gpt', sid), { images: 28, used: 42, window: 65536 });
+  const file = path.join(process.env.CLAWCHAT_HOME, 'codex-usage', `${sid}.json`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { images: 28, used: 42, window: 65536 });
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'compact';
+  assert.equal((await start({ session: sid }).done).ok, true);
+  assert.deepEqual(await sessionUsage('gpt', sid), { images: 0, used: 42, window: 65536 });
+});
+
+test('Codex 结构化上下文错误：保留 contextWindowExceeded 标记，不依赖英文报错文案', async () => {
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'context-exceeded';
+  const res = await start().done;
+  assert.equal(res.ok, false);
+  assert.match(res.error, /contextWindowExceeded/);
+});
+
+test('Codex 经 Hub：结构化上下文超限会自动换会话恢复，不需要真的耗尽模型上下文', async () => {
+  const previous = await start().done;
+  const store = new Store();
+  const r = store.createRoom({ ...room, name: '上下文恢复', members: ['gpt'], collab: false });
+  store.getState(r.id).sessions.gpt = previous.session;
+  store.saveState(r.id);
+  process.env.FAKE_CODEX_RPC_SCENARIO = 'context-exceeded';
+  const hub = new Hub(store, { imageBytes: async () => 0 });
+  hub.postUserMessage(r.id, '换新会话后继续完成');
+  await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'run'));
+  delete process.env.FAKE_CODEX_RPC_SCENARIO; // 第一轮假进程已经启动；自动恢复那轮改为成功。
+  await until(() => !hub.runs.size);
+  assert.notEqual(store.getState(r.id).sessions.gpt, previous.session);
+  assert.equal(store.getMessages(r.id).filter((m) => m.from === 'gpt').length, 1);
+  assert.ok(store.getMessages(r.id).some((m) => m.from === 'system' && m.text.includes('上下文满了')));
 });
 
 test('Codex 经 Hub 完整收发：老板、同事的插话进同一回合，只发一次回复，退出重载后还能续聊', async () => {

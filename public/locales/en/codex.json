@@ -3,5 +3,8 @@
   "Codex 连接已关闭": "The Codex connection has closed",
   "Codex 没有返回会话编号": "Codex did not return a thread ID",
   "Codex 没有返回回合编号": "Codex did not return a turn ID",
-  "正在压缩记忆": "Compacting memory"
+  "正在压缩记忆": "Compacting memory",
+  "ChatGPT 的用量记录没能保存，聊天和会话不受影响": "ChatGPT usage could not be saved; your chat and session are unaffected",
+  "Codex 返回的会话编号与原会话不一致，已停止": "Codex returned a different thread ID; stopped to preserve the original session",
+  "ChatGPT 分身没有得到独立会话，已停止": "The ChatGPT side task did not get an isolated thread; stopped"
 }
