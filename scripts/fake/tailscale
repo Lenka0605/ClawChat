@@ -52,7 +52,9 @@ if (args[0] === 'serve') {
   fs.writeFileSync(serveFile, JSON.stringify(h));
   if (mode === 'serve-error' && !args.includes('off')) {
     // 和真的一样：链接打在 stdout，然后一直等老板去网页上开通，不会自己退出
-    process.stdout.write('\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n\n');
+    // 链接故意拆成两次输出，测「只认整行」
+    process.stdout.write('\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=');
+    setTimeout(() => process.stdout.write('fake\n\n'), 150);
     fs.writeFileSync(path.join(home, 'fake-tailscale.waiting'), String(process.pid));
     setInterval(() => {}, 1000);
   } else {

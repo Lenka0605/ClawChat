@@ -788,6 +788,16 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 .link-btn { border: 0; background: none; color: var(--accent); padding: 0 4px; }
 .link-btn:hover { text-decoration: underline; }
 
+/* 手机访问的地址：一行显示，放不下就省略号（鼠标停上去看全），「复制」按钮不被挤 */
+#remote-url-row .row { flex: 1 1 auto; max-width: none; min-width: 0; align-items: center; justify-content: flex-end; }
+#remote-url {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 12px/1.4 var(--mono); color: var(--accent); text-decoration: none;
+}
+#remote-url:hover { text-decoration: underline; }
+#remote-copy { flex: none; white-space: nowrap; min-width: 64px; }
+#remote-copy.done { color: var(--accent); }
+
 /* ---------- 欢迎页 ---------- */
 .welcome { height: 100%; display: grid; place-items: center; padding: 24px; position: relative; }
 .welcome-drag { position: absolute; inset: 0 0 auto 0; height: 52px; }
@@ -1566,7 +1576,7 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .search-key { display: none; }
 
   /* 地址要能长按选中、复制 */
-  #remote-url { overflow-wrap: anywhere; }
+  #remote-url { overflow-wrap: anywhere; white-space: normal; }
   /* iOS 上输入框字号小于 16px 时，一聚焦会整个页面放大：手机上都用 16px */
   .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, #text-input, #avatar-text {
     font-size: 16px;

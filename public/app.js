@@ -4295,6 +4295,7 @@ function renderRemote() {
     const a = $('#remote-url');
     a.textContent = info.url;
     a.href = info.url;
+    a.title = info.url;
   }
   const lines = [];
   if (!local) lines.push(tr('手机访问的开关只能在电脑上改。'));
@@ -4333,6 +4334,12 @@ async function copyRemoteUrl() {
   try {
     await navigator.clipboard.writeText(url);
     toast(tr('地址已复制'));
+    // 按钮上也打个勾，过一会儿变回来
+    const btn = $('#remote-copy');
+    btn.textContent = tr('已复制');
+    btn.classList.add('done');
+    clearTimeout(copyRemoteUrl.timer);
+    copyRemoteUrl.timer = setTimeout(() => { btn.textContent = tr('复制'); btn.classList.remove('done'); }, 1600);
   } catch {
     toast(tr('复制不了，请手动选中地址复制'));
   }
