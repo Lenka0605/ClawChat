@@ -39,7 +39,7 @@ const S = {
   loadingEarlier: new Set(), // 正在问服务器要更早的一段（连着点、滚动触发两次时别重复取）
   early: new Map(), // 消息列表还没加载完时收到的新消息（会话 key -> message[]）
   runs: [],
-  queued: [], // 排着队、要等它在别处那一轮干完的：{ roomId, agent, busyDm, group, dm }
+  queued: [], // 排着队、要等它在别处那一轮干完的：{ roomId, agent, busy: 'group'|'dm'|'pm', group, dm }
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
   liveOpen: new Set(), // 展开了过程的那几个
@@ -2523,11 +2523,14 @@ function updateIdle() {
 function queuedHtml(conv) {
   if (!conv) return '';
   return (S.queued || [])
-    .filter((q) => q.roomId === conv.roomId && (conv.dm ? q.agent === conv.dm && q.dm && !q.busyDm : q.group && q.busyDm))
-    .filter((q) => !convRuns(conv).some((r) => r.agent === q.agent))
+    .filter((q) => q.roomId === conv.roomId && (conv.dm ? q.agent === conv.dm && q.dm && q.busy !== 'dm' : q.group && q.busy !== 'group'))
+    .filter((q) => !convRuns(conv).some((r) => r.agent === q.agent)) // 这里已经有它在干活（比如分身在先回话）：不再重复
     .map((q) => {
-      const text = q.busyDm ? tr('正在私聊里干活，这边排着队，那一轮做完就来') : tr('正在群里干活，这边排着队，那一轮做完就来');
-      const target = q.busyDm ? `d:${q.roomId}:${q.agent}` : `g:${q.roomId}`;
+      const text =
+        q.busy === 'dm' ? tr('正在私聊里干活，这边排着队，那一轮做完就来') : q.busy === 'pm' ? tr('正在私下回同事，这边排着队，那一轮做完就来') : tr('正在群里干活，这边排着队，那一轮做完就来');
+      const run = S.runs.find((r) => r.roomId === q.roomId && r.agent === q.agent && !r.side);
+      // 「去看看」到它正在干活的那个聊天：回同事私聊的那一轮显示在那段对话所在的私聊里
+      const target = q.busy === 'group' ? `g:${q.roomId}` : `d:${q.roomId}:${q.busy === 'pm' ? run?.pmIn || q.agent : q.agent}`;
       return `<div class="msg agent live queued from-${esc(baseOf(q.agent))}">${avatarHtml(q.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(q.agent))}</div>
         <div class="bubble"><div class="live-head"><span class="queued-dot"></span><span class="queued-text">${esc(text)}</span><button class="live-goto" data-goto="${esc(target)}">${tr('去看看')}</button></div></div></div></div>`;
     })
@@ -2577,7 +2580,10 @@ function renderLive() {
         ? `<button class="live-toggle${open ? ' open' : ''}" data-live-toggle="${esc(key)}">${open ? tr('收起过程 · {n} 步', { n: all.length }) : tr('展开过程 · {n} 步', { n: all.length })}
             <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
         : '';
-      const sideTag = r.side ? `<span class="side-tag" title="${r.peer ? tr('本体在群里忙，分身先来回同事的私聊（只能看，不能改）') : tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
+      const groupSide = r.side && !r.dm && !r.peer; // 本体在老板私聊里忙，分身先在群里回话
+      const sideTag = r.side
+        ? `<span class="side-tag" title="${groupSide ? tr('本体在私聊里忙，分身先来群里回话（只能看，不能改）') : r.peer ? tr('本体在群里忙，分身先来回同事的私聊（只能看，不能改）') : tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>`
+        : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
       // 干活时也显示用的哪个模型、思考强度（和做完的回复同一个样子；跟随默认的显示默认的那个）
@@ -2585,7 +2591,7 @@ function renderLive() {
       const liveModel = [modelShortName(r.agent, r.model || ''), effortName ? tr('思考 {level}', { level: effortName }) : ''].filter(Boolean).join(' · ');
       return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}${liveModel ? `<span class="msg-model">${esc(liveModel)}</span>` : ''}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
-        <span>${r.side ? (r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
+        <span>${r.side ? (groupSide ? tr('本体在私聊里忙，分身先来回一句') : r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
           r.side ? '' : `<button class="live-fresh-mini" data-agent="${esc(r.agent)}" title="${tr('会话太重、卡住时用：结束这一轮，换个新会话重来')}">${tr('换新会话')}</button>`
         }<button class="live-stop" data-agent="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${tr('停止')}</button></div>

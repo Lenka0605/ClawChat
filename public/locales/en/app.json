@@ -302,5 +302,8 @@
   "没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。": "No key set: install Antigravity CLI (agy) to use the subscription, or enter a Gemini API key here to use the API (billed per use).",
   "正在私聊里干活，这边排着队，那一轮做完就来": "Busy in a private chat — this is queued and it'll be here once that's done",
   "正在群里干活，这边排着队，那一轮做完就来": "Busy in the group — this is queued and it'll be here once that's done",
-  "去看看": "Take a look"
+  "去看看": "Take a look",
+  "正在私下回同事，这边排着队，那一轮做完就来": "Busy replying to a teammate privately — this is queued and it'll be here once that's done",
+  "本体在私聊里忙，分身先来群里回话（只能看，不能改）": "Busy in a private chat, so a copy is replying in the group first (read-only, can't make changes)",
+  "本体在私聊里忙，分身先来回一句": "Busy in a private chat — a copy is replying first"
 }

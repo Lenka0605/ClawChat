@@ -1809,7 +1809,7 @@ test('干活时的状态里带着这一轮用的模型和思考强度（私聊�
   await settle(hub);
 });
 
-test('在老板私聊里干活时群里有人 @ 它：排队等私聊那一轮做完，界面上能看到「排着队」，做完就接着回群里', async () => {
+test('在老板私聊里干活时群里有人 @ 它：开分身先在群里回一句（不叫醒别人），界面上能看到排着队，私聊做完本体接着回群里', async () => {
   const store = new Store();
   const { run, calls } = heldRunner();
   const hub = new Hub(store, { run });
@@ -1821,18 +1821,60 @@ test('在老板私聊里干活时群里有人 @ 它：排队等私聊那一轮�
   const dmRun = calls.at(-1);
   assert.equal(dmRun.agent, 'claude');
   assert.deepEqual(hub.queued(), []);
-  hub.postUserMessage(room.id, '@Claude 群里这个也看一下');
+  hub.postUserMessage(room.id, '@Claude 群里这个 P2 也改一下');
   await tick();
-  assert.equal(calls.length, 1, '私聊那一轮还没做完，群里的先排队');
-  assert.deepEqual(hub.queued(), [{ roomId: room.id, agent: 'claude', busyDm: true, group: true, dm: false }]);
-  assert.deepEqual(events.at(-1).queued, hub.queued(), '排队时推一次状态，界面马上能显示');
+  assert.deepEqual(hub.queued(), [{ roomId: room.id, agent: 'claude', busy: 'dm', group: true, dm: false }]);
+  assert.ok(events.some((e) => e.queued?.length), '排队时推一次状态，界面马上能显示');
+  // 分身先在群里回一句
+  const side = calls.at(-1);
+  assert.equal(side.side, true, '开了分身');
+  assert.match(side.prompt, /老板的私聊里忙另一件事/);
+  assert.match(side.prompt, /P2 也改一下/);
+  side.finish('收到，@ChatGPT 私聊那边做完就来改');
+  await tick();
+  const sideMsg = store.getMessages(room.id).at(-1);
+  assert.equal(sideMsg.from, 'claude');
+  assert.equal(sideMsg.side, true);
+  assert.equal(sideMsg.dm, undefined, '分身的回复发在群里');
+  assert.equal(calls.filter((c) => c.agent === 'gpt').length, 0, '分身在群里 @ 了 ChatGPT 也不叫醒它，免得来回空转');
+  assert.equal(store.getMessages(room.id).filter((m) => m.from === 'system' && m.dm).length, 0, '私聊里不提示「发到了群里」');
+  // 私聊做完：本体接着回群里，看得到分身说过的话
   dmRun.finish('查好了');
   await tick();
   await tick();
   const groupRun = calls.at(-1);
-  assert.notEqual(groupRun, dmRun);
-  assert.match(groupRun.prompt, /群里这个也看一下/);
-  assert.deepEqual(hub.queued(), [], '接着回群里了，不再显示排队');
+  assert.equal(groupRun.side, false);
+  assert.match(groupRun.prompt, /P2 也改一下/);
+  assert.match(groupRun.prompt, /你的分身（在群里）/);
+  assert.match(groupRun.prompt, /分身答应要做的事现在去做/);
+  assert.deepEqual(hub.queued(), []);
+  groupRun.finish('改好了');
+  await settle(hub);
+});
+
+test('群里的分身还没回完、本体私聊那一轮先做完了：分身让位，不再往群里发半截回复，本体自己回', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '私下帮我查个东西', [], 'claude');
+  await tick();
+  const dmRun = calls.at(-1);
+  hub.postUserMessage(room.id, '@Claude 群里这个也看一下');
+  await tick();
+  const side = calls.at(-1);
+  assert.equal(side.side, true);
+  dmRun.finish('查好了');
+  await tick();
+  await tick();
+  const groupRun = calls.at(-1);
+  assert.notEqual(groupRun, side);
+  assert.equal(groupRun.side, false, '本体开工了');
+  side.finish('（分身晚到的回复）');
+  await tick();
+  const texts = store.getMessages(room.id).map((m) => m.text);
+  assert.ok(!texts.includes('（分身晚到的回复）'), '让位的分身不往群里发');
+  assert.ok(!texts.some((t) => /分身/.test(t || '') && /停止/.test(t || '')), '也不提示「已停止分身」');
   groupRun.finish('看完了');
   await settle(hub);
 });
