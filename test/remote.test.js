@@ -71,9 +71,17 @@ test('Tailscale 没装、没打开、没登录、开启失败：开关打不开�
   r = await setRemote(true, PORT);
   assert.match(r.error, /还没登录/);
   mode('serve-error');
+  const waiting = path.join(HOME, 'fake-tailscale.waiting');
+  fs.rmSync(waiting, { force: true });
+  const t0 = Date.now();
   r = await setRemote(true, PORT);
   assert.equal(r.enabled, false);
-  assert.match(r.error, /login\.tailscale\.com/, '第一次要开通 HTTPS 时，把 Tailscale 给的链接原样告诉老板');
+  assert.match(r.error, /https:\/\/login\.tailscale\.com\/f\/serve\?node=fake /, '第一次要开通 HTTPS 时，把 Tailscale 给的链接原样告诉老板');
+  assert.ok(Date.now() - t0 < 10000, 'Tailscale 打出链接后会一直等，不能等到超时才告诉老板');
+  // 等着开通的那个 tailscale 进程要结束掉，不能留在后台
+  const pid = Number(fs.readFileSync(waiting, 'utf8'));
+  await new Promise((ok) => setTimeout(ok, 300));
+  assert.throws(() => process.kill(pid, 0), '还在等开通的 tailscale 进程被留在了后台');
 });
 
 test('经 Tailscale 转进来的请求把主机名写成本机地址冒充本机：一律按手机来的核对，开关关着时拒绝', async () => {

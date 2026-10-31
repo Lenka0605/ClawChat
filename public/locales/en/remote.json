@@ -8,5 +8,8 @@
   "读不出 Tailscale 现在的 Serve 设置，没有去改它：{error}": "Couldn't read Tailscale's current Serve settings, so nothing was changed: {error}",
   "没有输出": "no output",
   "一段固定文字": "a fixed text response",
-  "别的设置": "something else"
+  "别的设置": "something else",
+  "这个 Tailscale 账号还没开通 HTTPS 访问。请点这个链接，在网页上开通：{link} 开通好以后，再打开一次这个开关。": "HTTPS access isn't enabled for this Tailscale account yet. Open this link to enable it: {link} Once it's enabled, turn this switch on again.",
+  "Tailscale 一直没有回应": "Tailscale didn't respond",
+  "没有说明原因": "no reason given"
 }

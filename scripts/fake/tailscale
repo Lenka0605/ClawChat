@@ -51,10 +51,12 @@ if (args[0] === 'serve') {
   else if (mode !== 'serve-error') h[mount] = args.at(-1);
   fs.writeFileSync(serveFile, JSON.stringify(h));
   if (mode === 'serve-error' && !args.includes('off')) {
-    process.stderr.write('Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n');
-    process.exit(1);
+    // 和真的一样：链接打在 stdout，然后一直等老板去网页上开通，不会自己退出
+    process.stdout.write('\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n\n');
+    fs.writeFileSync(path.join(home, 'fake-tailscale.waiting'), String(process.pid));
+    setInterval(() => {}, 1000);
+  } else {
+    fs.appendFileSync(path.join(home, 'fake-tailscale.log'), JSON.stringify(args) + '\n');
+    process.exit(0);
   }
-  fs.appendFileSync(path.join(home, 'fake-tailscale.log'), JSON.stringify(args) + '\n');
-  process.exit(0);
-}
-process.exit(0);
+} else process.exit(0);
