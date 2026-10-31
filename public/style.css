@@ -306,6 +306,13 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0,
 .conv-avatar.stack.quad { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
 .conv-avatar.stack.quad .avatar, .room-icon .conv-avatar.stack.quad .avatar { position: static; width: 100%; height: 100%; box-shadow: none; }
 .conv-avatar.stack.quad .av-more { border-radius: 23%; background: var(--fill); color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: -0.2px; }
+/* 四宫格里的多开角标：格子只有 19px，角标跟着缩，并且收在格子里面（以前蓝圈比图标还大、还探出去压到隔壁） */
+.conv-avatar.stack.quad .avatar.clone::after {
+  min-width: 8px; height: 8px; padding: 0 1px; font-size: 6px;
+  right: 0; bottom: 0; box-shadow: 0 0 0 1px var(--side);
+}
+/* 顶栏只有 32px（每格 15px），再画角标就挤成一团了：这一档不画 */
+.room-icon .conv-avatar.stack.quad .avatar.clone::after { display: none; }
 .conv-meta { min-width: 0; flex: 1; }
 .conv-line { display: flex; gap: 6px; align-items: center; }
 .conv-line .name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
