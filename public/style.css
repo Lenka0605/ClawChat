@@ -789,6 +789,8 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 .link-btn:hover { text-decoration: underline; }
 
 /* 手机访问的地址：一行显示，放不下就省略号（鼠标停上去看全），「复制」按钮不被挤 */
+/* 地址再长也不能把设置内容撑宽：网格列允许缩到 0，省略号才生效 */
+#remote-section, #remote-section .group-box { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 #remote-url-row .row { flex: 1 1 auto; max-width: none; min-width: 0; align-items: center; justify-content: flex-end; }
 #remote-url {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
