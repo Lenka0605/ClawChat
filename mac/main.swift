@@ -214,13 +214,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let css = """
         html, body { margin: 0; height: 100%; background: transparent; }
         body { display: grid; place-items: center; }
+        main { display: grid; justify-items: center; gap: 18px; }
+        .hint { font: 13px -apple-system, 'PingFang SC', sans-serif; color: rgba(128, 128, 128, 0.85); opacity: 0; animation: hint-in 0.4s ease 4s forwards; }
+        @keyframes hint-in { to { opacity: 1; } }
         .boot-icon { width: 72px; height: 72px; border-radius: 17px; background: center / cover no-repeat; position: relative; overflow: hidden; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22); animation: boot-breathe 2s ease-in-out infinite; }
         .boot-icon::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%) 0 0 / 300% 100%; animation: boot-sheen 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
         @keyframes boot-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
         @keyframes boot-breathe { 0%, 100% { opacity: 0.82; transform: scale(0.985); } 50% { opacity: 1; transform: scale(1); } }
         @media (prefers-reduced-motion: reduce) { .boot-icon, .boot-icon::after { animation: none; } }
         """
-        return "<html><head><style>\(css)</style></head><body><div class=\"boot-icon\" style=\"background-image:url(data:image/png;base64,\(data.base64EncodedString()))\"></div></body></html>"
+        // 服务一般一两秒就起来；过了四秒还在等，图标下面补一句「正在启动…」，免得以为卡住了
+        let hint = L("正在启动…", "Starting…")
+        return "<html><head><style>\(css)</style></head><body><main><div class=\"boot-icon\" style=\"background-image:url(data:image/png;base64,\(data.base64EncodedString()))\"></div><div class=\"hint\">\(hint)</div></main></body></html>"
     }
 
     func statusPage(_ text: String) -> String {
