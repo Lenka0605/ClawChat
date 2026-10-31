@@ -1,0 +1,13 @@
+{
+  "跟随 Grok Build 的设置": "Follow Grok Build's settings",
+  "没找到，请先安装 Grok Build": "Not found — install Grok Build first",
+  "没登录 Grok 账号（在终端运行 grok login）": "Not signed in to Grok (run “grok login” in Terminal)",
+  "没找到 Grok Build。装好以后在终端运行 grok login，用你订阅的那个账号登录。": "Grok Build wasn't found. After installing it, run “grok login” in Terminal with your subscribed account.",
+  "Grok 还没登录：在终端运行 grok login，用你订阅的那个账号登录。": "Grok isn't signed in: run “grok login” in Terminal with your subscribed account.",
+  "要升级 Grok": "Update Grok",
+  "把 Claude、ChatGPT、DeepSeek、GLM、Gemini 和 Grok 拉进一个群": "Bring Claude, ChatGPT, DeepSeek, GLM, Gemini, and Grok into one group chat",
+  "和 Grok 单聊": "Chat with Grok",
+  "本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM、Gemini 和 Grok 在一个群里，一起在你的项目文件夹里干活。": "Local AI group chat: you, Claude, ChatGPT, DeepSeek, GLM, Gemini, and Grok in one group, working together in your project folder.",
+  "API 配置已隔离": "API configuration isolated",
+  "Grok 用的是账号自带的免费或订阅额度，不会另外按 API 计费。想确保订阅之外不花钱，到 grok.com 关掉自动充值和额外用量。": "Grok uses the free or subscription allowance included with your account and won't bill you through the API. To make sure nothing is charged outside your plan, turn off auto top-up and extra usage at grok.com."
+}

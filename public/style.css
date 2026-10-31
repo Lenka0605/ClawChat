@@ -39,6 +39,7 @@
   --ds-b1: #f4f6ff; --ds-b2: #e8edff; --ds-edge: rgba(77, 107, 254, 0.26); --ds-glow: rgba(77, 107, 254, 0.3);
   --glm-b1: #f8f5ff; --glm-b2: #f0eaff; --glm-edge: rgba(124, 92, 255, 0.26); --glm-glow: rgba(124, 92, 255, 0.3);
   --gem-b1: #f0fbfa; --gem-b2: #e2f6f4; --gem-edge: rgba(26, 167, 160, 0.26); --gem-glow: rgba(26, 167, 160, 0.3);
+  --grok-b1: #f7f7f8; --grok-b2: #ebebee; --grok-edge: rgba(24, 24, 27, 0.22); --grok-glow: rgba(0, 0, 0, 0.16);
   --user-b1: #3b9aff;
   --bubble-hi: rgba(255, 255, 255, 0.95);
   /* Liquid Glass：半透明 + 背景模糊 + 顶部一道高光边 */
@@ -101,6 +102,7 @@
     --ds-b1: #272e4c; --ds-b2: #1f253e; --ds-edge: rgba(77, 107, 254, 0.42); --ds-glow: rgba(77, 107, 254, 0.24);
     --glm-b1: #2d2749; --glm-b2: #231e39; --glm-edge: rgba(124, 92, 255, 0.42); --glm-glow: rgba(124, 92, 255, 0.24);
     --gem-b1: #163635; --gem-b2: #112a29; --gem-edge: rgba(26, 167, 160, 0.42); --gem-glow: rgba(26, 167, 160, 0.24);
+    --grok-b1: #333335; --grok-b2: #28282a; --grok-edge: rgba(255, 255, 255, 0.18); --grok-glow: rgba(0, 0, 0, 0.5);
     --user-b1: #3d9dff;
     --bubble-hi: rgba(255, 255, 255, 0.09);
     --glass: rgba(50, 50, 52, 0.55);
@@ -154,6 +156,7 @@
   --ds-b1: #272e4c; --ds-b2: #1f253e; --ds-edge: rgba(77, 107, 254, 0.42); --ds-glow: rgba(77, 107, 254, 0.24);
   --glm-b1: #2d2749; --glm-b2: #231e39; --glm-edge: rgba(124, 92, 255, 0.42); --glm-glow: rgba(124, 92, 255, 0.24);
   --gem-b1: #163635; --gem-b2: #112a29; --gem-edge: rgba(26, 167, 160, 0.42); --gem-glow: rgba(26, 167, 160, 0.24);
+  --grok-b1: #333335; --grok-b2: #28282a; --grok-edge: rgba(255, 255, 255, 0.18); --grok-glow: rgba(0, 0, 0, 0.5);
   --user-b1: #3d9dff;
   --bubble-hi: rgba(255, 255, 255, 0.09);
   --glass: rgba(50, 50, 52, 0.55);
@@ -382,7 +385,7 @@ mark.found { background: rgba(255, 204, 0, 0.45); color: inherit; border-radius:
   color: #fff; font-size: 13px; font-weight: 600; background-size: 58% 58%; background-position: center; background-repeat: no-repeat;
 }
 /* 内置的简笔头像（官方图标取不到时用）：彩色底 + 白色图案 */
-.av-claude, .av-gpt, .av-deepseek, .av-glm, .av-gemini { border-radius: 23%; background-size: 58% 58%; }
+.av-claude, .av-gpt, .av-deepseek, .av-glm, .av-gemini, .av-grok { border-radius: 23%; background-size: 58% 58%; }
 .av-claude {
   background-color: var(--claude);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4'/%3E%3C/g%3E%3C/svg%3E");
@@ -401,6 +404,13 @@ mark.found { background: rgba(255, 204, 0, 0.45); color: inherit; border-radius:
   background-size: 60% 60%;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.4 20.6 12 12 20.6 3.4 12z' fill='none' stroke='white' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M7.6 12h8.8' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
 }
+/* Grok（xAI）：黑底 + 白色的斜杠记号；官方图标取得到时换成官方图标 */
+.av-grok {
+  background-color: #1b1b1f;
+  background-size: 54% 54%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M5 19 19 5'/%3E%3Cpath d='M5 5h5.4l3.2 3.2' stroke-width='1.6'/%3E%3Cpath d='M19 19h-5.4l-3.2-3.2' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+}
 .av-gemini {
   background-color: var(--gem);
   background-size: 60% 60%;
@@ -414,6 +424,7 @@ html.icon-deepseek .av-deepseek { background-color: #fff; background-image: var(
 /* GLM 是智谱 Z.ai 官方账号的头像（黑底圆角方图）；Gemini 是 Gemini.app 的图标（白底圆角），下载来的备用图是透明底的四角星，垫白底 */
 html.icon-glm .av-glm { background-color: #000; background-image: url("/icons/glm.png"); background-size: cover; box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22); } /* 深色模式下黑底不和背景糊在一起 */
 html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/icons/gemini.png"); background-size: cover; }
+html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/grok.png"); background-size: cover; box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22); }
 .av-user { background-color: var(--accent); }
 /* 多开的成员（ChatGPT2 这类）：用本体的头像，右下角一个小圆标写着几号 */
 .avatar.clone { position: relative; }
@@ -563,6 +574,7 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
 .msg.from-deepseek { --b1: var(--ds-b1); --b2: var(--ds-b2); --b-edge: var(--ds-edge); --b-glow: var(--ds-glow); }
 .msg.from-glm { --b1: var(--glm-b1); --b2: var(--glm-b2); --b-edge: var(--glm-edge); --b-glow: var(--glm-glow); }
 .msg.from-gemini { --b1: var(--gem-b1); --b2: var(--gem-b2); --b-edge: var(--gem-edge); --b-glow: var(--gem-glow); }
+.msg.from-grok { --b1: var(--grok-b1); --b2: var(--grok-b2); --b-edge: var(--grok-edge); --b-glow: var(--grok-glow); }
 .msg.user .bubble {
   background: linear-gradient(180deg, var(--user-b1), var(--bubble-user));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 24px -14px rgba(0, 122, 255, 0.6);

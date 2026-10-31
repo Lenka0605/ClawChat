@@ -9,7 +9,7 @@ const REVEAL_LABEL = IS_WIN ? tr('在资源管理器中显示') : tr('在访达�
 // 列举几位时的分隔符：中文用顿号，英文用逗号
 const LIST_SEP = tr('、');
 // 五位固定成员；AGENT_IDS 还包括多开的（比如 ChatGPT2），按服务端的成员表重算（rebuildMembers）
-const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini'];
+const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok'];
 let AGENT_IDS = [...BASE_IDS];
 // 多开的那位是谁的几号：头像、配色、程序都跟本体一样。已经删掉的（老消息里还有）按 id 认：gpt2 就是 ChatGPT 的 2 号
 const cloneInfo = (a) => {
@@ -122,7 +122,7 @@ function applyTheme(mode) {
 
 // 官方头像（打包时从本机官方应用里取的、启动时从 DeepSeek 官方 GitHub 下载的）在不在：
 // 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
-const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' };
+const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok' };
 function detectIcons(bust = '') {
   for (const a of BASE_IDS) {
     const img = new Image();
@@ -388,8 +388,8 @@ function agentName(id) {
 
 // 每位用哪个程序；多开的（gpt2）查不到就用本体的
 const byBase = (map) => new Proxy(map, { get: (t, k) => (k in t ? t[k] : t[baseOf(k)]) });
-const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini' });
-const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置') });
+const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok' });
+const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置'), grok: tr('跟随 Grok Build 的设置') });
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
 // 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
@@ -809,6 +809,7 @@ const ENGINE_INFO = [
   { key: 'deepseek', name: 'DeepSeek', agent: 'deepseek' },
   { key: 'glm', name: 'GLM', agent: 'glm' },
   { key: 'gemini', name: 'Gemini', agent: 'gemini' },
+  { key: 'grok', name: 'Grok Build', agent: 'grok' },
 ];
 
 function engineState(e, key) {
@@ -818,6 +819,14 @@ function engineState(e, key) {
     if (!e.path) return tr('要先装 {cli}', { cli });
     if (!e.ok) return e.error ? esc(e.error) : tr('没找到，请先安装');
     return `${esc(e.version || tr('已就绪'))}${e.authMode === 'api' ? tr(' · API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr(' · 用 Antigravity 订阅')}`;
+  }
+  if (key === 'grok') {
+    // Grok 用的是账号登录：没登录、或者配置里给模型单独配了 API Key（运行时会隔离，不会拿它计费）都要说清楚
+    if (!e.path) return tr('没找到，请先安装 Grok Build');
+    if (!e.ok && e.error) return esc(e.error);
+    const v = esc(e.version || tr('已就绪'));
+    if (e.loggedIn === false) return `${v} · ${tr('没登录 Grok 账号（在终端运行 grok login）')}`;
+    return `${v}${e.apiKeyWarning ? ` · ${tr('API 配置已隔离')}` : ''}`;
   }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
   if (e.ok && e.loggedIn === false) return `${esc(e.version || '')} · ${key === 'claude' ? tr('没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）') : tr('没登录 ChatGPT 账号')}`;
@@ -890,6 +899,7 @@ function memberReady(a) {
   if (!Object.keys(E).length) return true;
   if (b === 'claude') return !!E.claude?.path && E.claude.loggedIn !== false;
   if (b === 'gpt') return !!E.codex?.path && E.codex.ok !== false && E.codex.loggedIn !== false;
+  if (b === 'grok') return !!E.grok?.path && E.grok.ok !== false && E.grok.loggedIn !== false;
   return !!E[b]?.ok;
 }
 
@@ -928,7 +938,7 @@ function syncCloneFields() {
       );
     }
     if (!document.querySelector(`.mention-chip[data-who="${a}"]`)) {
-      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[el.dataset.mention]) === info.base).at(-1);
+      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok' }[el.dataset.mention]) === info.base).at(-1);
       after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(name)}" data-who="${esc(a)}" title="@${esc(name)}">${avatarHtml(a)}<span class="chip-name">@${esc(name)}</span></button>`);
       const chip = document.querySelector(`.mention-chip[data-who="${a}"]`);
       if (chip) chip.onclick = () => insertMention(name);
@@ -948,16 +958,46 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}` };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI' };
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
-    const bad = BYOK[key] ? (!e?.path ? tr('缺 Claude Code') : !e?.hasKey ? tr('没填 Key') : tr('Key 不对')) : !e?.path ? tr('没找到') : e.error ? tr('版本太旧') : tr('没找到');
+    const bad = BYOK[key]
+      ? !e?.path
+        ? tr('缺 Claude Code')
+        : !e?.hasKey
+          ? tr('没填 Key')
+          : tr('Key 不对')
+      : key === 'grok'
+        ? !e?.path
+          ? tr('没找到')
+          : e.ok
+            ? ''
+            : tr('还没配好')
+        : !e?.path
+          ? tr('没找到')
+          : e.error
+            ? tr('版本太旧')
+            : tr('没找到');
     const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
     // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
     return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      (e?.ok || (key === 'codex' && e?.error)) && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
+      (e?.ok || (key === 'codex' && e?.error) || (key === 'grok' && e?.error && e?.path)) && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
     }</div>`;
   }).join('');
+  // Grok 的登录状态和计费说明：登录过期、配置里有 API Key 都要提醒
+  const gnote = $('#grok-note');
+  if (gnote) {
+    const g = S.engines.grok;
+    const lines = [];
+    if (g) {
+      if (!g.path) lines.push(tr('没找到 Grok Build。装好以后在终端运行 grok login，用你订阅的那个账号登录。'));
+      else if (g.loggedIn === false) lines.push(tr('Grok 还没登录：在终端运行 grok login，用你订阅的那个账号登录。'));
+      if (g.apiKeyWarning) lines.push(String(g.apiKeyWarning)); // 服务端已经翻好的提示（配置里给模型配了 API Key，运行时已经隔离，不会拿它计费）
+      if (g.path) lines.push(tr('Grok 用的是账号自带的免费或订阅额度，不会另外按 API 计费。想确保订阅之外不花钱，到 grok.com 关掉自动充值和额外用量。'));
+    }
+    gnote.hidden = !lines.length;
+    gnote.innerHTML = lines.map((x) => esc(x)).join('<br>');
+  }
   for (const id of KEY_TARGETS) {
     const e = S.engines[id];
     const el = $(`#${id}-status`);
@@ -1807,7 +1847,7 @@ function renderShell() {
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini' }[b.dataset.mention];
+    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   renderTargets(room, dm);
@@ -3207,7 +3247,7 @@ const MENTION_SEP = '\u2003';
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
 // @ 谁认的写法：按成员表生成（多开的 ChatGPT2 也认，长的写法排前面），和 lib/hub.js 的 mentionTables 一致
 const ALL_WORDS = '所有人|全体成员|全体|大家|all|everyone';
-const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'] };
+const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'], grok: ['grok', '格罗克'] };
 let MENTION_WHO = {};
 let MENTION_SHOW_RE, MENTION_TAIL_RE, MENTION_MSG_RE, MENTION_TAG_RE;
 function buildMentionRes() {
@@ -3312,6 +3352,7 @@ const BASE_MENTION_ITEMS = [
   { id: 'deepseek', label: 'DeepSeek', sub: tr('深度求索'), insert: 'DeepSeek', keys: ['deepseek', 'ds', '深度求索', 'shendu'] },
   { id: 'glm', label: 'GLM', sub: tr('智谱'), insert: 'GLM', keys: ['glm', '智谱', 'zhipu', 'bigmodel'] },
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
+  { id: 'grok', label: 'Grok', sub: 'xAI', insert: 'Grok', keys: ['grok', '格罗克', 'xai'] },
   { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 // 多开的排在本体后面
@@ -4040,7 +4081,7 @@ async function submitCustomModel(e) {
 
 // 一键更新 Claude Code / Codex：新模型常常要新版本才看得到
 async function updateEngine(engine, btn) {
-  const name = engine === 'codex' ? 'Codex' : 'Claude Code';
+  const name = { codex: 'Codex', grok: 'Grok Build' }[engine] || 'Claude Code';
   btn.disabled = true;
   btn.textContent = tr('更新中…');
   try {
@@ -4685,6 +4726,7 @@ function memberIssue(a) {
   if (b === 'claude') return !E.claude?.path ? tr('没装') : E.claude.loggedIn === false ? tr('没登录') : '';
   if (b === 'gpt') return !E.codex?.path ? tr('没装') : E.codex.error ? tr('要升级 Codex') : E.codex.loggedIn === false ? tr('没登录') : '';
   if (b === 'gemini') return E.gemini?.ok ? '' : E.gemini?.path ? tr('还没配好') : tr('没装');
+  if (b === 'grok') return !E.grok?.path ? tr('没装') : E.grok.loggedIn === false ? tr('没登录') : E.grok.error ? tr('要升级 Grok') : '';
   const e = E[b];
   if (!e?.hasKey) return tr('还没填 API Key');
   if (!E.claude?.path) return tr('没装 Claude Code');
