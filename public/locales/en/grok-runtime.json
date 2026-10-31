@@ -1,0 +1,17 @@
+{
+  "Grok 的个人配置里有自定义接口或 API Key；ClawChat 已隔离这些设置，只使用官方账号登录": "Your Grok configuration contains a custom endpoint or API key. ClawChat isolates these settings and only uses official account sign-in.",
+  "请在终端运行 grok login 登录 Grok；免费或订阅额度由账号决定": "Run grok login in your terminal to sign in. Free or subscription allowances depend on your account.",
+  "Grok 检测失败：{error}": "Could not detect Grok: {error}",
+  "Grok 登录已失效，请在终端运行 grok login 重新登录；不会自动改用 API Key": "Your Grok sign-in has expired. Run grok login in your terminal. ClawChat will not fall back to an API key.",
+  "Grok 的免费或订阅额度暂时用完了，或请求过于频繁，请等额度恢复后再试；不会自动改用付费 API": "Your Grok free or subscription allowance is exhausted, or requests are rate limited. Try again when access resets. ClawChat will not switch to a paid API.",
+  "Grok 无法在保留当前记忆时切换权限，原会话已保留，请先恢复原权限再试": "Grok could not change permissions while retaining this session. The original session is preserved. Restore the previous permissions and try again.",
+  "找不到 grok 命令，请先安装官方 Grok Build，再运行 grok login 登录": "Could not find grok. Install official Grok Build, then run grok login to sign in.",
+  "Grok 启动失败：{error}": "Could not start Grok: {error}",
+  "Grok 返回的会话编号不一致，本轮已停止，原记忆已保留": "Grok returned an unexpected session ID. This turn has been stopped and the original memory is preserved.",
+  "Grok 没有使用官方账号登录，本轮已停止，防止按 API 计费；请运行 grok login": "Grok is not using official account sign-in. This turn has been stopped to avoid API billing. Run grok login.",
+  "Grok 正在整理记忆，请稍等": "Grok is compacting its memory. Please wait.",
+  "Grok session not found：会话编号无效": "Grok session not found: invalid session ID",
+  "Grok session not found：找不到上一轮的记忆": "Grok session not found: could not find the previous session",
+  "Grok 已完成这次任务，但记忆没有保存。下次将从聊天记录恢复，请勿重复发送刚才的操作。": "Grok completed this task, but its memory was not saved. The next turn will recover from chat history. Do not repeat the operation.",
+  "Grok 已停止": "Grok stopped"
+}
