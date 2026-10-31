@@ -1770,3 +1770,24 @@ test('没发出去的图片：放了一天以上、没有消息用到的清掉�
   store.pruneUploads();
   assert.deepEqual(fs.readdirSync(dir).sort(), ['bbbbbbbbbbbbbbbb.png', 'cccccccccccccccc.png']);
 });
+
+test('Grok 的记忆目录：删群、清空并忘掉记忆时一起清掉，只清空记录时留着', async () => {
+  const { removeGrokHome } = await import('../lib/grok.js');
+  const root = path.join(process.env.CLAWCHAT_HOME, 'grok', 'homes');
+  const store = new Store();
+  const { run } = fakeRunner(() => '好');
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'grok'] });
+  const crypto = await import('node:crypto'); // 目录名的算法和 grok.js 里一样
+  const dir = path.join(root, crypto.createHash('sha256').update(room.id).digest('hex').slice(0, 24) + '-grok');
+  fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
+  hub.clearRoom(room.id);
+  await tick();
+  assert.ok(fs.existsSync(dir), '只清空记录：Grok 还记得');
+  hub.clearRoom(room.id, true);
+  await tick();
+  assert.ok(!fs.existsSync(dir), '清空并忘掉：目录清掉');
+  fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
+  await removeGrokHome(room);
+  assert.ok(!fs.existsSync(dir), '删群时调用的清理');
+});

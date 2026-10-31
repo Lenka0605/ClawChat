@@ -834,6 +834,7 @@ async function api(req, res, url) {
       const oldSessions = Object.values(store.getState(room.id).sessions);
       hub.stop(room.id);
       store.deleteRoom(room.id);
+      hub.removeGrok(room); // Grok 的记忆目录跟着群一起删
       hub.cleanupCodexUsage(oldSessions);
       pruneExtraMembers();
       hub.emitRooms();
