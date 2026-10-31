@@ -49,8 +49,8 @@
       <section id="welcome" class="welcome" hidden>
         <div class="welcome-drag" data-drag></div>
         <div class="welcome-card">
-          <div class="welcome-avatars"><span class="avatar av-claude"></span><span class="avatar av-gpt"></span><span class="avatar av-deepseek"></span><span class="avatar av-glm"></span><span class="avatar av-gemini"></span></div>
-          <h1>把 Claude、ChatGPT、DeepSeek、GLM 和 Gemini 拉进一个群</h1>
+          <div class="welcome-avatars"><span class="avatar av-claude"></span><span class="avatar av-gpt"></span><span class="avatar av-deepseek"></span><span class="avatar av-glm"></span><span class="avatar av-gemini"></span><span class="avatar av-grok"></span></div>
+          <h1>把 Claude、ChatGPT、DeepSeek、GLM、Gemini 和 Grok 拉进一个群</h1>
           <p>你在群里说话，它们一起干活：分工、互相 @、在你的项目文件夹里改代码、跑命令。有话也可以私下找你。</p>
           <button id="btn-welcome-new" class="primary large">新建群聊</button>
           <div class="welcome-solo">
@@ -60,6 +60,7 @@
             <button class="link-btn" data-solo="deepseek">和 DeepSeek 单聊</button>
             <button class="link-btn" data-solo="glm">和 GLM 单聊</button>
             <button class="link-btn" data-solo="gemini">和 Gemini 单聊</button>
+            <button class="link-btn" data-solo="grok">和 Grok 单聊</button>
           </div>
           <div id="welcome-engines" class="welcome-engines"></div>
         </div>
@@ -117,6 +118,7 @@
               <button class="chip mention-chip" data-mention="DeepSeek" title="@DeepSeek"><span class="avatar av-deepseek"></span><span class="chip-name">@DeepSeek</span></button>
               <button class="chip mention-chip" data-mention="GLM" title="@GLM"><span class="avatar av-glm"></span><span class="chip-name">@GLM</span></button>
               <button class="chip mention-chip" data-mention="Gemini" title="@Gemini"><span class="avatar av-gemini"></span><span class="chip-name">@Gemini</span></button>
+              <button class="chip mention-chip" data-mention="Grok" title="@Grok"><span class="avatar av-grok"></span><span class="chip-name">@Grok</span></button>
               <button class="chip mention-chip" data-mention="所有人" title="@所有人"><span class="chip-stack" id="mention-all-icons"></span><span class="chip-name">@所有人</span></button>
               <label class="target" title="不 @ 人或者 @所有人 时，大家怎么接"><span class="target-label">不 @ 时</span>
                 <select id="default-target"></select>
@@ -183,6 +185,7 @@
             <label class="member"><input type="checkbox" name="memberDeepseek"><span class="avatar av-deepseek"></span><span class="member-name">DeepSeek<small>深度求索</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGlm"><span class="avatar av-glm"></span><span class="member-name">GLM<small>智谱</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGemini"><span class="avatar av-gemini"></span><span class="member-name">Gemini<small>Google</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberGrok"><span class="avatar av-grok"></span><span class="member-name">Grok<small>xAI</small></span><span class="check-mark"></span></label>
             <button type="button" class="member-add" id="btn-clone-add"><span class="member-add-plus" aria-hidden="true">＋</span><span id="btn-clone-add-text"></span></button>
             <div class="clone-picker" id="clone-picker" hidden></div>
           </div>
@@ -232,6 +235,8 @@
               <span class="model-pair"><select name="modelGlm" data-pair="glm"></select><span class="pair-sep">思考</span><select name="effortGlm"></select></span></div>
             <div class="form-row" id="field-model-gemini"><span class="with-icon"><span class="avatar av-gemini"></span>Gemini</span>
               <span class="model-pair"><select name="modelGemini" data-pair="gemini"></select><span class="pair-sep">思考</span><select name="effortGemini"></select></span></div>
+            <div class="form-row" id="field-model-grok"><span class="with-icon"><span class="avatar av-grok"></span>Grok</span>
+              <span class="model-pair"><select name="modelGrok" data-pair="grok"></select><span class="pair-sep">思考</span><select name="effortGrok"></select></span></div>
           </div>
         </section>
         <section class="form-section" id="speed-fields" hidden>
@@ -355,6 +360,7 @@
             <h3>程序</h3>
             <div class="group-box" id="set-engines"></div>
             <p class="hint">用的都是你电脑上装好的官方程序。新模型常常要新版本的程序才看得到；ClawChat 每 5 分钟会自动重新读一次模型列表。</p>
+            <p class="hint" id="grok-note" hidden></p>
           </section>
           <section class="form-section">
             <h3>DeepSeek</h3>
@@ -426,8 +432,8 @@
             <img src="/app-icon.png" alt="" class="about-icon" onerror="this.style.visibility='hidden'">
             <h3>ClawChat</h3>
             <p id="about-version" class="muted"></p>
-            <p class="about-desc">本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM 和 Gemini 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
-            <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span><span class="plus">+</span><span class="avatar av-deepseek"></span><span class="plus">+</span><span class="avatar av-glm"></span><span class="plus">+</span><span class="avatar av-gemini"></span></div>
+            <p class="about-desc">本地 AI 群聊：你、Claude、ChatGPT、DeepSeek、GLM、Gemini 和 Grok 在一个群里，一起在你的项目文件夹里干活。<br>全部在你自己的电脑上运行，用的是你自己的账号和 Key。</p>
+            <div class="about-agents"><span class="avatar av-claude"></span><span class="plus">+</span><span class="avatar av-gpt"></span><span class="plus">+</span><span class="avatar av-deepseek"></span><span class="plus">+</span><span class="avatar av-glm"></span><span class="plus">+</span><span class="avatar av-gemini"></span><span class="plus">+</span><span class="avatar av-grok"></span></div>
             <p><a id="about-repo" href="#" target="_blank" rel="noopener"></a></p>
           </div>
         </section>
