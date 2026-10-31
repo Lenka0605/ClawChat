@@ -2910,6 +2910,17 @@ function stashAttachments(key) {
   saveAttachDrafts();
 }
 
+// 群被清空、删掉了：服务端的图片已经删了，这个群（连同私聊）没发出去的图片草稿也一起扔掉，免得留着坏图
+function dropRoomAttachments(roomId) {
+  for (const k of [...S.attachDrafts.keys()]) if (parseKey(k)?.roomId === roomId) S.attachDrafts.delete(k);
+  if (currentConv()?.roomId === roomId) {
+    for (const a of S.attachments) URL.revokeObjectURL(a.url);
+    S.attachments = [];
+    renderAttachments();
+  }
+  saveAttachDrafts();
+}
+
 function restoreAttachments(key) {
   S.attachments = S.attachDrafts.get(key) || [];
   S.attachDrafts.delete(key);
@@ -3162,6 +3173,7 @@ function handleEvent(ev) {
         S.loadingEarlier.delete(k);
       }
       S.clearGen.set(ev.roomId, (S.clearGen.get(ev.roomId) || 0) + 1); // 清空前发出去的取消息请求，回来也不要了
+      dropRoomAttachments(ev.roomId);
       const cur = currentConv();
       if (cur && cur.roomId === ev.roomId) S.messages.set(cur.key, []); // 正在看的不是被清的这个群时，别动它
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
@@ -5111,6 +5123,7 @@ async function deleteRoom() {
   }
   try {
     await api('DELETE', `/api/rooms/${S.editing}`);
+    dropRoomAttachments(S.editing);
     S.rooms = S.rooms.filter((r) => r.id !== S.editing);
     for (const k of convKeysOfRoom(S.editing)) {
       S.messages.delete(k);
