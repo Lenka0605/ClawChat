@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// 假的 tailscale：给假 AI 实例测「手机访问」用，不碰真的 Tailscale。
+// 状态写在 $CLAWCHAT_HOME/fake-tailscale 里（随时改，不用重启）：running（默认）| stopped | needslogin | missing | serve-error
+import fs from 'node:fs';
+import path from 'node:path';
+const home = process.env.CLAWCHAT_HOME || '/tmp/clawchat-fake';
+let mode = 'running';
+try {
+  mode = fs.readFileSync(path.join(home, 'fake-tailscale'), 'utf8').trim() || 'running';
+} catch {}
+const args = process.argv.slice(2);
+if (mode === 'missing') process.exit(127);
+if (args[0] === 'status') {
+  const running = ['running', 'serve-error', 'status-fail', 'status-broken', 'status-empty'].includes(mode);
+  const out = {
+    BackendState: mode === 'needslogin' ? 'NeedsLogin' : running ? 'Running' : 'Stopped',
+    Self: running ? { DNSName: 'fake-mac.tail-fake.ts.net.', UserID: 1, HostName: 'fake-mac', Online: true } : { DNSName: '', UserID: 0 },
+    User: running ? { 1: { ID: 1, LoginName: 'boss@example.com', DisplayName: 'Boss' } } : {},
+  };
+  process.stdout.write(JSON.stringify(out));
+  process.exit(0);
+}
+// Serve 的设置存在 $CLAWCHAT_HOME/fake-tailscale-serve.json：{ "/": "http://..." } 是转发；
+// 也可以手动写 { "/": { "Path": "/some/dir" } }、{ "/": { "Text": "hi" } } 模拟别的东西占着；"tcp443": true 模拟 443 被直接转发。
+// 状态写 status-fail / status-broken / status-empty 模拟读不出 Serve 设置
+const serveFile = path.join(home, 'fake-tailscale-serve.json');
+const handlers = () => {
+  try {
+    return JSON.parse(fs.readFileSync(serveFile, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+if (args[0] === 'serve' && args[1] === 'status') {
+  if (mode === 'status-fail') {
+    process.stderr.write('failed to connect to local tailscaled\n');
+    process.exit(1);
+  }
+  if (mode === 'status-broken') process.stdout.write('{"Web": ');
+  if (mode === 'status-broken' || mode === 'status-empty') process.exit(0);
+  const { tcp443, ...h } = handlers();
+  const web = Object.keys(h).length ? { 'fake-mac.tail-fake.ts.net:443': { Handlers: Object.fromEntries(Object.entries(h).map(([k, v]) => [k, typeof v === 'string' ? { Proxy: v } : v])) } } : null;
+  const sc = web || tcp443 ? { TCP: { 443: tcp443 ? { TCPForward: '127.0.0.1:9000' } : { HTTPS: true } }, ...(web ? { Web: web } : {}) } : null;
+  process.stdout.write(JSON.stringify(sc, null, 2) + '\n');
+  process.exit(0);
+}
+if (args[0] === 'serve') {
+  const mount = (args.find((a) => a.startsWith('--set-path=')) || '--set-path=/').slice(11);
+  const h = handlers();
+  if (args.at(-1) === 'off') delete h[mount];
+  else if (mode !== 'serve-error') h[mount] = args.at(-1);
+  fs.writeFileSync(serveFile, JSON.stringify(h));
+  if (mode === 'serve-error' && !args.includes('off')) {
+    process.stderr.write('Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n');
+    process.exit(1);
+  }
+  fs.appendFileSync(path.join(home, 'fake-tailscale.log'), JSON.stringify(args) + '\n');
+  process.exit(0);
+}
+process.exit(0);
