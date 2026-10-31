@@ -11,6 +11,7 @@ import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, dee
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
+import { requestAccess, remoteInfo, setRemote, initRemote } from './lib/remote.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -521,7 +522,7 @@ function events(req, res) {
   });
 }
 
-async function api(req, res, url) {
+async function api(req, res, url, access = 'local') {
   const parts = url.pathname.split('/').filter(Boolean).slice(1);
   const method = req.method;
 
@@ -595,7 +596,20 @@ async function api(req, res, url) {
     if (lang !== was) refreshEngines(true);
     return send(res, 200, { lang });
   }
-  if (method === 'POST' && parts[0] === 'pick-folder') return send(res, 200, { path: await pickFolder() });
+  // 选文件夹会在电脑上弹系统对话框：手机上点了只会把电脑那边卡住
+  if (method === 'POST' && parts[0] === 'pick-folder') {
+    if (access !== 'local') return send(res, 400, { error: tr('手机上选不了文件夹，请直接填路径，或者回到电脑上操作') });
+    return send(res, 200, { path: await pickFolder() });
+  }
+  // 手机远程访问（Tailscale）：看状态、开关。打开只能在电脑上点（手机这时还连不进来）
+  if (parts[0] === 'remote' && !parts[1]) {
+    if (method === 'GET') return send(res, 200, await remoteInfo());
+    if (method === 'POST') {
+      const { enabled } = await readBody(req);
+      if (enabled && access !== 'local') return send(res, 403, { error: 'forbidden' });
+      return send(res, 200, await setRemote(!!enabled, PORT));
+    }
+  }
   if (parts[0] === 'app') {
     if (method === 'GET' && !parts[1]) return send(res, 200, { ...(await appInfo()), dataDir: DATA_DIR, projectsDir: PROJECTS_DIR });
     if (method === 'POST' && parts[1] === 'check-update') return send(res, 200, await checkUpdate());
@@ -1026,12 +1040,13 @@ function serveStatic(res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    // 只接受本机地址访问，防止别的网页借浏览器调用这个服务
-    if (![`127.0.0.1:${PORT}`, `localhost:${PORT}`].includes(req.headers.host)) return send(res, 403, { error: 'forbidden' });
+    // 只接受本机地址访问，防止别的网页借浏览器调用这个服务；打开了手机访问的话，老板自己 Tailscale 账号的设备也能进来
+    const access = requestAccess(req, PORT);
+    if (!access) return send(res, 403, { error: 'forbidden' });
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
-      return await api(req, res, url);
+      return await api(req, res, url, access);
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
     if (url.pathname === '/i18n-dict.js') {
@@ -1074,6 +1089,7 @@ for (const file of recovered) console.error(`[clawchat] 用备份恢复了 ${fil
 setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
+  initRemote();
   // 传上来、最后没发出去的图片：启动一分钟后清一次（放了一天以上的）
   setTimeout(() => {
     try {

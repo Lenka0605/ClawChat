@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+// 假的 tailscale：给假 AI 实例测「手机访问」用，不碰真的 Tailscale。
+// 状态写在 $CLAWCHAT_HOME/fake-tailscale 里（随时改，不用重启）：running（默认）| stopped | needslogin | missing | serve-error
+import fs from 'node:fs';
+import path from 'node:path';
+const home = process.env.CLAWCHAT_HOME || '/tmp/clawchat-fake';
+let mode = 'running';
+try {
+  mode = fs.readFileSync(path.join(home, 'fake-tailscale'), 'utf8').trim() || 'running';
+} catch {}
+const args = process.argv.slice(2);
+if (mode === 'missing') process.exit(127);
+if (args[0] === 'status') {
+  const running = mode === 'running' || mode === 'serve-error';
+  const out = {
+    BackendState: mode === 'needslogin' ? 'NeedsLogin' : running ? 'Running' : 'Stopped',
+    Self: running ? { DNSName: 'fake-mac.tail-fake.ts.net.', UserID: 1, HostName: 'fake-mac', Online: true } : { DNSName: '', UserID: 0 },
+    User: running ? { 1: { ID: 1, LoginName: 'boss@example.com', DisplayName: 'Boss' } } : {},
+  };
+  process.stdout.write(JSON.stringify(out));
+  process.exit(0);
+}
+if (args[0] === 'serve') {
+  if (mode === 'serve-error' && !args.includes('off')) {
+    process.stderr.write('Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n');
+    process.exit(1);
+  }
+  fs.appendFileSync(path.join(home, 'fake-tailscale.log'), JSON.stringify(args) + '\n');
+  process.exit(0);
+}
+process.exit(0);
