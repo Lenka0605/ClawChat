@@ -47,6 +47,7 @@ const S = {
   unread: new Map(), // 会话 key -> 未读数
   openedDms: new Map(), // 打开过但还没消息的私聊，key -> 打开时间
   attachments: [], // 待发送的图片
+  attachDrafts: new Map(), // 别的会话里还没发出去的图片：会话 key -> 那个会话的 attachments（切回去时放回来）
   engines: {},
   agents: {},
   folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
@@ -2877,6 +2878,55 @@ function saveDraft(key) {
   storeSet('clawchat.drafts', JSON.stringify(S.drafts));
 }
 
+// 待发送的图片也按会话存一份草稿：切走时收起来，切回来放回去。传好了的（服务端已经有这张图）记在本机，
+// 关掉 ClawChat 再打开也还在；还在上传、传失败的只留在内存里
+function saveAttachDrafts() {
+  const out = {};
+  const all = [...S.attachDrafts];
+  if (S.current && S.attachments.length) all.push([S.current, S.attachments]); // 正在看的这个会话也存：粘了图没切走就关掉，下次也还在
+  for (const [key, list] of all) {
+    const done = list.filter((a) => a.status === 'done' && a.id).map((a) => ({ id: a.id, roomId: a.roomId }));
+    if (done.length) out[key] = done;
+  }
+  storeSet('clawchat.attachDrafts', JSON.stringify(out));
+}
+
+function loadAttachDrafts() {
+  try {
+    for (const [key, list] of Object.entries(JSON.parse(storeGet('clawchat.attachDrafts') || '{}') || {})) {
+      if (!Array.isArray(list)) continue;
+      const atts = list
+        .filter((a) => /^[a-f0-9]{16}s?\.(png|jpg|gif|webp)$/.test(a?.id || '') && /^[a-f0-9]+$/.test(a?.roomId || ''))
+        .map((a) => ({ url: `/api/rooms/${a.roomId}/uploads/${a.id}`, status: 'done', id: a.id, error: '', roomId: a.roomId, fresh: false, remote: true }));
+      if (atts.length) S.attachDrafts.set(key, atts);
+    }
+  } catch {}
+}
+
+function stashAttachments(key) {
+  if (key && S.attachments.length) S.attachDrafts.set(key, S.attachments);
+  else if (key) S.attachDrafts.delete(key);
+  S.attachments = [];
+  saveAttachDrafts();
+}
+
+// 群被清空、删掉了：服务端的图片已经删了，这个群（连同私聊）没发出去的图片草稿也一起扔掉，免得留着坏图
+function dropRoomAttachments(roomId) {
+  for (const k of [...S.attachDrafts.keys()]) if (parseKey(k)?.roomId === roomId) S.attachDrafts.delete(k);
+  if (currentConv()?.roomId === roomId) {
+    for (const a of S.attachments) URL.revokeObjectURL(a.url);
+    S.attachments = [];
+    renderAttachments();
+  }
+  saveAttachDrafts();
+}
+
+function restoreAttachments(key) {
+  S.attachments = S.attachDrafts.get(key) || [];
+  S.attachDrafts.delete(key);
+  renderAttachments();
+}
+
 function loadDraft(key) {
   $('#input').value = S.drafts[key] || '';
   hideMentionMenu();
@@ -2951,7 +3001,7 @@ async function openConv(key, { keepFocus = false, stayList = false, fromHistory 
     if (c.dm && collapsed.delete(c.roomId)) storeSet('clawchat.collapsed', JSON.stringify([...collapsed]));
     closeFind();
     saveDraft(S.current);
-    clearAttachments();
+    stashAttachments(S.current); // 还没发出去的图片跟着这个会话收起来，切回来时还在
     cancelReply();
     S.editMsg = null; // 正在改的消息是别的会话的，别带过去
   }
@@ -2959,6 +3009,7 @@ async function openConv(key, { keepFocus = false, stayList = false, fromHistory 
   if (switching) {
     S.newBelow = 0;
     loadDraft(key);
+    restoreAttachments(key);
     refreshSessionImages(c.roomId);
   }
   storeSet('clawchat.current', key);
@@ -3122,6 +3173,7 @@ function handleEvent(ev) {
         S.loadingEarlier.delete(k);
       }
       S.clearGen.set(ev.roomId, (S.clearGen.get(ev.roomId) || 0) + 1); // 清空前发出去的取消息请求，回来也不要了
+      dropRoomAttachments(ev.roomId);
       const cur = currentConv();
       if (cur && cur.roomId === ev.roomId) S.messages.set(cur.key, []); // 正在看的不是被清的这个群时，别动它
       for (const k of [...S.unread.keys()]) if (parseKey(k)?.roomId === ev.roomId) S.unread.delete(k);
@@ -3225,6 +3277,7 @@ function renderAttachments() {
     .join('');
   for (const a of S.attachments) a.fresh = false; // 进场动画只播一次
   updateSendButton();
+  saveAttachDrafts();
 }
 
 function clearAttachments() {
@@ -3408,6 +3461,10 @@ async function sendMessage() {
     if (S.current !== draftKey) {
       S.drafts[draftKey] = raw;
       storeSet('clawchat.drafts', JSON.stringify(S.drafts));
+      if (kept.length) {
+        S.attachDrafts.set(draftKey, [...kept, ...(S.attachDrafts.get(draftKey) || [])]);
+        saveAttachDrafts();
+      }
       return toast(err.message);
     }
     el.value = raw;
@@ -5066,6 +5123,7 @@ async function deleteRoom() {
   }
   try {
     await api('DELETE', `/api/rooms/${S.editing}`);
+    dropRoomAttachments(S.editing);
     S.rooms = S.rooms.filter((r) => r.id !== S.editing);
     for (const k of convKeysOfRoom(S.editing)) {
       S.messages.delete(k);
@@ -5736,6 +5794,7 @@ setTimeout(hideBoot, 10000); // 兜底：十秒还没画好也不挡着
 
 async function init() {
   S.drafts = loadDrafts();
+  loadAttachDrafts();
   syncLang(I18N.lang).catch(() => {});
   bind();
   applyPlatformText();
