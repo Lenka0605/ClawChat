@@ -1757,13 +1757,13 @@ test('收纳组头像的图片存成单独的文件，列表里只带版本号�
   assert.equal(store2.folderAvatarFile(folder.id, a.imageV), null, '解散时图片一起删');
 });
 
-test('没发出去的图片：放了一天以上、没有消息用到的清掉，用到的和刚传的留着', () => {
+test('没发出去的图片：放了七天以上、没有消息用到的清掉，用到的和刚传的留着', () => {
   const store = new Store();
   const room = newRoom(store, { members: ['claude'] });
   const dir = store.uploadsDir(room.id);
   fs.mkdirSync(dir, { recursive: true });
   for (const f of ['aaaaaaaaaaaaaaaa.png', 'bbbbbbbbbbbbbbbb.png', 'cccccccccccccccc.png']) fs.writeFileSync(path.join(dir, f), 'x');
-  const old = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+  const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
   fs.utimesSync(path.join(dir, 'aaaaaaaaaaaaaaaa.png'), old, old);
   fs.utimesSync(path.join(dir, 'bbbbbbbbbbbbbbbb.png'), old, old);
   store.appendMessage(room.id, { from: 'user', text: '', images: [{ id: 'bbbbbbbbbbbbbbbb.png', type: 'image/png' }] });
