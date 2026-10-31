@@ -1808,3 +1808,31 @@ test('干活时的状态里带着这一轮用的模型和思考强度（私聊�
   calls.forEach((c) => c.finish('[PASS]'));
   await settle(hub);
 });
+
+test('在老板私聊里干活时群里有人 @ 它：排队等私聊那一轮做完，界面上能看到「排着队」，做完就接着回群里', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  const events = [];
+  hub.on('event', (e) => e.type === 'status' && events.push(e));
+  hub.postUserMessage(room.id, '私下帮我查个东西', [], 'claude');
+  await tick();
+  const dmRun = calls.at(-1);
+  assert.equal(dmRun.agent, 'claude');
+  assert.deepEqual(hub.queued(), []);
+  hub.postUserMessage(room.id, '@Claude 群里这个也看一下');
+  await tick();
+  assert.equal(calls.length, 1, '私聊那一轮还没做完，群里的先排队');
+  assert.deepEqual(hub.queued(), [{ roomId: room.id, agent: 'claude', busyDm: true, group: true, dm: false }]);
+  assert.deepEqual(events.at(-1).queued, hub.queued(), '排队时推一次状态，界面马上能显示');
+  dmRun.finish('查好了');
+  await tick();
+  await tick();
+  const groupRun = calls.at(-1);
+  assert.notEqual(groupRun, dmRun);
+  assert.match(groupRun.prompt, /群里这个也看一下/);
+  assert.deepEqual(hub.queued(), [], '接着回群里了，不再显示排队');
+  groupRun.finish('看完了');
+  await settle(hub);
+});

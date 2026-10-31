@@ -515,7 +515,7 @@ function events(req, res, access = 'local') {
     connection: 'keep-alive',
   });
   res.write('retry: 2000\n\n');
-  res.write(`data: ${JSON.stringify({ type: 'status', runs: hub.status() })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: 'status', runs: hub.status(), queued: hub.queued() })}\n\n`);
   clients.add(res);
   if (access === 'remote') remoteClients.add(res);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
@@ -580,6 +580,7 @@ async function api(req, res, url, access = 'local') {
       rooms: store.listRooms(),
       folders: store.listFolders(),
       runs: hub.status(true),
+      queued: hub.queued(),
       engines,
       agents: AGENTS,
       defaults: ROOM_DEFAULTS,

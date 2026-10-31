@@ -299,5 +299,8 @@
   "要先装 {cli}": "Install {cli} first",
   " · 用 Antigravity 订阅": " · Using the Antigravity subscription",
   "没填 Key：正在用 Antigravity 订阅，消耗的是订阅额度，用完要等恢复。想改用 API 就填 Gemini API Key。": "No key set: using the Antigravity subscription. It spends subscription quota, so wait for it to reset when it runs out. To use the API instead, enter a Gemini API key.",
-  "没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。": "No key set: install Antigravity CLI (agy) to use the subscription, or enter a Gemini API key here to use the API (billed per use)."
+  "没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。": "No key set: install Antigravity CLI (agy) to use the subscription, or enter a Gemini API key here to use the API (billed per use).",
+  "正在私聊里干活，这边排着队，那一轮做完就来": "Busy in a private chat — this is queued and it'll be here once that's done",
+  "正在群里干活，这边排着队，那一轮做完就来": "Busy in the group — this is queued and it'll be here once that's done",
+  "去看看": "Take a look"
 }

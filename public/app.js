@@ -39,6 +39,7 @@ const S = {
   loadingEarlier: new Set(), // 正在问服务器要更早的一段（连着点、滚动触发两次时别重复取）
   early: new Map(), // 消息列表还没加载完时收到的新消息（会话 key -> message[]）
   runs: [],
+  queued: [], // 排着队、要等它在别处那一轮干完的：{ roomId, agent, busyDm, group, dm }
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
   liveOpen: new Set(), // 展开了过程的那几个
@@ -2517,6 +2518,22 @@ function updateIdle() {
   }
 }
 
+// 排着队的：它正在另一个场合干活（比如在老板的私聊里），这边有人叫它，要等那一轮干完才来。
+// 显示一张小卡片，不然看着像「没反应」；点「去看看」到它正在干活的那个聊天
+function queuedHtml(conv) {
+  if (!conv) return '';
+  return (S.queued || [])
+    .filter((q) => q.roomId === conv.roomId && (conv.dm ? q.agent === conv.dm && q.dm && !q.busyDm : q.group && q.busyDm))
+    .filter((q) => !convRuns(conv).some((r) => r.agent === q.agent))
+    .map((q) => {
+      const text = q.busyDm ? tr('正在私聊里干活，这边排着队，那一轮做完就来') : tr('正在群里干活，这边排着队，那一轮做完就来');
+      const target = q.busyDm ? `d:${q.roomId}:${q.agent}` : `g:${q.roomId}`;
+      return `<div class="msg agent live queued from-${esc(baseOf(q.agent))}">${avatarHtml(q.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(q.agent))}</div>
+        <div class="bubble"><div class="live-head"><span class="queued-dot"></span><span class="queued-text">${esc(text)}</span><button class="live-goto" data-goto="${esc(target)}">${tr('去看看')}</button></div></div></div></div>`;
+    })
+    .join('');
+}
+
 // 展开的过程每来一步都会整块重画：老板停在最底下就跟着最新一步走；往上翻着看时，记住正在看的那一步，重画后放回原处
 function saveLiveScroll() {
   const saved = new Map();
@@ -2578,7 +2595,7 @@ function renderLive() {
         ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}" data-dropped="${S.liveDropped.get(key) || 0}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
-    .join('');
+    .join('') + queuedHtml(conv);
   restoreLiveScroll(scrolls);
   renderStopControls(conv);
   syncToolsRow();
@@ -2742,6 +2759,7 @@ function applyState(st) {
   S.defaults = st.defaults || {};
   S.engines = st.engines || {};
   S.projectsDir = st.projectsDir || '';
+  S.queued = st.queued || [];
   setRuns(st.runs || []);
   if (st.restartPending) setRestartPending(st.restartPending, '', true);
   showUpdateRollback(st.updateRollback);
@@ -3177,6 +3195,7 @@ function handleEvent(ev) {
       break;
     }
     case 'status':
+      S.queued = ev.queued || [];
       setRuns(ev.runs || []);
       renderConvs();
       keepBottom(renderLive);
@@ -5683,6 +5702,8 @@ function bind() {
     api('POST', `/api/rooms/${conv.roomId}/stop`, b.dataset.stop ? { agent: b.dataset.stop, only: b.dataset.only } : {}).catch((err) => toast(err.message));
   });
   $('#live').addEventListener('click', (e) => {
+    const go = e.target.closest('[data-goto]');
+    if (go) return void openConv(go.dataset.goto);
     const t = e.target.closest('[data-live-toggle]');
     if (t) {
       const k = t.dataset.liveToggle;
