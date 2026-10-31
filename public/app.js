@@ -42,6 +42,7 @@ const S = {
   live: new Map(), // `${roomId}:${agent}` -> 这一轮到目前为止的过程步骤
   liveAt: new Map(), // 同上 -> 最后一次有动静的时间（判断是不是卡住了）
   liveOpen: new Set(), // 展开了过程的那几个
+  liveDropped: new Map(), // 过程超过 300 步时前面挤掉了几步（重画后找回老板正在看的那一步用）
   liveSeen: new Set(), // 已经播过进场动画的「正在干活」气泡
   replyTo: null, // 正在回复哪条消息
   unread: new Map(), // 会话 key -> 未读数
@@ -2516,9 +2517,39 @@ function updateIdle() {
   }
 }
 
+// 展开的过程每来一步都会整块重画：老板停在最底下就跟着最新一步走；往上翻着看时，记住正在看的那一步，重画后放回原处
+function saveLiveScroll() {
+  const saved = new Map();
+  document.querySelectorAll('.live-steps.open').forEach((ol) => {
+    const key = ol.dataset.liveList;
+    if (ol.scrollHeight - ol.scrollTop - ol.clientHeight < 24) return; // 在最底下：照旧跟着走
+    const items = [...ol.children];
+    const top = ol.getBoundingClientRect().top;
+    const i = items.findIndex((li) => li.getBoundingClientRect().bottom > top);
+    if (i < 0) return;
+    saved.set(key, { index: Number(ol.dataset.dropped || 0) + i, offset: items[i].getBoundingClientRect().top - ol.getBoundingClientRect().top });
+  });
+  return saved;
+}
+
+function restoreLiveScroll(saved) {
+  document.querySelectorAll('.live-steps.open').forEach((ol) => {
+    const key = ol.dataset.liveList;
+    const at = saved.get(key);
+    if (!at) {
+      ol.scrollTop = ol.scrollHeight;
+      return;
+    }
+    const li = ol.children[at.index - (S.liveDropped.get(key) || 0)];
+    // 正在看的那步太旧被挤掉了，就停在最上面
+    ol.scrollTop = li ? ol.scrollTop + li.getBoundingClientRect().top - ol.getBoundingClientRect().top - at.offset : 0;
+  });
+}
+
 function renderLive() {
   const conv = currentConv();
   const runs = conv ? convRuns(conv) : [];
+  const scrolls = saveLiveScroll();
   $('#live').innerHTML = runs
     .map((r) => {
       const key = liveKey(r);
@@ -2544,12 +2575,11 @@ function renderLive() {
         <div class="live-idle" data-idle="${esc(key)}"${idleText(r, key) ? '' : ' hidden'}><span>${esc(idleText(r, key))}</span>${
           r.side ? '' : `<button class="live-fresh" data-agent="${esc(r.agent)}">${tr('换新会话重来')}</button>`
         }</div>
-        ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}">${shown.map(stepHtml).join('')}</ol>` : ''}
+        ${shown.length ? `<ol class="live-steps${open ? ' open' : ''}${S.liveAnimate === key ? ' enter' : ''}" data-live-list="${esc(key)}" data-dropped="${S.liveDropped.get(key) || 0}">${shown.map(stepHtml).join('')}</ol>` : ''}
         </div></div></div>`;
     })
     .join('');
-  // 展开时滚到最新一步
-  document.querySelectorAll('.live-steps.open').forEach((ol) => (ol.scrollTop = ol.scrollHeight));
+  restoreLiveScroll(scrolls);
   renderStopControls(conv);
   syncToolsRow();
 }
@@ -2732,7 +2762,7 @@ function showUpdateRollback(info) {
 function setRuns(runs) {
   S.runs = runs;
   const keys = new Set(runs.map(liveKey));
-  for (const k of [...S.live.keys()]) if (!keys.has(k)) S.live.delete(k);
+  for (const k of [...S.live.keys()]) if (!keys.has(k)) { S.live.delete(k); S.liveDropped.delete(k); }
   for (const k of [...S.liveOpen]) if (!keys.has(k)) S.liveOpen.delete(k);
   for (const k of [...S.liveSeen]) if (!keys.has(k)) S.liveSeen.delete(k);
   for (const k of [...S.liveAt.keys()]) if (!keys.has(k)) S.liveAt.delete(k);
@@ -3140,7 +3170,7 @@ function handleEvent(ev) {
       const k = liveKey(ev);
       const arr = S.live.get(k) || [];
       arr.push(ev.step);
-      if (arr.length > 300) arr.splice(0, arr.length - 300);
+      if (arr.length > 300) S.liveDropped.set(k, (S.liveDropped.get(k) || 0) + arr.splice(0, arr.length - 300).length);
       S.live.set(k, arr);
       S.liveAt.set(k, Date.now());
       if (currentConv()?.roomId === ev.roomId) keepBottom(renderLive);
