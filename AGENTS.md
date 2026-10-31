@@ -1,6 +1,6 @@
 # ClawChat 开发须知（给在这个仓库里干活的 AI 看）
 
-ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex）+ DeepSeek、GLM（都借 Claude Code 跑）+ Gemini（订阅走 Antigravity CLI，API 走 Gemini CLI）。
+ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex）+ DeepSeek、GLM（都借 Claude Code 跑）+ Gemini（订阅走 Antigravity CLI，API 走 Gemini CLI）+ Grok（Grok Build，只走账号登录）。
 这个仓库常常是在 ClawChat 里由群里的 AI 自己开发的：**改坏了会把正在用的群聊弄坏**，所以下面的规矩要守。
 
 > 本机如果有本地须知文件 `AGENTS.local.md`（不进仓库），先读它，它优先。
@@ -63,4 +63,5 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 - **不 @ 时默认接着上一位**（`room.defaultTarget = 'last'`）。以前默认大家同时开工，经常刚发出去就得停掉不该开工的那几位。
 - **重启**：用户点更新或重启时打断的活，下次启动自动接着做；有人在干活时可以等干完再重启（server 的 `pendingRestart`）。
 - **DeepSeek**：用 `claude -p` 跑，`ANTHROPIC_BASE_URL` 换成 DeepSeek 的 Anthropic 兼容接口，`CLAUDE_CONFIG_DIR` 单独指向 `~/.clawchat/deepseek/claude-home`。Key 不对（401）或余额不足（402）时 Claude Code 会重试很久，所以看到 `api_retry` 就直接结束这一轮。
+- **Grok**：用 `grok -p --output-format streaming-messages-json`（格式和 Claude Code 的 stream-json 一样），`-r` 续会话、`--fork-session` 开分身。**只走账号登录，不能变成按 API 计费**：每个群用 `~/.clawchat/grok/homes/` 下单独的 `GROK_HOME`（关掉 Claude/Codex/Cursor 的技能插件兼容，不然一句话就 4 万 token），登录文件用 `GROK_AUTH_PATH` 和老板终端共用一份（refresh_token 用一次就作废，复制多份会把人登出），去掉 `XAI_API_KEY` 等环境变量并禁用 API Key 登录。记忆就在那个目录里，删群、清空并忘掉记忆时由 `removeGrokHome` 清掉。暂不支持中途插话。
 - **Windows**：Edge `--app` 模式开窗口；`ClawChat.vbs` 要 UTF-16 编码、`install.ps1` 要带 BOM 的 UTF-8；npm 装的 `.cmd` 不能直接 spawn。**Windows 代码没在真机上跑过**，同事出问题时先要 `~/.clawchat/start-error.html` 或 `server.log`。
