@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        webView.loadHTMLString(statusPage(L("正在启动…", "Starting…")), baseURL: nil)
+        webView.loadHTMLString(splashPage(), baseURL: nil)
         checkHealth { ok in
             if ok {
                 self.loadApp()
@@ -201,6 +201,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 self.webView.loadHTMLString(self.statusPage(L("本地服务没有启动成功，日志在 ~/.clawchat/server.log", "The local server didn’t start. The log is at ~/.clawchat/server.log")), baseURL: nil)
             }
         }
+    }
+
+    // 启动时的加载画面：窗口中间放 ClawChat 的图标，一道光一遍遍扫过、轻轻呼吸（和 ChatGPT 打开时一样），
+    // 服务起来后换成界面（网页那边接着显示同样的画面，等数据加载好再淡出）。样式和 public/style.css 的 .boot-icon 一样
+    func splashPage() -> String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        guard let root = info["ClawChatRoot"] as? String,
+              let data = FileManager.default.contents(atPath: root + "/public/favicon.png") else {
+            return statusPage(L("正在启动…", "Starting…"))
+        }
+        let css = """
+        html, body { margin: 0; height: 100%; background: transparent; }
+        body { display: grid; place-items: center; }
+        .boot-icon { width: 72px; height: 72px; border-radius: 17px; background: center / cover no-repeat; position: relative; overflow: hidden; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22); animation: boot-breathe 2s ease-in-out infinite; }
+        .boot-icon::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%) 0 0 / 300% 100%; animation: boot-sheen 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+        @keyframes boot-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+        @keyframes boot-breathe { 0%, 100% { opacity: 0.82; transform: scale(0.985); } 50% { opacity: 1; transform: scale(1); } }
+        @media (prefers-reduced-motion: reduce) { .boot-icon, .boot-icon::after { animation: none; } }
+        """
+        return "<html><head><style>\(css)</style></head><body><div class=\"boot-icon\" style=\"background-image:url(data:image/png;base64,\(data.base64EncodedString()))\"></div></body></html>"
     }
 
     func statusPage(_ text: String) -> String {

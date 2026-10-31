@@ -5616,6 +5616,9 @@ function bind() {
     e.target.value = '';
   };
   $('#attachments').addEventListener('click', (e) => {
+    // 粘贴、拖进来还没发出去的图：点一下放大看
+    const img = e.target.closest('.att img');
+    if (img) return openLightbox(img.src);
     const b = e.target.closest('.att-remove');
     if (!b) return;
     const [a] = S.attachments.splice(Number(b.dataset.i), 1);
@@ -5722,6 +5725,15 @@ function applyPlatformText() {
   $('#btn-open-data').textContent = tr('在资源管理器中显示');
 }
 
+// 打开时的加载画面：界面画好了就淡出（连不上服务也淡出，免得一直挡着报错）
+function hideBoot() {
+  const boot = $('#boot');
+  if (!boot || boot.classList.contains('done')) return;
+  boot.classList.add('done');
+  setTimeout(() => boot.remove(), 400);
+}
+setTimeout(hideBoot, 10000); // 兜底：十秒还没画好也不挡着
+
 async function init() {
   S.drafts = loadDrafts();
   syncLang(I18N.lang).catch(() => {});
@@ -5758,6 +5770,7 @@ async function init() {
   } else if (first) openConv(first, { stayList: true });
   else renderShell();
   bindMobileViewport();
+  hideBoot();
   connect();
   // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);
