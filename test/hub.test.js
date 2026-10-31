@@ -1791,3 +1791,20 @@ test('Grok 的记忆目录：删群、清空并忘掉记忆时一起清掉，只
   await removeGrokHome(room);
   assert.ok(!fs.existsSync(dir), '删群时调用的清理');
 });
+
+test('干活时的状态里带着这一轮用的模型和思考强度（私聊里单独设置的按私聊的）', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'], models: { claude: 'sonnet' }, efforts: { claude: 'low' }, dmSettings: { gpt: { model: 'gpt-x', effort: 'high' } } });
+  hub.postUserMessage(room.id, '@Claude 看看');
+  hub.postUserMessage(room.id, '私聊一句', [], 'gpt');
+  await tick();
+  const st = Object.fromEntries(hub.status().map((r) => [r.agent, r]));
+  assert.equal(st.claude.model, 'sonnet');
+  assert.equal(st.claude.effort, 'low');
+  assert.equal(st.gpt.model, 'gpt-x');
+  assert.equal(st.gpt.effort, 'high');
+  calls.forEach((c) => c.finish('[PASS]'));
+  await settle(hub);
+});
