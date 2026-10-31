@@ -302,6 +302,10 @@ html.native .conv-avatar.stack .avatar { box-shadow: 0 0.5px 1.5px rgba(0, 0, 0,
 .conv-avatar.stack.three .avatar { width: 22px; height: 22px; }
 .conv-avatar.stack.three .avatar:nth-child(2) { right: 0; top: 0; }
 .conv-avatar.stack.three .avatar:last-child { right: auto; left: 9px; bottom: 0; }
+/* 四位以上：四宫格（五位以上第四格写还有几位） */
+.conv-avatar.stack.quad { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
+.conv-avatar.stack.quad .avatar, .room-icon .conv-avatar.stack.quad .avatar { position: static; width: 100%; height: 100%; box-shadow: none; }
+.conv-avatar.stack.quad .av-more { border-radius: 23%; background: var(--fill); color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: -0.2px; }
 .conv-meta { min-width: 0; flex: 1; }
 .conv-line { display: flex; gap: 6px; align-items: center; }
 .conv-line .name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

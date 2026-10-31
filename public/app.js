@@ -1029,7 +1029,14 @@ function renderEngines() {
 function convAvatar(c) {
   if (c.dm) return `<div class="conv-avatar">${avatarHtml(c.dm)}</div>`;
   if (c.room.members.length === 1) return `<div class="conv-avatar">${avatarHtml(c.room.members[0])}</div>`;
-  return `<div class="conv-avatar stack${c.room.members.length > 2 ? ' three' : ''}">${c.room.members.map((a) => avatarHtml(a)).join('')}</div>`;
+  // 两位斜着摆，三位品字形，四位四宫格；五位以上放前三位，第四格写还有几位
+  const n = c.room.members.length;
+  if (n >= 4) {
+    const shown = n > 4 ? c.room.members.slice(0, 3) : c.room.members;
+    const more = n > 4 ? `<span class="avatar av-more">+${n - 3}</span>` : '';
+    return `<div class="conv-avatar stack quad">${shown.map((a) => avatarHtml(a)).join('')}${more}</div>`;
+  }
+  return `<div class="conv-avatar stack${n > 2 ? ' three' : ''}">${c.room.members.map((a) => avatarHtml(a)).join('')}</div>`;
 }
 
 function convItemHtml(c, extra = {}) {
