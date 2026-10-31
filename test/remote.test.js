@@ -111,3 +111,32 @@ test('Tailscale Serve：根路径被老板别的服务占着时不覆盖；关�
   assert.equal(served()['/'], 'http://127.0.0.1:4000');
   fs.rmSync(SERVE, { force: true });
 });
+
+test('Tailscale Serve：根路径挂着静态目录、固定文字、443 被直接转发时也不覆盖；读不出设置（失败、损坏、空输出）就不去改', async () => {
+  _resetRemoteState();
+  for (const [taken, what] of [[{ '/': { Path: '/Users/boss/site' } }, /\/Users\/boss\/site/], [{ '/': { Text: 'hi' } }, /固定文字/], [{ tcp443: true }, /127\.0\.0\.1:9000/], [{ '/': { Proxy: 'http://127.0.0.1:7317', Path: '/x' } }, /别的服务/]]) {
+    mode('running');
+    fs.writeFileSync(SERVE, JSON.stringify(taken));
+    const r = await setRemote(true, PORT);
+    assert.equal(r.enabled, false, JSON.stringify(taken));
+    assert.match(r.error, what);
+    assert.deepEqual(served(), taken, '原来的设置没被动');
+  }
+  for (const m of ['status-fail', 'status-broken', 'status-empty']) {
+    mode(m);
+    fs.rmSync(SERVE, { force: true });
+    const r = await setRemote(true, PORT);
+    assert.equal(r.enabled, false, m);
+    assert.match(r.error, /读不出 Tailscale 现在的 Serve 设置/, m);
+    assert.deepEqual(served(), {}, `${m}：没有写入`);
+  }
+  // 关的时候读不出设置：也不去撤（开关照样关掉，手机进不来）
+  mode('running');
+  fs.rmSync(SERVE, { force: true });
+  assert.equal((await setRemote(true, PORT)).enabled, true);
+  mode('status-broken');
+  assert.equal((await setRemote(false, PORT)).enabled, false);
+  assert.equal(served()['/'], 'http://127.0.0.1:7317', '读不出来时不乱撤');
+  fs.rmSync(SERVE, { force: true });
+  mode('running');
+});

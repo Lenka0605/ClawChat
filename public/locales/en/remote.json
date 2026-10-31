@@ -4,5 +4,9 @@
   "Tailscale 还没登录，先在电脑上打开 Tailscale 并登录": "Tailscale isn't signed in. Open Tailscale on this computer and sign in first",
   "Tailscale 没能开启访问地址：{error}": "Tailscale couldn't set up the access address: {error}",
   "手机上选不了文件夹，请直接填路径，或者回到电脑上操作": "You can't pick a folder from your phone. Type the path, or do this on your computer",
-  "这台电脑的 Tailscale 已经把这个地址给了别的服务（{target}），ClawChat 不去覆盖它": "This computer's Tailscale already serves this address for something else ({target}). ClawChat won't overwrite it"
+  "这台电脑的 Tailscale 已经把这个地址给了别的服务（{target}），ClawChat 不去覆盖它": "This computer's Tailscale already serves this address for something else ({target}). ClawChat won't overwrite it",
+  "读不出 Tailscale 现在的 Serve 设置，没有去改它：{error}": "Couldn't read Tailscale's current Serve settings, so nothing was changed: {error}",
+  "没有输出": "no output",
+  "一段固定文字": "a fixed text response",
+  "别的设置": "something else"
 }
