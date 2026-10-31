@@ -175,6 +175,18 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* 打开时的加载画面：ClawChat 图标，一道光一遍遍扫过、轻轻呼吸（和 ChatGPT 打开时一样）；数据加载好以后淡出。
+   Mac 应用在服务起来之前也显示同样的画面（mac/main.swift 的 splashPage） */
+#boot { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: var(--bg); transition: opacity 0.28s var(--ease, ease); }
+/* Mac 应用里窗口本身是毛玻璃：加载画面也透明，和外壳的启动页一模一样地接上；后面没画好的界面先藏着 */
+html.native #boot { background: transparent; }
+html.native #boot:not(.done) ~ #app { visibility: hidden; }
+#boot.done { opacity: 0; pointer-events: none; }
+.boot-icon { width: 72px; height: 72px; border-radius: 17px; background: center / cover no-repeat; position: relative; overflow: hidden; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22); animation: boot-breathe 2s ease-in-out infinite; }
+.boot-icon::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%) 0 0 / 300% 100%; animation: boot-sheen 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes boot-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes boot-breathe { 0%, 100% { opacity: 0.82; transform: scale(0.985); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .boot-icon, .boot-icon::after { animation: none; } }
 body {
   background: var(--bg);
   color: var(--text);
@@ -711,7 +723,7 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 .target select { color: var(--text); }
 .attachments { display: flex; gap: 8px; margin: 0 0 8px 40px; flex-wrap: wrap; }
 .att { position: relative; width: 64px; height: 64px; border-radius: 12px; overflow: hidden; background: var(--fill); }
-.att img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
 .att.uploading img { opacity: 0.45; }
 .att.error { box-shadow: inset 0 0 0 2px var(--danger); }
 .att-state { position: absolute; inset: auto 0 0 0; font-size: 10px; text-align: center; background: rgba(0, 0, 0, 0.55); color: #fff; }
