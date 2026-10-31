@@ -106,6 +106,8 @@ function applyTheme(mode) {
   const set = () => {
     if (mode === 'light' || mode === 'dark') root.dataset.theme = mode;
     else delete root.dataset.theme;
+    const meta = $('#theme-color');
+    if (meta) meta.setAttribute('content', root.dataset.theme === 'dark' || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches) ? '#1c1c1e' : '#f2f2f4');
   };
   // 用「视图过渡」淡过去：只对新旧两张整页画面做一次交叉淡化，交给显卡合成，很流畅
   // （以前是让页面上每个元素各自做颜色过渡，元素一多就掉帧）。老系统不支持就直接切换
@@ -2573,7 +2575,10 @@ function fitTools() {
   const row = document.querySelector('.composer-tools');
   if (!row || row.hidden) return;
   row.classList.remove('compact');
-  row.classList.toggle('compact', row.scrollWidth > row.clientWidth + 1);
+  // 手机上 @ 按钮一律只留头像：字会挤成一竖排，而且放大了手指才点得准；放不下的在那一行里横着滚
+  if (isNarrow()) return void row.classList.add('compact');
+  const over = row.scrollWidth > row.clientWidth + 1;
+  row.classList.toggle('compact', over);
 }
 
 // ---------------- 消息区的滚动条和「回到最新」按钮 ----------------
@@ -2879,9 +2884,64 @@ function loadDraft(key) {
 }
 
 // keepFocus：从侧栏点进来、用键盘上下切过来的，焦点留在侧栏（接着按上下还能切；直接打字会跳到输入框）
-async function openConv(key, { keepFocus = false } = {}) {
+// ---------------- 手机版（≤600 宽）：聊天列表和聊天单页切换 ----------------
+const isNarrow = () => window.matchMedia('(max-width: 600px)').matches;
+
+// 从列表点进聊天：地址记进浏览器历史，手机上的返回键/侧滑也能回到列表
+function enterMobileChat(key, { fromHistory = false } = {}) {
+  if (!isNarrow()) return;
+  const root = document.documentElement;
+  root.classList.add('mobile-chat');
+  if (document.activeElement && document.activeElement !== $('#input')) document.activeElement.blur?.();
+  if (fromHistory) return;
+  const state = { clawchatKey: key };
+  const url = `#${encodeURIComponent(key)}`;
+  // 已经在聊天里换了一个聊天：替换这一条历史，返回键仍然是回列表
+  if (history.state?.clawchatKey) history.replaceState(state, '', url);
+  else history.pushState(state, '', url);
+}
+
+// 手机键盘弹起来时，整个界面跟着可视区域缩，输入框不会被键盘挡住
+function bindMobileViewport() {
+  const vv = window.visualViewport;
+  const sync = () => {
+    if (!isNarrow()) return void document.documentElement.style.removeProperty('--vvh');
+    document.documentElement.style.setProperty('--vvh', `${Math.round(vv?.height || window.innerHeight)}px`);
+    if (document.activeElement === $('#input') && S.pinned) scrollToBottom();
+  };
+  if (vv) {
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+  }
+  window.addEventListener('resize', sync);
+  window.addEventListener('orientationchange', () => setTimeout(sync, 120));
+  // 横竖屏切换后提示语长短可能不一样
+  window.addEventListener('resize', () => {
+    const conv = currentConv();
+    if (conv && !$('#chat').hidden) renderTargets(conv.room, conv.dm);
+  });
+  sync();
+}
+
+function exitMobileChat() {
+  document.documentElement.classList.remove('mobile-chat');
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  document.activeElement?.blur?.(); // 回列表时把键盘收起来
+}
+
+window.addEventListener('popstate', (e) => {
+  if (!isNarrow()) return;
+  const key = e.state?.clawchatKey;
+  if (key) {
+    document.documentElement.classList.add('mobile-chat');
+    if (S.current !== key) openConv(key, { fromHistory: true });
+  } else exitMobileChat();
+});
+
+async function openConv(key, { keepFocus = false, stayList = false, fromHistory = false } = {}) {
   const c = parseKey(key);
   if (!c || !roomById(c.roomId)) return;
+  if (!stayList) enterMobileChat(key, { fromHistory }); // 手机上点开聊天就切到聊天页；启动时留在列表
   if (c.dm && !S.openedDms.has(key)) S.openedDms.set(key, Date.now());
   const switching = S.current !== key;
   if (switching) {
@@ -2914,7 +2974,7 @@ async function openConv(key, { keepFocus = false } = {}) {
   renderLive();
   scrollToBottom();
   replay($('#scroller'), 'switching');
-  if (!keepFocus) $('#input').focus();
+  if (!keepFocus && !stayList && !isNarrow()) $('#input').focus(); // 手机上等老板自己点输入框，别一进聊天就弹键盘
 }
 
 // ---------------- 系统通知 ----------------
@@ -2971,10 +3031,13 @@ function renderTargets(room, dm) {
   ];
   setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
+  // 手机输入框窄，提示写短一点
   $('#input').placeholder = dm
     ? tr('私聊 {name}', { name: agentName(dm) })
     : room.members.length > 1 && room.defaultTarget === 'last' && last
-      ? tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
+      ? isNarrow()
+        ? tr('发给 {name}', { name: agentName(last) })
+        : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
       : tr('发送给 {name}', { name: room.name });
 }
 
@@ -3133,7 +3196,9 @@ function connect() {
       for (const r of S.rooms) S.clearGen.set(r.id, (S.clearGen.get(r.id) || 0) + 1);
       renderEngines();
       renderConvs();
-      if (currentConv()) openConv(S.current);
+      // 手机上停在列表页重连时，别自动跳进原来的聊天
+      const stayList = isNarrow() && !document.documentElement.classList.contains('mobile-chat');
+      if (currentConv()) openConv(S.current, { stayList });
       else renderShell();
     } catch {}
   };
@@ -4135,6 +4200,87 @@ function showSettingsTab(tab) {
   if (tab === 'engines') refreshEngines(true);
 }
 
+// ---------------- 手机访问（Tailscale） ----------------
+const REMOTE = { info: null, busy: false };
+const isLocalHost = () => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname);
+// 服务端的报错里可能带 Tailscale 开通 HTTPS 的链接：转成能点的（先转义，再单独把网址找出来）
+const linkify = (text) => esc(String(text)).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+
+async function refreshRemote() {
+  try {
+    REMOTE.info = await api('GET', '/api/remote');
+  } catch {
+    REMOTE.info = null;
+  }
+  renderRemote();
+}
+
+function renderRemote() {
+  const toggle = $('#remote-toggle');
+  const hint = $('#remote-hint');
+  const row = $('#remote-url-row');
+  if (!toggle) return;
+  const info = REMOTE.info;
+  if (!info) {
+    toggle.checked = false;
+    toggle.disabled = true;
+    row.hidden = true;
+    hint.hidden = false;
+    hint.textContent = tr('正在读取手机访问的状态…');
+    return;
+  }
+  const local = isLocalHost();
+  const ready = info.tailscale === 'ready';
+  toggle.checked = !!info.enabled;
+  toggle.disabled = REMOTE.busy || !local || (!info.enabled && !ready);
+  row.hidden = !(info.enabled && info.url);
+  if (!row.hidden) {
+    const a = $('#remote-url');
+    a.textContent = info.url;
+    a.href = info.url;
+  }
+  const lines = [];
+  if (!local) lines.push(tr('手机访问的开关只能在电脑上改。'));
+  if (info.tailscale === 'missing') lines.push(info.error || tr('这台电脑上还没装 Tailscale，先安装再回来打开。'));
+  else if (info.tailscale === 'stopped') lines.push(info.error || tr('先在电脑上打开 Tailscale 并登录。'));
+  if (info.enabled && info.login) lines.push(tr('只允许 {login} 的设备访问。', { login: info.login }));
+  else if (info.tailscale === 'ready' && !info.enabled && info.login) lines.push(tr('打开后，只有 {login} 的设备能通过 Tailscale 访问。', { login: info.login }));
+  if (REMOTE.busy) lines.push(tr('正在配置…第一次用可能要十几秒。'));
+  if (info.error && info.tailscale === 'ready') lines.push(info.error); // 打开失败（比如要去网页上开通 HTTPS）
+
+  hint.hidden = !lines.length;
+  hint.innerHTML = lines.map((x) => linkify(x)).join('<br>');
+}
+
+async function setRemote(on) {
+  if (REMOTE.busy) return;
+  REMOTE.busy = true;
+  renderRemote();
+  try {
+    const info = await api('POST', '/api/remote', { enabled: on });
+    REMOTE.info = info;
+    if (on && !info.enabled) toast(tr('没能打开手机访问，看看下面的说明'), 6000);
+    else toast(on ? tr('手机访问已打开') : tr('手机访问已关闭'));
+  } catch (err) {
+    REMOTE.info = { ...(REMOTE.info || {}), error: err.message };
+    toast(err.message, 6000);
+  } finally {
+    REMOTE.busy = false;
+    renderRemote();
+  }
+}
+
+async function copyRemoteUrl() {
+  const url = REMOTE.info?.url || '';
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast(tr('地址已复制'));
+  } catch {
+    toast(tr('复制不了，请手动选中地址复制'));
+  }
+}
+
 async function openSettings(tab = 'general') {
   const dlg = $('#dlg-settings');
   $('#quit-section').hidden = hasNative(); // Mac 应用按 ⌘Q 退出；Windows 和浏览器里在这里退出
@@ -4142,6 +4288,7 @@ async function openSettings(tab = 'general') {
   reportDragRegions();
   showSettingsTab(tab);
   renderEngines();
+  refreshRemote();
   try {
     const info = await api('GET', '/api/app');
     S.app = info;
@@ -5098,8 +5245,8 @@ function bind() {
     if (!li) return;
     // 点有私聊的群这一整项：正在看这个群，就展开 / 收起它的私聊；没在看就打开它，私聊收着的话顺便展开
     const roomId = parseKey(li.dataset.key)?.roomId;
-    if (li.classList.contains('has-children') && S.current === li.dataset.key) {
-      toggleCollapsed(roomId);
+    if (li.classList.contains('has-children') && S.current === li.dataset.key && !isNarrow()) {
+      toggleCollapsed(roomId); // 电脑上点整行还是展开/收起；手机上点整行直接进聊天，展开只点小箭头
       return;
     }
     openConv(li.dataset.key, { keepFocus: true });
@@ -5253,6 +5400,12 @@ function bind() {
     }),
   );
   $('#btn-app-settings').onclick = () => openSettings();
+  $('#btn-back').onclick = () => {
+    if (history.state?.clawchatKey) history.back();
+    else exitMobileChat();
+  };
+  $('#remote-toggle').addEventListener('change', (e) => setRemote(e.target.checked));
+  $('#remote-copy').onclick = copyRemoteUrl;
   $('#btn-settings-close').onclick = () => closeDialog($('#dlg-settings'));
   // 像 macOS 的设置窗口一样，点窗口外面也能关
   $('#dlg-settings').addEventListener('click', (e) => {
@@ -5591,9 +5744,20 @@ async function init() {
   if (saved && !saved.includes(':')) saved = `g:${saved}`; // 旧版本存的是群 id
   const list = conversations();
   const first = parseKey(saved) && roomById(parseKey(saved).roomId) ? saved : list[0]?.key;
+  // 手机上从主屏幕或书签打开带 #聊天 的地址：直接进那个聊天；普通打开先停在列表
+  let deep = '';
+  try {
+    deep = decodeURIComponent(location.hash.slice(1));
+  } catch {}
+  if (!deep || !parseKey(deep) || !roomById(parseKey(deep).roomId)) deep = '';
   renderConvs();
-  if (first) openConv(first);
+  if (deep) {
+    history.replaceState(null, '', location.pathname + location.search);
+    openConv(deep);
+    if (!isNarrow()) history.replaceState(null, '', location.pathname + location.search);
+  } else if (first) openConv(first, { stayList: true });
   else renderShell();
+  bindMobileViewport();
   connect();
   // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);

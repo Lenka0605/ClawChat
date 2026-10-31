@@ -1,0 +1,21 @@
+{
+  "手机访问": "Phone access",
+  "通过 Tailscale，在外面用手机看这个群聊": "Follow this chat from your phone anywhere via Tailscale",
+  "允许手机访问": "Allow phone access",
+  "访问地址": "Address",
+  "复制": "Copy",
+  "返回聊天列表": "Back to chats",
+  "正在读取手机访问的状态…": "Checking phone access…",
+  "手机访问的开关只能在电脑上改。": "You can only change this on the computer.",
+  "这台电脑上还没装 Tailscale，先安装再回来打开。": "Tailscale isn't installed on this computer. Install it, then come back and turn this on.",
+  "先在电脑上打开 Tailscale 并登录。": "Open Tailscale on the computer and sign in first.",
+  "只允许 {login} 的设备访问。": "Only devices signed in as {login} can connect.",
+  "正在配置…第一次用可能要十几秒。": "Setting up… the first time can take a few seconds.",
+  "没能打开手机访问，看看下面的说明": "Couldn't turn on phone access — see the note below",
+  "手机访问已打开": "Phone access is on",
+  "手机访问已关闭": "Phone access is off",
+  "地址已复制": "Address copied",
+  "复制不了，请手动选中地址复制": "Couldn't copy — select the address and copy it manually",
+  "发给 {name}": "To {name}",
+  "打开后，只有 {login} 的设备能通过 Tailscale 访问。": "Once on, only devices signed in as {login} can reach it through Tailscale."
+}

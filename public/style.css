@@ -1459,3 +1459,104 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 .spot-row.active .spot-go { opacity: 0.8; }
 .spot-empty { padding: 40px 0 34px; text-align: center; font-size: 13px; color: var(--muted); display: grid; gap: 8px; }
 .spot-empty small { font-size: 11px; color: var(--faint); }
+
+/* ---------- 手机版（≤600 宽）：单页切换，先看聊天列表，点进去全屏聊天 ---------- */
+#btn-back { display: none; }
+@media (max-width: 600px) {
+  #app { height: var(--vvh, 100dvh); }
+  #sidebar {
+    width: 100%;
+    border-right: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  html.mobile-chat #sidebar { display: none; }
+  #main { display: none; }
+  html.mobile-chat #main { display: flex; }
+
+  /* 顶栏：只留返回、群名、模型、私聊、设置；刘海留白 */
+  #btn-back { display: grid; }
+  #room-head {
+    height: calc(52px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    padding-left: 6px;
+    padding-right: 8px;
+    gap: 6px;
+  }
+  #room-icon, #room-count, #btn-find, #room-folder, .room-sub { display: none; }
+  /* 私聊入口留着（收在「私聊」那个小按钮里）；顶栏的按钮都放大到手指好点的尺寸 */
+  .dm-entry .dm-more { height: 44px; min-width: 44px; padding: 0 8px; }
+  #room-head .icon-btn { width: 44px; height: 44px; }
+  #room-head .model-more { height: 44px; padding: 0 8px; }
+  /* 私聊顶栏只有一个普通的模型按钮，也放大到手指好点的尺寸 */
+  #room-head .model-chip { height: 44px; }
+  #room-head .model-chip .avatar { width: 22px; height: 22px; }
+  #btn-back { width: 44px; height: 44px; margin-left: -6px; }
+  .room-title { font-size: 15px; }
+
+  /* 消息和输入区：字大一点，按钮手指好点；底部横条留白 */
+  #scroller { padding-left: 12px; padding-right: 12px; }
+  #composer { padding: 6px 10px calc(8px + env(safe-area-inset-bottom)); }
+  .composer-tools { margin-left: 0; }
+  .composer-tools .mention-chip { height: 44px; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
+  .composer-tools .chip-name, .composer-tools .target-label { white-space: nowrap; }
+  .composer-tools .mention-chip .avatar { width: 22px; height: 22px; }
+  /* 模型按钮和私聊按钮长得像：手机上把「模型」两个字留着，分得清 */
+  #room-head .model-more .chip-model { display: inline; }
+  /* 一排放不下（成员多）：@ 按钮那一行自己横着滚，「停止」单独一行靠右，不会被挤到屏幕外 */
+  .composer-tools { flex-wrap: wrap; row-gap: 8px; overflow: visible; }
+  #group-tools { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  #group-tools > * { flex: none; } /* 放不下时横着滚，不要把按钮挤得只剩一半 */
+  #group-tools::-webkit-scrollbar { display: none; }
+  #stop-controls { flex: 0 0 100%; justify-content: flex-end; margin-left: 0; }
+  #input { font-size: 16px; line-height: 22px; }
+  #btn-image { width: 44px; height: 44px; }
+  .send-btn { width: 46px; height: 46px; border-radius: 50%; }
+  .stop-controls .chip { height: 44px; padding: 0 12px; }
+
+  /* 干活卡片：手机上按钮换到下一行，别挤成竖排；停止这类按钮也留出手指大小 */
+  .msg.live .msg-body { width: min(92%, 680px); }
+  .live-head { flex-wrap: wrap; row-gap: 6px; gap: 6px; }
+  .live-head > span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+  .live-head button { min-height: 44px; padding: 0 10px; font-size: 13px; white-space: nowrap; flex: none; }
+  .live-head .live-fresh-mini, .live-head .live-stop { margin-left: 0; }
+  .live-head .live-stop { margin-left: auto; }
+
+  /* 聊天列表：每行高一点，好点 */
+  .side-head { height: 56px; }
+  #conv-list { padding: 0 6px; }
+  .conv-item { padding: 10px 12px; }
+  .disclosure { width: 26px; height: 44px; margin-right: -4px; }
+  .to-bottom { right: 12px; bottom: calc(var(--composer-h, 96px) + 12px); width: 44px; height: 44px; }
+
+  /* 手机上选文件夹只会在电脑上弹窗、把电脑卡住：藏起来，直接填路径 */
+  #btn-pick { display: none; }
+
+  /* 弹窗别贴边，按钮留出手指大小 */
+  dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+  .sheet-body { padding: 4px 14px 14px; }
+  .sheet-foot { padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); }
+
+  /* 设置窗口：手机上三张外观预览图放不下，行里的输入框、下拉框换到下一行 */
+  dialog.prefs { width: calc(100vw - 12px); }
+  .prefs-window { max-height: calc(100dvh - 24px); }
+  .prefs-body { padding: 14px 14px calc(18px + env(safe-area-inset-bottom)); }
+  .prefs-tabs button { min-width: 64px; padding: 5px 4px 4px; font-size: 10px; }
+  .prefs-tabs button svg { width: 22px; height: 22px; }
+  .appearance { gap: 12px; }
+  .appearance .thumb { width: 78px; height: 52px; }
+  .form-row { flex-wrap: wrap; gap: 8px; }
+  .form-row > span:first-child { min-width: 0; }
+  .form-row > .row, .form-row > input:not([type="checkbox"]) { flex: 1 1 100%; max-width: 100%; }
+  .form-row > select { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  .form-row > .model-pair { flex: 1 1 100%; min-width: 0; }
+  .row-value { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .search-key { display: none; }
+
+  /* 地址要能长按选中、复制 */
+  #remote-url { overflow-wrap: anywhere; }
+  /* iOS 上输入框字号小于 16px 时，一聚焦会整个页面放大：手机上都用 16px */
+  .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, #text-input, #avatar-text {
+    font-size: 16px;
+  }
+}
