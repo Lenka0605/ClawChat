@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>ClawChat</title>
   <script>
     // 在样式加载前定好主题，避免闪一下；在 ClawChat.app 里运行时加上 native，用于窗口毛玻璃和红绿灯留白
@@ -14,6 +14,12 @@
     if (/Windows/.test(navigator.userAgent)) document.documentElement.classList.add('win'); // Windows：快捷键、文字说明换成 Windows 的
   </script>
   <link rel="icon" href="/favicon.png">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/app-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ClawChat">
+  <meta name="theme-color" content="#f2f2f4" id="theme-color">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -68,6 +74,9 @@
 
       <section id="chat" hidden>
         <header id="room-head" data-drag>
+          <button id="btn-back" class="icon-btn" title="返回聊天列表" aria-label="返回聊天列表">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>
+          </button>
           <span id="room-icon" class="room-icon" aria-hidden="true"></span>
           <div class="head-main">
             <div class="room-title"><span id="room-name"></span><span id="room-count"></span></div>
@@ -322,6 +331,14 @@
                 <select id="lang-select"><option value="system">跟随系统</option><option value="zh">简体中文</option><option value="en">English</option></select></div>
             </div>
             <p class="hint">「跟随系统」时，系统是中文就用中文，否则用英文。换语言后，AI 也会用这种语言回复。</p>
+          </section>
+          <section class="form-section" id="remote-section">
+            <h3>手机访问 <small>通过 Tailscale，在外面用手机看这个群聊</small></h3>
+            <div class="group-box">
+              <label class="form-row"><span>允许手机访问</span><input type="checkbox" id="remote-toggle" class="switch"></label>
+              <p class="hint" id="remote-hint"></p>
+              <div class="form-row" id="remote-url-row" hidden><span>访问地址</span><span class="row"><a id="remote-url" href="#" target="_blank" rel="noopener"></a><button type="button" id="remote-copy" class="secondary">复制</button></span></div>
+            </div>
           </section>
           <section class="form-section">
             <h3>存储</h3>
