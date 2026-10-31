@@ -20,7 +20,27 @@ if (args[0] === 'status') {
   process.stdout.write(JSON.stringify(out));
   process.exit(0);
 }
+// Serve 的设置存在 $CLAWCHAT_HOME/fake-tailscale-serve.json（{ "/": "http://..." }），可以手动写进别的服务模拟被占用
+const serveFile = path.join(home, 'fake-tailscale-serve.json');
+const handlers = () => {
+  try {
+    return JSON.parse(fs.readFileSync(serveFile, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+if (args[0] === 'serve' && args[1] === 'status') {
+  const h = handlers();
+  const web = Object.keys(h).length ? { 'fake-mac.tail-fake.ts.net:443': { Handlers: Object.fromEntries(Object.entries(h).map(([k, v]) => [k, { Proxy: v }])) } } : {};
+  process.stdout.write(JSON.stringify(Object.keys(web).length ? { TCP: { 443: { HTTPS: true } }, Web: web } : {}));
+  process.exit(0);
+}
 if (args[0] === 'serve') {
+  const mount = (args.find((a) => a.startsWith('--set-path=')) || '--set-path=/').slice(11);
+  const h = handlers();
+  if (args.at(-1) === 'off') delete h[mount];
+  else if (mode !== 'serve-error') h[mount] = args.at(-1);
+  fs.writeFileSync(serveFile, JSON.stringify(h));
   if (mode === 'serve-error' && !args.includes('off')) {
     process.stderr.write('Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=fake\n');
     process.exit(1);

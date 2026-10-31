@@ -23,6 +23,7 @@ setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群�
 const store = new Store();
 const hub = new Hub(store);
 const clients = new Set();
+const remoteClients = new Set(); // 其中从手机（经 Tailscale）连进来的：关掉手机访问时马上断开
 let engines = {}; // 启动后异步检测，检测完之前界面显示「检测中」
 
 hub.on('event', (ev) => {
@@ -506,7 +507,7 @@ async function findInProject(root, rel) {
 // 鼠标移到文件名上时显示的缩略图：只给这几种浏览器能直接显示的图片
 const PREVIEW_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
 
-function events(req, res) {
+function events(req, res, access = 'local') {
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-store',
@@ -515,10 +516,12 @@ function events(req, res) {
   res.write('retry: 2000\n\n');
   res.write(`data: ${JSON.stringify({ type: 'status', runs: hub.status() })}\n\n`);
   clients.add(res);
+  if (access === 'remote') remoteClients.add(res);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
   req.on('close', () => {
     clearInterval(ping);
     clients.delete(res);
+    remoteClients.delete(res);
   });
 }
 
@@ -570,7 +573,7 @@ async function api(req, res, url, access = 'local') {
     });
     return send(res, 200, { hits, total: found.length, more: found.length > hits.length, facets });
   }
-  if (method === 'GET' && parts[0] === 'events') return events(req, res);
+  if (method === 'GET' && parts[0] === 'events') return events(req, res, access);
   if (method === 'GET' && parts[0] === 'state') {
     return send(res, 200, {
       rooms: store.listRooms(),
@@ -607,7 +610,16 @@ async function api(req, res, url, access = 'local') {
     if (method === 'POST') {
       const { enabled } = await readBody(req);
       if (enabled && access !== 'local') return send(res, 403, { error: 'forbidden' });
-      return send(res, 200, await setRemote(!!enabled, PORT));
+      const info = await setRemote(!!enabled, PORT);
+      // 关掉了：已经连着的手机马上断开，不再收到新消息和进度
+      if (!info.enabled) {
+        for (const c of remoteClients) {
+          clients.delete(c);
+          c.destroy();
+        }
+        remoteClients.clear();
+      }
+      return send(res, 200, info);
     }
   }
   if (parts[0] === 'app') {

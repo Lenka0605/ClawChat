@@ -11,6 +11,8 @@ process.env.CLAWCHAT_HOME = HOME;
 process.env.PATH = `${path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'fake')}${path.delimiter}${process.env.PATH}`;
 const { decodeLogin, requestAccess, setRemote, remoteInfo, _resetRemoteState } = await import('../lib/remote.js');
 const mode = (m) => fs.writeFileSync(path.join(HOME, 'fake-tailscale'), m);
+const SERVE = path.join(HOME, 'fake-tailscale-serve.json');
+const served = () => (fs.existsSync(SERVE) ? JSON.parse(fs.readFileSync(SERVE, 'utf8')) : {});
 const req = (host, headers = {}) => ({ headers: { host, ...headers } });
 const PORT = 7317;
 const REMOTE = 'fake-mac.tail-fake.ts.net';
@@ -39,7 +41,7 @@ test('打开以后：只认这台电脑登录的那个 Tailscale 账号；别的
   assert.equal(on.url, `https://${REMOTE}`);
   assert.equal(on.login, 'boss@example.com');
   assert.equal(on.tailscale, 'ready');
-  assert.match(fs.readFileSync(path.join(HOME, 'fake-tailscale.log'), 'utf8'), /"serve","--bg","--yes","--https=443","http:\/\/127\.0\.0\.1:7317"/);
+  assert.equal(served()['/'], 'http://127.0.0.1:7317');
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
   assert.equal(requestAccess(req(`${REMOTE}:443`, { 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'someone@else.com' }), PORT), null, '别的账号');
@@ -51,7 +53,7 @@ test('打开以后：只认这台电脑登录的那个 Tailscale 账号；别的
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
   const off = await setRemote(false, PORT);
   assert.equal(off.enabled, false);
-  assert.match(fs.readFileSync(path.join(HOME, 'fake-tailscale.log'), 'utf8'), /"serve","--yes","--https=443","off"/);
+  assert.equal(served()['/'], undefined);
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'boss@example.com' }), PORT), null);
 });
 
@@ -72,4 +74,40 @@ test('Tailscale 没装、没打开、没登录、开启失败：开关打不开�
   r = await setRemote(true, PORT);
   assert.equal(r.enabled, false);
   assert.match(r.error, /login\.tailscale\.com/, '第一次要开通 HTTPS 时，把 Tailscale 给的链接原样告诉老板');
+});
+
+test('经 Tailscale 转进来的请求把主机名写成本机地址冒充本机：一律按手机来的核对，开关关着时拒绝', async () => {
+  _resetRemoteState();
+  mode('running');
+  fs.rmSync(SERVE, { force: true });
+  const fake = (extra) => req(`127.0.0.1:${PORT}`, { 'x-forwarded-for': '100.64.0.9', 'x-forwarded-host': `127.0.0.1:${PORT}`, ...extra });
+  assert.equal(requestAccess(fake({}), PORT), null, '开关关着');
+  assert.equal(requestAccess(fake({ 'tailscale-user-login': 'boss@example.com' }), PORT), null, '开关关着，账号对也不行');
+  await setRemote(true, PORT);
+  assert.equal(requestAccess(fake({ 'tailscale-user-login': 'someone@else.com' }), PORT), null, '别的账号');
+  assert.equal(requestAccess(fake({ 'tailscale-funnel-request': '?1' }), PORT), null, '公开网络');
+  assert.equal(requestAccess(fake({ 'tailscale-user-login': 'boss@example.com' }), PORT), null, '地址不是这台电脑的 .ts.net');
+  assert.equal(requestAccess(req(REMOTE, { 'x-forwarded-for': '100.64.0.9', 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
+  await setRemote(false, PORT);
+});
+
+test('Tailscale Serve：根路径被老板别的服务占着时不覆盖；关掉时只撤 ClawChat 自己那一条', async () => {
+  _resetRemoteState();
+  mode('running');
+  fs.writeFileSync(SERVE, JSON.stringify({ '/': 'http://127.0.0.1:3000' }));
+  const r = await setRemote(true, PORT);
+  assert.equal(r.enabled, false);
+  assert.match(r.error, /别的服务/);
+  assert.equal(served()['/'], 'http://127.0.0.1:3000', '别的服务还在');
+  // 别的路径上挂着别的服务：打开、关掉都不影响它
+  fs.writeFileSync(SERVE, JSON.stringify({ '/grafana': 'http://127.0.0.1:3000' }));
+  assert.equal((await setRemote(true, PORT)).enabled, true);
+  assert.equal((await setRemote(false, PORT)).enabled, false);
+  assert.deepEqual(served(), { '/grafana': 'http://127.0.0.1:3000' });
+  // 关的时候根路径已经被换成别的了：不去撤
+  await setRemote(true, PORT);
+  fs.writeFileSync(SERVE, JSON.stringify({ '/': 'http://127.0.0.1:4000' }));
+  await setRemote(false, PORT);
+  assert.equal(served()['/'], 'http://127.0.0.1:4000');
+  fs.rmSync(SERVE, { force: true });
 });
