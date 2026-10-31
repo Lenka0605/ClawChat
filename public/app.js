@@ -2522,7 +2522,10 @@ function renderLive() {
       const sideTag = r.side ? `<span class="side-tag" title="${r.peer ? tr('本体在群里忙，分身先来回同事的私聊（只能看，不能改）') : tr('本体在群里忙，分身先来回你的私聊（只能看，不能改）')}">${tr('分身')}</span>` : '';
       const enter = S.liveSeen.has(key) ? '' : ' enter';
       S.liveSeen.add(key);
-      return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}</div>
+      // 干活时也显示用的哪个模型、思考强度（和做完的回复同一个样子；跟随默认的显示默认的那个）
+      const effortName = effortShortName(r.agent, r.model || '', r.effort || '');
+      const liveModel = [modelShortName(r.agent, r.model || ''), effortName ? tr('思考 {level}', { level: effortName }) : ''].filter(Boolean).join(' · ');
+      return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}${liveModel ? `<span class="msg-model">${esc(liveModel)}</span>` : ''}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? (r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${

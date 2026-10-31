@@ -367,18 +367,22 @@ const ICON_URLS = {
   deepseek: 'https://avatars.githubusercontent.com/u/148330874?s=256',
   glm: 'https://avatars.githubusercontent.com/u/223098841?s=256',
   gemini: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
-  // Grok 用苹果应用商店里官方 Grok 应用的图标（grok.com 拦着不让程序下载）；图片地址随应用更新会变，每次先查一下当前的
-  grok: async () => {
-    const res = await fetch('https://itunes.apple.com/lookup?bundleId=ai.x.GrokApp', { signal: AbortSignal.timeout(20000) });
-    const art = (await res.json()).results?.[0]?.artworkUrl512 || '';
-    return art.replace(/\/\d+x\d+bb\.\w+$/, '/256x256bb.png');
-  },
+  // Grok 是 grok.com 网站自己的图标（黑底白标）。grok.com 拦着不让程序直接下载，从 Google 缓存的网站图标里取
+  grok: 'https://www.google.com/s2/favicons?domain=grok.com&sz=256',
 };
+// 换过图的：记在 icons/versions.json 里，旧的那张会重新下载一次（Grok 0.7.32 用的是 App Store 里的立体图标，不对）
+const ICON_VERSIONS = { grok: 2 };
 async function ensureIcons() {
   let added = false;
+  const versionsFile = path.join(PUBLIC, 'icons', 'versions.json');
+  let versions = {};
+  try {
+    versions = JSON.parse(fs.readFileSync(versionsFile, 'utf8'));
+  } catch {}
   for (const [name, url] of Object.entries(ICON_URLS)) {
     const file = path.join(PUBLIC, 'icons', `${name}.png`);
-    if (fs.existsSync(file)) continue;
+    const want = ICON_VERSIONS[name] || 1;
+    if (fs.existsSync(file) && (versions[name] || 1) >= want) continue;
     try {
       const src = typeof url === 'function' ? await url() : url;
       if (!src) continue;
@@ -388,6 +392,10 @@ async function ensureIcons() {
       if (!res.ok || !png || buf.length > 2 * 1024 * 1024) continue;
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, buf);
+      if (ICON_VERSIONS[name]) {
+        versions[name] = ICON_VERSIONS[name];
+        fs.writeFileSync(versionsFile, JSON.stringify(versions));
+      }
       added = true;
     } catch {}
   }
