@@ -13,7 +13,7 @@ const { unwrapShell, cmdShimTarget, codexPicksWindowsSandbox, codexArgs } = awai
 test('parseMentions 识别点名', () => {
   assert.deepEqual(parseMentions('@Claude 你来'), ['claude']);
   assert.deepEqual(parseMentions('@gpt 和 @claude'), ['gpt', 'claude']);
-  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt', 'deepseek', 'glm', 'gemini']);
+  assert.deepEqual(parseMentions('@所有人 看一下'), ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok']);
   assert.deepEqual(parseMentions('@DeepSeek 你来审一下'), ['deepseek']);
   assert.deepEqual(parseMentions('@深度求索 和 @gpt'), ['deepseek', 'gpt']);
   assert.deepEqual(parseMentions('@Codex 写页面'), ['gpt']);
