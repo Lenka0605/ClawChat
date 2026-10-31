@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+// 假 Grok Build：不连接任何模型，按官方 streaming-messages-json 格式输出。
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+const args = process.argv.slice(2);
+const arg = (flag) => args[args.indexOf(flag) + 1];
+const home = process.env.GROK_HOME;
+const scenario = process.env.FAKE_GROK_SCENARIO || '';
+const loggedIn = !process.env.FAKE_GROK_LOGGED_OUT;
+if (args[0] === '--version') { console.log('grok 1.0.70 (假的 Grok Build)'); process.exit(0); }
+if (args[0] === 'login') {
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::fake': { key: 'fake-oauth', auth_mode: 'oidc' } }), { mode: 0o600 });
+  console.log('假的 Grok 已登录，不连接真实账号');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log(loggedIn ? 'You are logged in with grok.com.' : 'You are not authenticated.');
+  console.log('\nDefault model: grok-4.7\n\nAvailable models:\n  * grok-4.7 (default)\n  * grok-4.6');
+  process.exit(0);
+}
+if (args[0] === 'update') { console.log('假的 Grok 已更新'); process.exit(0); }
+const emit = (value) => console.log(JSON.stringify(value));
+const profile = args.includes('--sandbox') ? arg('--sandbox') : fs.readFileSync(path.join(home, 'requirements.toml'), 'utf8').match(/profile\s*=\s*"([^"]+)"/)[1];
+if (process.env.FAKE_GROK_LOG) fs.appendFileSync(process.env.FAKE_GROK_LOG, JSON.stringify({ args, home, profile, input: fs.readFileSync(arg('--prompt-file'), 'utf8'), env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(?:GROK_|XAI_|ANTHROPIC_|OPENAI_)/i.test(k))) }) + '\n');
+if (!loggedIn || scenario === 'logged-out') { emit({ type: 'error', message: '401 not authenticated' }); process.exit(1); }
+if (scenario === 'quota') {
+  emit({ type: 'system', subtype: 'api_retry', error_status: 429, error: 'weekly usage limit exceeded' });
+  setInterval(() => {}, 1000);
+} else if (scenario === 'quota-stderr') {
+  process.stderr.write('Insufficient credits: 402\n');
+  setInterval(() => {}, 1000);
+} else {
+  const sourceId = args.includes('--resume') ? arg('--resume') : null;
+  const id = args.includes('--session-id') ? arg('--session-id') : sourceId || crypto.randomUUID();
+  const dir = path.join(home, 'sessions', 'fake-workspace', id);
+  const source = sourceId && path.join(home, 'sessions', 'fake-workspace', sourceId);
+  if (sourceId && (!fs.existsSync(source) || scenario === 'missing-session')) {
+    emit({ type: 'error', message: 'session not found' }); process.exit(1);
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  if (source && source !== dir) fs.cpSync(source, dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ session_id: id, sandbox_profile: profile }));
+  const history = path.join(dir, 'chat_history.jsonl');
+  fs.appendFileSync(history, JSON.stringify({ prompt: fs.readFileSync(arg('--prompt-file'), 'utf8') }) + '\n');
+  const model = args.includes('--model') ? arg('--model') : 'grok-4.7';
+  emit({ type: 'system', subtype: 'init', session_id: scenario === 'wrong-session' ? crypto.randomUUID() : id, model, apiKeySource: scenario === 'api-key' ? 'user' : 'oauth' });
+  emit({ type: 'assistant', message: { model, content: [{ type: 'thinking', thinking: '我先检查一下' }, { type: 'tool_use', name: 'read_file', input: { path: 'README.md' } }] } });
+  if (scenario === 'hang' || scenario === 'stop-tree') {
+    if (scenario === 'stop-tree') {
+      const { spawn } = await import('node:child_process');
+      const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' });
+      fs.writeFileSync(process.env.FAKE_GROK_CHILD, String(child.pid));
+      child.unref();
+    }
+    setInterval(() => {}, 1000);
+  } else {
+    await new Promise((r) => setTimeout(r, Number(process.env.FAKE_GROK_SECS ?? process.env.FAKE_SECS ?? 0.05) * 1000));
+    if (scenario === 'crash') process.exit(2);
+    if (scenario === 'refresh') {
+      const authFile = process.env.GROK_AUTH_PATH;
+      const auth = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+      for (const value of Object.values(auth)) { value.key = 'fake-refreshed-access'; value.refresh_token = 'fake-refreshed-token'; value.expires_at = '2099-01-01T00:00:00Z'; }
+      fs.writeFileSync(authFile, JSON.stringify(auth), { mode: 0o600 });
+    }
+    let text = '（假的 Grok）做完了';
+    const replyFile = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'grok.txt');
+    if (fs.existsSync(replyFile)) { text = fs.readFileSync(replyFile, 'utf8'); fs.rmSync(replyFile); }
+    emit({ type: 'assistant', session_id: id, message: { model, content: [{ type: 'text', text }], usage: { input_tokens: 31, output_tokens: 7, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 } } });
+    if (scenario !== 'no-result') emit({ type: 'result', subtype: scenario === 'failure' ? 'error' : 'success', is_error: scenario === 'failure', result: text, session_id: id, usage: { input_tokens: 9999, output_tokens: 999 }, modelUsage: { [model]: { contextWindow: 256000 } } });
+    if (scenario === 'no-session-file') fs.rmSync(dir, { recursive: true, force: true });
+    if (scenario === 'crash-after-result') process.exit(2);
+  }
+}

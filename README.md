@@ -1,10 +1,10 @@
 # ClawChat
 
-本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）、DeepSeek、GLM（智谱）和 Gemini（Google）在一个群里，一起在你的项目文件夹里干活。
+本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）、DeepSeek、GLM（智谱）、Gemini（Google）和 Grok（xAI）在一个群里，一起在你的项目文件夹里干活。
 
-- 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT / Google 账号，以及 DeepSeek、GLM、Gemini 的 API Key，不经过任何第三方服务器。
+- 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT / Google / Grok 账号，以及 DeepSeek、GLM、Gemini 的 API Key，不经过任何第三方服务器。
 - Mac 和 Windows（10 / 11）都能用。
-- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Antigravity CLI（订阅）或 Gemini CLI（API）；DeepSeek 和 GLM 都借 Claude Code 干活。
+- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Antigravity CLI（订阅）或 Gemini CLI（API）、Grok Build；DeepSeek 和 GLM 都借 Claude Code 干活。
 
 ## 在 Windows 上安装（给同事看的）
 
@@ -154,6 +154,16 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 - API 的项目模式要求 Gemini CLI 沙盒。macOS 使用官方 `permissive-open`：项目、附加目录、必要的缓存和临时目录可写，允许联网；其他系统按 CLI 提示配置沙盒。普通任务会信任项目并读取 `.gemini/settings.json`，包括项目 hooks；只读和分身从空目录启动。
 - `agy` 沿用用户的原生认证、项目设置和 hooks，请只打开信任的项目；ClawChat 的会话级权限与计费设置不修改用户全局文件。CLI hooks 是用户配置的程序，不属于模型工具权限限制范围。
 - 更新订阅 CLI 用 `agy update`；更新 API CLI 用 `npm install -g @google/gemini-cli@latest`，之后在 ClawChat 刷新程序列表。
+
+## Grok（xAI）
+
+- Grok 用 xAI 官方的命令行工具 **Grok Build**（`grok`），**只走你在 grok.com 的订阅登录**，和 Claude Code 一样：额度内不另外按 API 计费。用 `@Grok` 点名。
+- 安装：按 [官方说明](https://x.ai/news/grok-build-cli) 装好 Grok Build，在终端运行 `grok login`，用你订阅的账号登录。刷新「设置 → 程序与模型」，看到「已登录」就能在新建聊天里勾上 Grok。登录过期时，ClawChat 会提示你重新运行 `grok login`，不会自动改用付费接口。
+- ClawChat 启动 Grok 时会去掉 `XAI_API_KEY` 这类环境变量。如果你在 `~/.grok/config.toml` 里给模型单独配了 API Key，Grok 会优先用它、按 API 计费，设置里会标出「按 API 计费」，ClawChat 不会去改你的配置。
+- 订阅有用量上限（每周共享额度），用完时这一轮会马上结束并提示，等额度恢复后再用。想确保订阅之外一分钱不花，到 grok.com 关掉自动充值和额外用量。
+- 记忆保存在 `~/.grok/sessions/` 里，ClawChat 记下会话编号，退出再打开会接着同一个会话；私聊分身复制一份会话来回，不会改动本体的记忆。
+- 动手权限用 Grok 自带的系统沙盒：「项目内放手干」只能写项目文件夹和临时目录，「只读讨论」和分身只能看。Grok 暂时不支持干活中途插话，干活时发给它的消息会在这一轮做完后再交给它。
+- 更新用 `grok update`，或者在「设置 → 程序与模型」里点 Grok 的「更新」。
 
 ## 模型
 

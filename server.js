@@ -257,7 +257,7 @@ function normalizeRoom(body, creating, room = null) {
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini' };
+    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok' };
     for (const a of Object.keys(AGENTS)) {
       if (!custom.includes(a) && !keep(a) && !validModel(engineOf(a), out.models[a])) {
         throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
@@ -367,6 +367,12 @@ const ICON_URLS = {
   deepseek: 'https://avatars.githubusercontent.com/u/148330874?s=256',
   glm: 'https://avatars.githubusercontent.com/u/223098841?s=256',
   gemini: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
+  // Grok 用苹果应用商店里官方 Grok 应用的图标（grok.com 拦着不让程序下载）；图片地址随应用更新会变，每次先查一下当前的
+  grok: async () => {
+    const res = await fetch('https://itunes.apple.com/lookup?bundleId=ai.x.GrokApp', { signal: AbortSignal.timeout(20000) });
+    const art = (await res.json()).results?.[0]?.artworkUrl512 || '';
+    return art.replace(/\/\d+x\d+bb\.\w+$/, '/256x256bb.png');
+  },
 };
 async function ensureIcons() {
   let added = false;
@@ -374,7 +380,9 @@ async function ensureIcons() {
     const file = path.join(PUBLIC, 'icons', `${name}.png`);
     if (fs.existsSync(file)) continue;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      const src = typeof url === 'function' ? await url() : url;
+      if (!src) continue;
+      const res = await fetch(src, { signal: AbortSignal.timeout(20000) });
       const buf = Buffer.from(await res.arrayBuffer());
       const png = buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
       if (!res.ok || !png || buf.length > 2 * 1024 * 1024) continue;
@@ -631,7 +639,7 @@ async function api(req, res, url) {
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
     // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code
     const { engine } = await readBody(req);
-    if (!['claude', 'codex'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
+    if (!['claude', 'codex', 'grok'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
     const result = await updateEngine(engine);
     await refreshEngines();
     return send(res, 200, { ...result, engines });
@@ -826,6 +834,7 @@ async function api(req, res, url) {
       const oldSessions = Object.values(store.getState(room.id).sessions);
       hub.stop(room.id);
       store.deleteRoom(room.id);
+      hub.removeGrok(room); // Grok 的记忆目录跟着群一起删
       hub.cleanupCodexUsage(oldSessions);
       pruneExtraMembers();
       hub.emitRooms();
@@ -1044,7 +1053,9 @@ function engineSummary() {
   const glm = !engines.glm?.hasKey ? 'GLM 没填 Key' : `GLM（借 Claude Code，${engines.glm.models?.length || 0} 个模型）${engines.glm.ok ? '' : `，${engines.glm.error || '用不了'}`}`;
   const gem = engines.gemini;
   const gemini = !gem?.path ? 'Gemini 没装' : `Gemini（${gem.cli === 'agy' ? 'Antigravity 订阅' : 'Gemini CLI API'} ${gem.version || '?'}）${gem.ok ? '' : `，${gem.error || '用不了'}`}`;
-  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini].join(' · ');
+  const gk = engines.grok;
+  const grok = !gk?.path ? 'Grok 没装' : `Grok Build ${String(gk.version || '').match(/\d+\.\d+[\w.-]*/)?.[0] || '?'}（${gk.loggedIn ? '已登录' : '没登录'}）${gk.ok ? '' : `，${gk.error || '用不了'}`}${gk.apiKeyWarning ? '，配了 API Key' : ''}`;
+  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini, grok].join(' · ');
 }
 
 // 上次升级后新版本没能启动、重启脚本已经退回原来的版本：告诉界面（只说一次）
