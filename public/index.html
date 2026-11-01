@@ -342,7 +342,13 @@
               <label class="form-row"><span>允许手机访问</span><input type="checkbox" id="remote-toggle" class="switch"></label>
               <p class="hint" id="remote-hint"></p>
               <div class="form-row" id="remote-url-row" hidden><span>访问地址</span><span class="row"><a id="remote-url" href="#" target="_blank" rel="noopener"></a><button type="button" id="remote-copy" class="secondary">复制</button></span></div>
+              <div class="form-row android-row" id="android-row">
+                <span class="row-text"><b>安卓 App</b><small id="android-note"></small></span>
+                <a id="android-download" class="secondary android-link" href="/api/android/apk" download>下载安装</a>
+                <a id="android-settings" class="secondary android-link" href="clawchat://settings" hidden>App 设置</a>
+              </div>
             </div>
+            <p class="hint" id="android-hint" hidden></p>
           </section>
           <section class="form-section">
             <h3>存储</h3>

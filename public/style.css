@@ -853,6 +853,10 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 #remote-url:hover { text-decoration: underline; }
 #remote-copy { flex: none; white-space: nowrap; min-width: 64px; }
 #remote-copy.done { color: var(--accent); }
+/* 安卓 App：下载按钮 / 在 App 里换成「App 设置」链接 */
+.android-row { align-items: center; }
+.android-link { flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text); }
+.android-link.disabled { opacity: 0.45; pointer-events: none; }
 
 /* ---------- 欢迎页 ---------- */
 .welcome { height: 100%; display: grid; place-items: center; padding: 24px; position: relative; }
@@ -1689,6 +1693,7 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 
   /* 地址要能长按选中、复制 */
   #remote-url { overflow-wrap: anywhere; white-space: normal; }
+  #remote-section .android-link { height: 44px; padding: 0 14px; }
   /* iOS 上输入框字号小于 16px 时，一聚焦会整个页面放大：手机上都用 16px */
   .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, .edit-mirror, #text-input, #avatar-text {
     font-size: 16px;

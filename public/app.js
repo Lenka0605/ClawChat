@@ -4542,6 +4542,8 @@ function showSettingsTab(tab) {
 
 // ---------------- 手机访问（Tailscale） ----------------
 const REMOTE = { info: null, busy: false };
+const ANDROID = { info: null, busy: false, error: '' };
+const isAndroidApp = () => /ClawChatAndroid/i.test(navigator.userAgent);
 const isLocalHost = () => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname);
 // 服务端的报错里可能带 Tailscale 开通 HTTPS 的链接：转成能点的（先转义，再单独把网址找出来）
 const linkify = (text) => esc(String(text)).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -4628,6 +4630,96 @@ async function copyRemoteUrl() {
   }
 }
 
+// 安卓 App：能不能打包、打好了没有（服务端 GET /api/android）。在 App 里打开时只显示「App 设置」跳回填地址那一页
+async function refreshAndroid() {
+  if (!isAndroidApp()) {
+    try {
+      ANDROID.info = await api('GET', '/api/android');
+      ANDROID.error = '';
+    } catch (err) {
+      ANDROID.info = null;
+      ANDROID.error = err.message;
+    }
+  }
+  renderAndroid();
+}
+
+function renderAndroid() {
+  const row = $('#android-row');
+  if (!row) return;
+  const dl = $('#android-download');
+  const appLink = $('#android-settings');
+  const note = $('#android-note');
+  const hint = $('#android-hint');
+  if (isAndroidApp()) {
+    dl.hidden = true;
+    appLink.hidden = false;
+    note.textContent = tr('换地址、开关通知');
+    hint.hidden = true;
+    return;
+  }
+  appLink.hidden = true;
+  const info = ANDROID.info;
+  if (ANDROID.error) {
+    dl.hidden = true;
+    note.textContent = tr('读取不到安卓 App 的状态');
+  } else if (!info) {
+    dl.hidden = true;
+    note.textContent = tr('正在读取…');
+  } else if (!info.canBuild) {
+    dl.hidden = true;
+    note.textContent = tr('这台电脑没装 Android SDK，打不了安卓 App');
+  } else {
+    dl.hidden = false;
+    dl.textContent = ANDROID.busy ? tr('正在准备…') : tr('下载安装');
+    dl.classList.toggle('disabled', ANDROID.busy);
+    dl.setAttribute('aria-disabled', ANDROID.busy ? 'true' : 'false');
+    note.textContent = info.built
+      ? info.current
+        ? tr('App 已是最新（{version}）', { version: info.built })
+        : tr('App 已打好（{version}），这次下载会重新打包', { version: info.built })
+      : tr('第一次点会先打包，大约 3 秒');
+  }
+  const showHint = !!info?.canBuild;
+  hint.hidden = !showHint;
+  hint.textContent = showHint ? tr('手机上要先装 Tailscale、登录同一个账号；安装时手机会提示「允许安装未知来源的应用」，点允许。') : '';
+}
+
+// 点下载：打包可能要几秒，按钮上显示「正在准备…」，好了再交给浏览器保存
+async function downloadAndroid(e) {
+  e.preventDefault();
+  if (ANDROID.busy || isAndroidApp() || !ANDROID.info?.canBuild) return;
+  ANDROID.busy = true;
+  renderAndroid();
+  try {
+    const res = await fetch('/api/android/apk', { cache: 'no-store' });
+    if (!res.ok) {
+      let message = '';
+      try {
+        message = (await res.json())?.error || '';
+      } catch {}
+      throw new Error(message || tr('下载失败'));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ClawChat.apk';
+    a.rel = 'noopener';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast(tr('安卓 App 已下载'));
+    await refreshAndroid();
+  } catch (err) {
+    toast(err.message, 6000);
+  } finally {
+    ANDROID.busy = false;
+    renderAndroid();
+  }
+}
+
 async function openSettings(tab = 'general') {
   const dlg = $('#dlg-settings');
   $('#quit-section').hidden = hasNative(); // Mac 应用按 ⌘Q 退出；Windows 和浏览器里在这里退出
@@ -4643,6 +4735,7 @@ async function openSettings(tab = 'general') {
     renderUsage();
   }, 60000);
   refreshRemote();
+  refreshAndroid();
   try {
     const info = await api('GET', '/api/app');
     S.app = info;
@@ -5865,6 +5958,7 @@ function bind() {
   };
   $('#remote-toggle').addEventListener('change', (e) => setRemote(e.target.checked));
   $('#remote-copy').onclick = copyRemoteUrl;
+  $('#android-download').addEventListener('click', downloadAndroid);
   $('#btn-settings-close').onclick = () => closeDialog($('#dlg-settings'));
   // 像 macOS 的设置窗口一样，点窗口外面也能关
   $('#dlg-settings').addEventListener('click', (e) => {

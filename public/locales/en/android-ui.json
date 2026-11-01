@@ -1,0 +1,16 @@
+{
+  "安卓 App": "Android app",
+  "下载安装": "Download & install",
+  "正在准备…": "Preparing…",
+  "App 设置": "App settings",
+  "换地址、开关通知": "Change the address or notifications",
+  "读取不到安卓 App 的状态": "Couldn't read the Android app status",
+  "正在读取…": "Reading…",
+  "这台电脑没装 Android SDK，打不了安卓 App": "Android SDK isn't installed on this computer, so the Android app can't be built",
+  "第一次点会先打包，大约 3 秒": "The first download builds the app; this takes about 3 seconds.",
+  "App 已是最新（{version}）": "App is up to date ({version})",
+  "App 已打好（{version}），这次下载会重新打包": "App {version} is built; the next download will rebuild it.",
+  "手机上要先装 Tailscale、登录同一个账号；安装时手机会提示「允许安装未知来源的应用」，点允许。": "Install Tailscale on the phone and sign in with the same account. When installing, allow installing apps from unknown sources.",
+  "安卓 App 已下载": "Android app downloaded",
+  "下载失败": "Download failed"
+}
