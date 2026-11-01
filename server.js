@@ -931,6 +931,7 @@ async function api(req, res, url, access = 'local') {
       store.deleteRoom(room.id);
       hub.removeGrok(room); // Grok、Cursor 的记忆目录跟着群一起删
       hub.removeCursor(room);
+      hub.removeApiMemory(room);
       hub.cleanupCodexUsage(oldSessions);
       pruneExtraMembers();
       hub.emitRooms();

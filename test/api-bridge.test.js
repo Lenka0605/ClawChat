@@ -1,7 +1,11 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { startApiBridge, stopApiBridge, toChat, apiBridgeToken } from '../lib/api-bridge.js';
+import { startApiBridge, stopApiBridge, toChat, apiBridgeToken, forgetApiReasoning } from '../lib/api-bridge.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-bridge-test-'));
 
 // 假的 OpenAI 兼容平台：按每个测试设定的剧本回流式数据，不连任何真平台、不用真 Key
 let script = null;
@@ -24,9 +28,9 @@ const vision = new Set(['vision-model']);
 before(async () => {
   await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${upstream.address().port}/v1`;
-  bridge = await startApiBridge(() => ({ base, key: 'real-upstream-key', model: (id) => ({ vision: vision.has(id), maxOutput: 1000, thinking: true }) }));
+  bridge = await startApiBridge(() => ({ base, key: 'real-upstream-key', model: (id) => ({ vision: vision.has(id), maxOutput: 1000, thinking: true }) }), { dataDir });
 });
-after(() => { stopApiBridge(); upstream.close(); });
+after(() => { stopApiBridge(); upstream.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
 
 const sse = (res, chunks, { done = true } = {}) => {
   res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -215,4 +219,35 @@ test('转接器：平台以 content_filter 或不认识的方式结束时，里�
     assert.ok(r.events.some((e) => e.type === 'error'), finish);
     assert.ok(!r.events.some((e) => e.content_block?.type === 'tool_use'), finish);
   }
+});
+
+test('转接器：忘掉记忆后，之前记下的思考（内存和磁盘）都清掉；清之前发出、清之后才回来的也不写回', async () => {
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
+  const history = { tools, messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: [{ type: 'tool_use', id: 'fid', name: 'Bash', input: {} }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'fid', content: 'r' }] }] };
+  const think = (req, res) => sse(res, [delta({ reasoning_content: '私密思考' }), delta({ tool_calls: [{ index: 0, id: 'fid', function: { name: 'Bash', arguments: '{}' } }] }), delta({}, 'tool_calls')]);
+  const files = () => fs.readdirSync(dataDir, { recursive: true }).filter((f) => String(f).endsWith('.json')).length;
+  const base0 = files();
+  script = think;
+  await call({ tools }, { token: apiBridgeToken('room-f:api') });
+  script = think;
+  await call({ tools }, { token: apiBridgeToken('room-g:api') });
+  assert.equal(files(), base0 + 2);
+  forgetApiReasoning('room-f');
+  assert.equal(files(), base0 + 1, '只清这一群的');
+  script = (req, res) => sse(res, [delta({ content: 'ok' }), delta({}, 'stop')]);
+  await call(history, { token: apiBridgeToken('room-f:api') });
+  assert.equal(lastBody.messages[1].reasoning_content, undefined, '清掉以后不再带回去');
+  await call(history, { token: apiBridgeToken('room-g:api') });
+  assert.equal(lastBody.messages[1].reasoning_content, '私密思考', '别的群不受影响');
+  // 晚到：请求发出后清记忆，回答才回来
+  let release;
+  script = (req, res) => new Promise((r) => { release = () => { think(req, res); r(); }; });
+  const pending = call({ tools }, { token: apiBridgeToken('room-f:api') });
+  while (!release) await new Promise((r) => setTimeout(r, 10));
+  forgetApiReasoning('room-f', 'api');
+  release();
+  await pending;
+  script = (req, res) => sse(res, [delta({ content: 'ok' }), delta({}, 'stop')]);
+  await call(history, { token: apiBridgeToken('room-f:api') });
+  assert.equal(lastBody.messages[1].reasoning_content, undefined, '清之后才回来的思考不写回');
 });
