@@ -16,6 +16,9 @@ export PATH="$FAKE:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bi
   CLAWCHAT_PORT="${1:-7399}" CLAWCHAT_HOME="$HOME_DIR" GEMINI_CLI_HOME="$HOME_DIR/gemini-cli" FAKE_COMPACT="$HOME_DIR/compact.on" FAKE_SECS="${FAKE_SECS:-6}"
 # 不让 DeepSeek、GLM 碰真接口、真 Key（CLAWCHAT_FAKE_DEEPSEEK_API 可以换成自己起的假接口）
 unset DEEPSEEK_API_KEY GLM_API_KEY GEMINI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+# 假实例不去读老板真实的 ~/.codex（启动时会从 Codex 会话里读一次 ChatGPT 的用量）
+export CODEX_HOME="$HOME_DIR/codex"
+mkdir -p "$CODEX_HOME"
 export CLAWCHAT_DEEPSEEK_API="${CLAWCHAT_FAKE_DEEPSEEK_API:-http://127.0.0.1:9}"
 export CLAWCHAT_GLM_API="${CLAWCHAT_FAKE_GLM_API:-http://127.0.0.1:9}"
 exec node server.js
