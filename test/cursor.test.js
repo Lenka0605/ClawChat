@@ -18,6 +18,7 @@ process.env.FAKE_CURSOR_LOG = path.join(root, 'calls.jsonl');
 process.env.FAKE_CURSOR_SECS = '0.02';
 process.env.OPENAI_API_KEY = 'test-must-not-pass';
 process.env.CURSOR_CONFIG_DIR = path.join(root, 'user-cursor'); // 老板自己的 Cursor 配置：不能被用上
+process.env.CLAWCHAT_CURSOR_LONG_PROMPT = '3000'; // 测试里把「太长」的门槛调低
 const { runAgent, AGENTS, BASE_AGENTS, sessionUsage } = await import('../lib/agents.js');
 const { parseCursorModels, cursorArgs, cursorError, detectCursor, removeCursorHome, cursorEnv } = await import('../lib/cursor.js');
 after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -116,6 +117,7 @@ test('Cursor：权限对应到参数', () => {
 test('Cursor：环境变量去掉别家的 Key，配置目录换成自己的', () => {
   const env = cursorEnv('/h', { OPENAI_API_KEY: 'a', ANTHROPIC_BASE_URL: 'b', CURSOR_CONFIG_DIR: '/user', CURSOR_API_KEY: 'k', PATH: '/bin' });
   assert.equal(env.CURSOR_CONFIG_DIR, '/h');
+  assert.equal(env.CURSOR_DATA_DIR, path.join('/h', 'data'));
   assert.equal(env.OPENAI_API_KEY, undefined);
   assert.equal(env.ANTHROPIC_BASE_URL, undefined);
   assert.equal(env.CURSOR_API_KEY, 'k');
@@ -180,4 +182,14 @@ test('一键安装、一键登录：用官方安装命令（测试里换成假�
   assert.equal(login.ok, true);
   assert.match(login.url, /^https:\/\/cursor\.com\//);
   assert.equal((await loginEngine('claude')).ok, false);
+});
+
+test('Cursor：消息太长时放进临时文件，命令行里只放一句「先读文件」，跑完文件删掉', async () => {
+  const long = '很长的历史记录。'.repeat(1000);
+  const res = await start({ prompt: long }).done;
+  assert.ok(res.ok, res.error);
+  const c = calls().at(-1);
+  assert.ok(c.prompt.length < 500, '参数里只有一句引导');
+  const file = c.prompt.match(/(\/\S+message\.md)/)[1];
+  assert.ok(!fs.existsSync(file), '跑完删掉临时文件');
 });

@@ -913,7 +913,8 @@ async function api(req, res, url, access = 'local') {
       const oldSessions = Object.values(store.getState(room.id).sessions);
       hub.stop(room.id);
       store.deleteRoom(room.id);
-      hub.removeGrok(room); // Grok 的记忆目录跟着群一起删
+      hub.removeGrok(room); // Grok、Cursor 的记忆目录跟着群一起删
+      hub.removeCursor(room);
       hub.cleanupCodexUsage(oldSessions);
       pruneExtraMembers();
       hub.emitRooms();
