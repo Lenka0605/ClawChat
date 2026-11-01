@@ -54,7 +54,8 @@ emit({ type: 'message', role: 'user', content: input });
 record.messages.push({ id: crypto.randomUUID(), type: 'user', content: input });
 fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
 await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
-const text = '（假的 Gemini）做完了';
+// 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做
+const text = /只回 ?\[PASS\]/.test(input) ? '[PASS]' : '（假的 Gemini）做完了';
 emit({ type: 'message', role: 'assistant', content: text, delta: true });
 record.messages.push({ id: crypto.randomUUID(), type: 'gemini', content: text, tokens: { input: 100, output: 10, cached: 0, total: 110 } });
 fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });

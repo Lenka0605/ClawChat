@@ -46,7 +46,10 @@ rl.on('line', (line) => {
     turn = crypto.randomUUID();
     extras = [];
     const file = path.join(home, 'fake-replies', 'codex.txt');
-    text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '（假的 ChatGPT）做完了';
+    // 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做；fake-replies 指定了内容的话优先
+    const firstText = (p.input || []).find((x) => x?.type === 'text' && typeof x.text === 'string')?.text || '';
+    text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8')
+      : /只回 ?\[PASS\]/.test(firstText) ? '[PASS]' : '（假的 ChatGPT）做完了';
     fs.rmSync(file, { force: true });
     reply(m.id, { turn: { id: turn, status: 'inProgress', items: [] } });
     event('turn/started', { turn: { id: turn, status: 'inProgress', items: [] } });

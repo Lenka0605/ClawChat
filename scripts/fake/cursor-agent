@@ -45,7 +45,9 @@ else {
   if (scenario === 'crash') process.exit(2);
   let text = '（假的 Cursor）做完了';
   const replyFile = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'cursor.txt');
+  // 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做；fake-replies 指定了内容的话优先
   if (fs.existsSync(replyFile)) { text = fs.readFileSync(replyFile, 'utf8'); fs.rmSync(replyFile); }
+  else if (/只回 ?\[PASS\]/.test(prompt)) text = '[PASS]';
   emit({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, session_id: id });
   emit({ type: 'result', subtype: scenario === 'failure' ? 'error' : 'success', is_error: scenario === 'failure', duration_ms: 50, result: text, session_id: id, usage: { inputTokens: 120, outputTokens: 30 } });
 }

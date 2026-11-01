@@ -32,7 +32,8 @@ if (input.event !== 'user' || typeof input.message?.content !== 'string') proces
 messages.push(input.message.content);
 emit({ event: 'init', conversation_id: sid, init: { model: value('--model') } });
 await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
-const response = '（假的 Gemini 订阅）做完了';
+// 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做
+const response = /只回 ?\[PASS\]/.test(input.message.content) ? '[PASS]' : '（假的 Gemini 订阅）做完了';
 fs.writeFileSync(file, JSON.stringify(messages), { mode: 0o600 });
 emit({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, state: 'DONE', text_delta: response, usage: { input_tokens: 100, output_tokens: 10 } } });
 emit({ event: 'result', result: { conversation_id: sid, status: 'SUCCESS', response, usage: { input_tokens: 100, output_tokens: 10, thinking_tokens: 0 } } });

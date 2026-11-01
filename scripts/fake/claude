@@ -19,7 +19,15 @@ fi
 sleep "${FAKE_SECS:-6}"
 # 想让它回指定的话（比如测 AI 之间私聊）：把内容写进 $CLAWCHAT_HOME/fake-replies/claude.txt，用一次就删掉
 REPLY_FILE="${CLAWCHAT_HOME:-/tmp}/fake-replies/claude.txt"
-if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; else TEXT="（假的 Claude）做完了"; fi
+# 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做，这样假实例也能测「分身回了、本体补 PASS」；用 fake-replies 指定了内容的话优先
+PASS_NEEDED="$(node -e '
+try {
+  const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean);
+  const t = JSON.parse(lines[0]).message.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  process.stdout.write(/只回 ?\[PASS\]/.test(t) ? "1" : "");
+} catch {}
+' "$INFILE" 2>/dev/null)"
+if [ -f "$REPLY_FILE" ]; then TEXT="$(cat "$REPLY_FILE")"; rm -f "$REPLY_FILE"; elif [ -n "$PASS_NEEDED" ]; then TEXT="[PASS]"; else TEXT="（假的 Claude）做完了"; fi
 # 第一条是开工时的消息，后面的都是干活中途插进来的
 EXTRA="$(node -e '
 const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).slice(1);

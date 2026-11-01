@@ -65,9 +65,12 @@ if (scenario === 'quota') {
       for (const value of Object.values(auth)) { value.key = 'fake-refreshed-access'; value.refresh_token = 'fake-refreshed-token'; value.expires_at = '2099-01-01T00:00:00Z'; }
       fs.writeFileSync(authFile, JSON.stringify(auth), { mode: 0o600 });
     }
+    // 提示词让本体「只回 [PASS]」（分身已经替它回过话、私聊里没什么要补充）时照做；fake-replies 指定了内容的话优先
+    const passNeeded = /只回 ?\[PASS\]/.test(fs.readFileSync(arg('--prompt-file'), 'utf8'));
     let text = '（假的 Grok）做完了';
     const replyFile = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'grok.txt');
     if (fs.existsSync(replyFile)) { text = fs.readFileSync(replyFile, 'utf8'); fs.rmSync(replyFile); }
+    else if (passNeeded) text = '[PASS]';
     emit({ type: 'assistant', session_id: id, message: { model, content: [{ type: 'text', text }], usage: { input_tokens: 31, output_tokens: 7, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 } } });
     if (scenario !== 'no-result') emit({ type: 'result', subtype: scenario === 'failure' ? 'error' : 'success', is_error: scenario === 'failure', result: text, session_id: id, usage: { input_tokens: 9999, output_tokens: 999 }, modelUsage: { [model]: { contextWindow: 256000 } } });
     if (scenario === 'no-session-file') fs.rmSync(dir, { recursive: true, force: true });
