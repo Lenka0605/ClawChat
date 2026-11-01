@@ -137,6 +137,21 @@ test('splitReply：代码里写到的标签不算（讲 <私聊老板> 怎么用
   assert.deepEqual(splitReply('讲讲 `<私聊 DeepSeek>` 的写法', false), { group: '讲讲 `<私聊 DeepSeek>` 的写法', dm: '', pms: [] });
 });
 
+test('splitReply：代码块里含三个反引号、双反引号行内代码、四反引号围栏、没闭合的代码块，里面的标签和 @ 都不算', () => {
+  const fence = '```js\nconst s = "```";\nconst t = "<群聊>示例</群聊>";\n```\n后面的正文';
+  assert.deepEqual(splitReply(fence, true), { group: '', dm: fence, pms: [] }, '字符串里的 ``` 不是结尾围栏（结尾要独占一行）');
+  const dbl = '写法是 `` `<群聊>` `` 这样';
+  assert.deepEqual(splitReply(dbl, true), { group: '', dm: dbl, pms: [] });
+  const four = '````\n```\n<群聊>示例</群聊>\n```\n````\n完';
+  assert.deepEqual(splitReply(four, true), { group: '', dm: four, pms: [] });
+  const open = '示例：\n```\n<私聊老板>没闭合的代码块\n@ChatGPT 也在代码里';
+  assert.deepEqual(splitReply(open, false), { group: open, dm: '', pms: [] });
+  assert.deepEqual(parseMentions(open), [], '代码里写的 @ 不叫人');
+  assert.deepEqual(parseMentions('`` `x` @ChatGPT `` 和 @DeepSeek'), ['deepseek']);
+  // 找不到结尾的反引号当普通字符，后面的标签照样认
+  assert.deepEqual(splitReply('一个落单的 ` 反引号<私聊老板>悄悄话</私聊老板>', false), { group: '一个落单的 ` 反引号', dm: '悄悄话', pms: [] });
+});
+
 test('splitReply 拆出私聊和群聊', () => {
   assert.deepEqual(splitReply('好的。<私聊老板>我觉得 Claude 的方案有问题</私聊老板>', false), { group: '好的。', dm: '我觉得 Claude 的方案有问题', pms: [] });
   assert.deepEqual(splitReply('<私聊老板>只跟你说', false), { group: '', dm: '只跟你说', pms: [] });
