@@ -1,4 +1,4 @@
 {
   "装了 10 分钟还没装完，先停下了，可以再点一次安装重试": "Still not installed after 10 minutes, so it was stopped. Click Install again to retry.",
-  "上一次登录还没能停下来，请过一会儿再点一次": "The previous sign-in hasn't stopped yet. Please try again in a moment."
+  "上一次登录还没能停下来，请重启 ClawChat 后再试": "The previous sign-in couldn't be stopped. Restart ClawChat and try again."
 }
