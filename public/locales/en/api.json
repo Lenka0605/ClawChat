@@ -34,5 +34,6 @@
   "还没填接口地址：填好再点保存。": "No endpoint yet. Fill it in and save again.",
   "先填接口地址（到 /v1 为止），再填 Key": "Fill in the endpoint first (up to /v1), then the key",
   "接口地址已保存": "Endpoint saved",
-  "已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。": "Saved: {base} ({n} models). To change the endpoint or key, edit it and save again; clear the endpoint and save to remove it."
+  "已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。": "Saved: {base} ({n} models). To change the endpoint or key, edit it and save again; clear the endpoint and save to remove it.",
+  "还没填地址": "No endpoint yet"
 }

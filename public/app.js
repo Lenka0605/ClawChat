@@ -902,12 +902,19 @@ async function installEngineUI(engine) {
   try {
     const res = await api('POST', '/api/engines/install', { engine });
     S.engines = res.engines || S.engines;
+    // 刚装好、还没登录时服务端会自动打开一次登录页（只在电脑本机上）：像点了「登录」那样把网址接过来
+    const login = res.login;
+    if (res.ok && login?.url) S.loginLinks[engine] = { url: login.url, code: login.code || '' };
     toast(
-      res.ok
-        ? engine === 'claude'
+      !res.ok
+        ? tr('{name} 没装上：{output}', { name, output: res.output || tr('未知错误') })
+        : engine === 'claude'
           ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
-          : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name })
-        : tr('{name} 没装上：{output}', { name, output: res.output || tr('未知错误') }),
+          : login?.url
+            ? tr('{name} 装好了，已经在电脑上打开浏览器：登录以后这里会自动变成已就绪。', { name })
+            : login
+              ? tr('{name} 装好了，登录窗口也打开了：按里面的提示操作就行。', { name })
+              : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name }),
       res.ok ? 9000 : 12000,
     );
   } catch (err) {
@@ -1084,7 +1091,7 @@ function renderEngines() {
     if (CAN_INSTALL.includes(key) && !installed) action = installButtonHtml('secondary', key);
     else if (BYOK[key] && !installed) action = installButtonHtml('secondary', 'claude');
     else if (loggedOut && LOGIN_NAMES[key] && isLocalHost()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
-    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
+    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini' && key !== 'api') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
     // 浏览器没自动打开时：官方命令打印出来的登录网址（有验证码的话一起显示）
     const extra = link && loggedOut
       ? `<small class="engine-login-hint">${link.code ? `${tr('验证码 {code} · ', { code: esc(link.code) })}` : ''}<a href="${esc(link.url)}" target="_blank" rel="noopener">${tr('浏览器没打开？点这里')}</a></small>`
