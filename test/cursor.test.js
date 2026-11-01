@@ -238,3 +238,18 @@ test('登录：自己失败退出、又清理不掉时，记录留着，之后�
     for (const pid of fs.readFileSync(pids, 'utf8').trim().split('\n')) try { process.kill(Number(pid), 'SIGKILL'); } catch {}
   }
 });
+
+test('登录：程序打印出网址后马上就退出了，网址也不能丢', async () => {
+  const { loginEngine } = await import('../lib/agents.js');
+  const dir = fs.mkdtempSync(path.join(root, 'login-quick-'));
+  fs.writeFileSync(path.join(dir, 'cursor-agent'), `#!${process.execPath}\nconsole.log('Open https://cursor.com/loginDeepControl?challenge=quick');process.exit(0);`, { mode: 0o755 });
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${oldPath}`;
+  try {
+    const res = await loginEngine('cursor');
+    assert.equal(res.ok, true);
+    assert.match(res.url, /^https:\/\/cursor\.com\//);
+  } finally {
+    process.env.PATH = oldPath;
+  }
+});
