@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installClaudeCode, readCodexRateLimits } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -700,11 +700,19 @@ async function api(req, res, url, access = 'local') {
   // 帮用户装 Claude Code（界面上先问过用户）：装好后重新检测一遍程序
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'install') {
     const { engine } = await readBody(req);
-    if (engine !== 'claude') return send(res, 400, { error: tr('不认识这个程序') });
+    if (!INSTALLERS[engine]) return send(res, 400, { error: tr('不认识这个程序') });
     hub.emit('event', { type: 'installing', engine, on: true });
-    const result = await installClaudeCode();
+    const result = await installEngine(engine);
     hub.emit('event', { type: 'installing', engine, on: false });
     await refreshEngines(true);
+    return send(res, 200, { ...result, engines });
+  }
+  // 帮用户登录 ChatGPT（Codex）、Grok、Cursor：在电脑上跑官方登录命令，它会打开浏览器；登完自动重新检测
+  if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'login') {
+    const { engine } = await readBody(req);
+    if (!LOGINS[engine]) return send(res, 400, { error: tr('不认识这个程序') });
+    const result = await loginEngine(engine, { onDone: () => refreshEngines(true).catch(() => {}) });
+    if (result.done) await refreshEngines(true);
     return send(res, 200, { ...result, engines });
   }
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {

@@ -161,3 +161,23 @@ test('Cursor：删群时清掉这一群的记忆目录，别的群不受影响',
   await removeCursorHome(room);
   assert.equal(homes().length, 1);
 });
+
+test('一键安装、一键登录：用官方安装命令（测试里换成假的），装完能找到命令；登录把网址交给界面', async () => {
+  const { installEngine, loginEngine, INSTALLERS } = await import('../lib/agents.js');
+  assert.match(INSTALLERS.codex.mac, /chatgpt\.com\/codex\/install\.sh/);
+  assert.match(INSTALLERS.grok.mac, /x\.ai\/cli\/install\.sh/);
+  assert.match(INSTALLERS.cursor.mac, /cursor\.com\/install/);
+  const target = path.join(root, 'installed');
+  fs.mkdirSync(target);
+  process.env.PATH = `${target}${path.delimiter}${process.env.PATH}`;
+  process.env.CLAWCHAT_INSTALL_CMD = `printf '#!/bin/sh\\necho ok\\n' > "${target}/fake-tool-$CLAWCHAT_INSTALL_ENGINE"; echo installed`;
+  const bad = await installEngine('nope');
+  assert.equal(bad.ok, false);
+  const res = await installEngine('codex');
+  assert.match(res.output, /installed/);
+  delete process.env.CLAWCHAT_INSTALL_CMD;
+  const login = await loginEngine('cursor');
+  assert.equal(login.ok, true);
+  assert.match(login.url, /^https:\/\/cursor\.com\//);
+  assert.equal((await loginEngine('claude')).ok, false);
+});
