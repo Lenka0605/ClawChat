@@ -1655,6 +1655,19 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 
   /* 群设置：成员卡片一列，「还没填 API Key」「OpenAI Codex」这些不会被折成两行 */
   .members { grid-template-columns: 1fr; gap: 6px; }
+
+  /* 聊天列表：底部那一整行「设置」收成顶部「新建」左边的一个齿轮图标，列表多出一行的地方；有新版本的小红点、更新按钮跟着它 */
+  .side-foot { position: absolute; top: calc(env(safe-area-inset-top) + 6px); right: 54px; padding: 0; gap: 2px; flex-direction: row-reverse; }
+  .side-foot .side-settings { position: relative; flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 10px; }
+  .side-foot .side-settings svg { width: 20px; height: 20px; }
+  .side-foot .side-settings-label { display: none; }
+  /* 程序有问题（比如没填 Key）的提示：手机上只留一个橙色小点，点进设置再看详情 */
+  .side-foot .engine-warn:not([hidden]) { position: absolute; bottom: 9px; right: 9px; width: 7px; height: 7px; padding: 0; border-radius: 50%; background: #ff9f0a; font-size: 0; overflow: hidden; }
+  .side-foot .engine-warn::before { content: none; }
+  .side-foot .update-dot { position: absolute; top: 9px; right: 9px; margin: 0; }
+  .side-foot .update-badge { width: 32px; height: 32px; }
+  #btn-new { width: 44px; height: 44px; }
+  #btn-new svg { width: 20px; height: 20px; }
 }
 
 /* 窄屏（比如 320 宽）同时又在干活：一行放不下这么多，先藏「不 @ 时」，把位置留给 @ 名字和停止 */
