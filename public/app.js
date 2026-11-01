@@ -1049,7 +1049,7 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI', cursor: 'Anysphere', api: tr('OpenAI 兼容') };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI', cursor: 'Anysphere', api: tr('API 平台 · 借 Claude Code 干活') };
   // 登录完成了（或者换了程序）：之前留下的登录网址收起来
   for (const k of Object.keys(S.loginLinks)) {
     const en = S.engines[k];
@@ -3956,7 +3956,7 @@ const BASE_MENTION_ITEMS = [
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
   { id: 'grok', label: 'Grok', sub: 'xAI', insert: 'Grok', keys: ['grok', '格罗克', 'xai'] },
   { id: 'cursor', label: 'Cursor', sub: 'Anysphere', insert: 'Cursor', keys: ['cursor'] },
-  { id: 'api', label: 'API', sub: tr('OpenAI 兼容'), insert: 'API', keys: ['api'] },
+  { id: 'api', label: 'API', sub: tr('API 平台 · 借 Claude Code 干活'), insert: 'API', keys: ['api'] },
   { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 // 多开的排在本体后面
