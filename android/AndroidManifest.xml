@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ClawChat 安卓外壳：里面装的就是电脑上那个网页界面（通过 Tailscale 连回家里的电脑），外加 AI 回复时的手机通知。
+     安全上的取舍：不允许明文 http、不备份数据、不暴露给别的 App 调用、只申请必需的权限 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.clawchat.app">
+    <!-- 版本号由 scripts/build-apk.sh 按 package.json 填，这里不写 -->
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <application
+        android:label="ClawChat"
+        android:icon="@drawable/icon"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 在后台连着电脑，AI 回复、出错时弹通知。不让别的 App 启动它 -->
+        <service
+            android:name=".EventService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a connection to the user's own computer to show notifications when AI replies" />
+        </service>
+    </application>
+</manifest>

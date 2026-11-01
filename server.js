@@ -611,6 +611,25 @@ async function api(req, res, url, access = 'local') {
     if (access !== 'local') return send(res, 400, { error: tr('手机上选不了文件夹，请直接填路径，或者回到电脑上操作') });
     return send(res, 200, { path: await pickFolder() });
   }
+  // 安卓 App：GET /api/android 看能不能打包、打好的是哪个版本；GET /api/android/apk 下载（没打过或版本旧了就先现打一个）
+  if (parts[0] === 'android' && method === 'GET' && !parts[2]) {
+    if (!parts[1]) return send(res, 200, androidInfo());
+    if (parts[1] === 'apk') {
+      try {
+        const file = await ensureApk();
+        res.writeHead(200, {
+          'content-type': 'application/vnd.android.package-archive',
+          'content-disposition': 'attachment; filename="ClawChat.apk"',
+          'content-length': fs.statSync(file).size,
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        });
+        return fs.createReadStream(file).pipe(res);
+      } catch (err) {
+        return send(res, 500, { error: tr('安卓 App 打包失败：{error}', { error: String(err.message || err).slice(-300) }) });
+      }
+    }
+  }
   // 订阅额度还剩多少（Claude、ChatGPT）：最近一次跑的时候官方工具带回来的数
   // ?refresh=1（打开设置时）：顺便现读一次 ChatGPT 的余量（只查询，不开聊天、不花额度），最多等 8 秒；Claude 的只能等它下次干活带回来
   if (parts[0] === 'usage' && !parts[1] && method === 'GET') {
@@ -1049,6 +1068,39 @@ async function api(req, res, url, access = 'local') {
     }
   }
   return send(res, 404, { error: tr('没有这个接口') });
+}
+
+// ---------------- 安卓 App ----------------
+// 打包只用 Android SDK 自带的工具（scripts/build-apk.sh），APK 放在 ~/.clawchat/android/，签名证书在 ~/.clawchat/signing/，都不进仓库
+const APK_DIR = path.join(DATA_DIR, 'android');
+const APP_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; // APK 跟着 ClawChat 的版本号走
+function androidSdk() {
+  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'Library', 'Android', 'sdk');
+  return fs.existsSync(path.join(sdk, 'build-tools')) && fs.existsSync(path.join(sdk, 'platforms')) ? sdk : null;
+}
+function apkVersion() {
+  try {
+    return fs.readFileSync(path.join(APK_DIR, 'version.txt'), 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
+function androidInfo() {
+  const built = apkVersion();
+  return { canBuild: !IS_WIN && !!androidSdk(), built, current: built === APP_VERSION };
+}
+let apkBuilding = null;
+function ensureApk() {
+  const file = path.join(APK_DIR, 'ClawChat.apk');
+  if (apkVersion() === APP_VERSION && fs.existsSync(file)) return Promise.resolve(file);
+  if (IS_WIN || !androidSdk()) return Promise.reject(new Error(tr('这台电脑没装 Android SDK，打不了安卓 App')));
+  // 几台手机同时点下载：只打一次
+  apkBuilding ||= new Promise((resolve, reject) => {
+    execFile('bash', [path.join(ROOT, 'scripts', 'build-apk.sh')], { timeout: 5 * 60 * 1000, env: { ...process.env, CLAWCHAT_HOME: DATA_DIR } }, (err, stdout, stderr) =>
+      err ? reject(new Error(String(stderr || err.message).trim())) : resolve(file),
+    );
+  }).finally(() => (apkBuilding = null));
+  return apkBuilding;
 }
 
 function serveStatic(res, pathname) {
