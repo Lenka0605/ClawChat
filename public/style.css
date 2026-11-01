@@ -1608,10 +1608,20 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .row-value { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .search-key { display: none; }
 
+  /* 编辑消息：「取消 / 发送」别被提示语挤成竖排，按钮也放到手指大小 */
+  .edit-actions { flex-wrap: wrap; row-gap: 8px; }
+  .edit-hint { flex: 1 1 100%; margin-right: 0; }
+  .edit-actions button { height: 44px; padding: 0 16px; border-radius: 22px; font-size: 15px; white-space: nowrap; flex: none; }
+
   /* 地址要能长按选中、复制 */
   #remote-url { overflow-wrap: anywhere; white-space: normal; }
   /* iOS 上输入框字号小于 16px 时，一聚焦会整个页面放大：手机上都用 16px */
-  .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, #text-input, #avatar-text {
+  .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, .edit-mirror, #text-input, #avatar-text {
     font-size: 16px;
   }
+}
+
+/* 窄屏（比如 320 宽）同时又在干活：一行放不下这么多，先藏「不 @ 时」，把位置留给 @ 名字和停止 */
+@media (max-width: 360px) {
+  .composer-tools.has-stop .target { display: none; }
 }

@@ -2613,6 +2613,8 @@ function renderStopControls(conv) {
   const box = $('#stop-controls');
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
+  // 窄屏上「停止」出现后要给 @ 名字让位置：CSS 靠这个类先把「接着上一位」收起来
+  document.querySelector('.composer-tools')?.classList.toggle('has-stop', runs.length > 0);
   const who = (r) => (r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent));
   if (runs.length === 1) {
     const r = runs[0];
@@ -3132,6 +3134,7 @@ function renderTargets(room, dm) {
   const last = lastSpeakerOf(room);
   // 手机上下拉框只有一个小胶囊宽：写「接着上一位」就够了，具体是谁看输入框的提示
   const narrow = isNarrow();
+  const tiny = window.innerWidth <= 360; // 再窄一点（比如 320）：长群名会折成两行
   const targets = [
     ['last', narrow ? tr('接着上一位') : last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
     ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
@@ -3147,7 +3150,9 @@ function renderTargets(room, dm) {
       ? isNarrow()
         ? tr('发给 {name}', { name: agentName(last) })
         : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
-      : tr('发送给 {name}', { name: room.name });
+      : tiny
+        ? tr('说点什么…') // 320 这种窄屏放不下长群名，用短提示，别在输入框里折成两行
+        : tr('发送给 {name}', { name: room.name });
 }
 
 function onMessage(roomId, m) {
