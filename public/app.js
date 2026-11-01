@@ -912,9 +912,11 @@ async function installEngineUI(engine) {
           ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
           : login?.url
             ? tr('{name} 装好了，已经在电脑上打开浏览器：登录以后这里会自动变成已就绪。', { name })
-            : login
+            : login?.ok
               ? tr('{name} 装好了，登录窗口也打开了：按里面的提示操作就行。', { name })
-              : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name }),
+              : login
+                ? tr('{name} 装好了，但登录页没能自动打开：{error}。点旁边的「登录」再试一次。', { name, error: login.error || tr('没有说明原因') })
+                : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name }),
       res.ok ? 9000 : 12000,
     );
   } catch (err) {
