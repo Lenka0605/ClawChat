@@ -13,11 +13,8 @@
   "检查一下地址和 Key": "check the endpoint and key",
   "能看图": "Can see images",
   "看不了图片：发过去它只会收到文件路径": "Can't see images: it only receives the file path",
-  "还不确定能不能看图": "Not sure yet whether it can see images",
   "{name} 现在用的「{model}」看不了图片，发过去它只会收到图片的文件路径。": "{name} is using “{model}”, which can't see images; it will only receive the image file paths.",
   "{names} 看不了图片，发过去只会收到图片的文件路径。": "{names} can't see images; they will only receive the image file paths.",
-  "还不确定「{model}」能不能看图：图片会照常发过去，没反应到图里的内容就是没看到。": "Not sure yet whether “{model}” can see images. The images will be sent anyway; if it doesn't react to what's in them, it didn't see them.",
-  "{names} 能不能看图还不确定：图片会照常发过去。": "Not sure yet whether {names} can see images. The images will be sent anyway.",
   "换成能看图的模型": "Switch to a model that can see images",
   "API 的地址和 Key 已保存，可以用了": "API endpoint and key saved. It's ready to use",
   "已删掉 API 的地址和 Key": "API endpoint and key removed",
@@ -35,5 +32,8 @@
   "先填接口地址（到 /v1 为止），再填 Key": "Fill in the endpoint first (up to /v1), then the key",
   "接口地址已保存": "Endpoint saved",
   "已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。": "Saved: {base} ({n} models). To change the endpoint or key, edit it and save again; clear the endpoint and save to remove it.",
-  "还没填地址": "No endpoint yet"
+  "还没填地址": "No endpoint yet",
+  "平台没说明能不能看图，先按看不了处理": "The platform doesn't say whether it can see images; treated as text-only",
+  "平台没说明「{model}」能不能看图，先按看不了处理：发过去它只会收到图片的文件路径。": "The platform doesn't say whether “{model}” can see images, so it's treated as text-only: it will only receive the image file paths.",
+  "{names} 的模型平台没说明能不能看图，先按看不了处理：它们只会收到图片的文件路径。": "The platform doesn't say whether {names}' models can see images, so they're treated as text-only: they will only receive the image file paths."
 }

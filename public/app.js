@@ -3690,8 +3690,8 @@ function renderVisionHint() {
   if (unknown.length) {
     lines.push(
       unknown.length === 1
-        ? tr('还不确定「{model}」能不能看图：图片会照常发过去，没反应到图里的内容就是没看到。', { model: modelName(unknown[0]) })
-        : tr('{names} 能不能看图还不确定：图片会照常发过去。', { names: names(unknown) }),
+        ? tr('平台没说明「{model}」能不能看图，先按看不了处理：发过去它只会收到图片的文件路径。', { model: modelName(unknown[0]) })
+        : tr('{names} 的模型平台没说明能不能看图，先按看不了处理：它们只会收到图片的文件路径。', { names: names(unknown) }),
     );
   }
   box.className = `vision-hint${cant.length ? ' warn' : ''}`;
@@ -4595,7 +4595,7 @@ const EYE_OFF_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
 function visionMarkHtml(vision) {
   if (vision === true) return `<span class="vision-mark" title="${esc(tr('能看图'))}">${EYE_SVG}</span>`;
   if (vision === false) return `<span class="vision-mark off" title="${esc(tr('看不了图片：发过去它只会收到文件路径'))}">${EYE_OFF_SVG}</span>`;
-  if (vision === null) return `<span class="vision-mark unknown" title="${esc(tr('还不确定能不能看图'))}">${EYE_SVG}</span>`;
+  if (vision === null) return `<span class="vision-mark unknown" title="${esc(tr('平台没说明能不能看图，先按看不了处理'))}">${EYE_SVG}</span>`;
   return '';
 }
 
