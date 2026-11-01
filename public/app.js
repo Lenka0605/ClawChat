@@ -5709,7 +5709,8 @@ function bind() {
     // 按在打开这个菜单的按钮上：先别关，交给按钮的点击来切换（不然这里刚关上，点击又把它打开，看着像「刷一下又打开了」）
     if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub, [data-model-more], [data-dm-menu]')) closeMenus();
   });
-  document.addEventListener('mousedown', (e) => {
+  // 和菜单一样用 pointerdown：iPhone 上点普通区域（消息、空白处）不会发 mousedown，用它手机才关得掉
+  document.addEventListener('pointerdown', (e) => {
     const panel = $('#at-panel');
     if (panel && !panel.hidden && !e.target.closest('#at-panel, #btn-at')) closeAtPanel();
   });
