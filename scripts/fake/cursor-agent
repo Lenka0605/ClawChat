@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+// 假 Cursor CLI（cursor-agent）：不连任何模型，按官方 stream-json 格式输出。
+// FAKE_CURSOR_LOGGED_OUT=1 装作没登录；FAKE_CURSOR_SCENARIO：quota / crash / failure / hang；FAKE_CURSOR_LOG 记下每次的参数
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+const args = process.argv.slice(2);
+const arg = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+const loggedIn = !process.env.FAKE_CURSOR_LOGGED_OUT;
+const scenario = process.env.FAKE_CURSOR_SCENARIO || '';
+const home = process.env.CURSOR_CONFIG_DIR;
+const emit = (v) => console.log(JSON.stringify(v));
+if (args[0] === '--version') { console.log('2026.10.22-fake'); process.exit(0); }
+if (args[0] === 'status') { console.log(JSON.stringify({ status: loggedIn ? 'authenticated' : 'unauthenticated', isAuthenticated: loggedIn })); process.exit(0); }
+if (args[0] === 'models') {
+  if (!loggedIn) { console.error("Error: Authentication required. Run 'agent login'"); process.exit(1); }
+  console.log('\x1b[2mAvailable models\x1b[0m\n\nauto - Auto (current, default)\ngrok-4.7 - Grok 4.7\nclaude-opus-4-8 - Claude Opus 4.8\n\nTip: use --model <id>');
+  process.exit(0);
+}
+if (args[0] === 'update' || args[0] === 'login') { console.log('假的 Cursor：' + args[0]); process.exit(0); }
+const prompt = args[args.length - 1];
+if (process.env.FAKE_CURSOR_LOG) fs.appendFileSync(process.env.FAKE_CURSOR_LOG, JSON.stringify({ args, home, prompt, cwd: process.cwd() }) + '\n');
+if (!loggedIn) { console.error("Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable."); process.exit(1); }
+if (scenario === 'quota') { console.error('Error: You have exceeded your usage limit (429)'); process.exit(1); }
+const cwd = arg('--workspace') || process.cwd();
+const chats = path.join(home, 'chats', crypto.createHash('md5').update(path.resolve(cwd)).digest('hex'));
+const resume = arg('--resume');
+const id = resume || arg('--new-session-id') || crypto.randomUUID();
+if (resume && !fs.existsSync(path.join(chats, resume))) { console.error(`Error: Chat ${resume} not found`); process.exit(1); }
+fs.mkdirSync(path.join(chats, id), { recursive: true });
+fs.appendFileSync(path.join(chats, id, 'history.jsonl'), JSON.stringify({ prompt }) + '\n');
+const model = arg('--model') || 'Auto';
+emit({ type: 'system', subtype: 'init', apiKeySource: 'login', cwd, session_id: id, model, permissionMode: 'default' });
+emit({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] }, session_id: id });
+emit({ type: 'thinking', subtype: 'delta', text: '我先看一下', session_id: id });
+emit({ type: 'thinking', subtype: 'completed', session_id: id });
+emit({ type: 'tool_call', subtype: 'started', call_id: 'c1', tool_call: { readToolCall: { args: { path: path.join(cwd, 'README.md') } } }, session_id: id });
+emit({ type: 'tool_call', subtype: 'completed', call_id: 'c1', tool_call: { readToolCall: { args: { path: path.join(cwd, 'README.md') }, result: { success: {} } } }, session_id: id });
+if (scenario === 'hang') setInterval(() => {}, 1000);
+else {
+  await new Promise((r) => setTimeout(r, Number(process.env.FAKE_CURSOR_SECS ?? process.env.FAKE_SECS ?? 0.05) * 1000));
+  if (scenario === 'crash') process.exit(2);
+  let text = '（假的 Cursor）做完了';
+  const replyFile = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'cursor.txt');
+  if (fs.existsSync(replyFile)) { text = fs.readFileSync(replyFile, 'utf8'); fs.rmSync(replyFile); }
+  emit({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, session_id: id });
+  emit({ type: 'result', subtype: scenario === 'failure' ? 'error' : 'success', is_error: scenario === 'failure', duration_ms: 50, result: text, session_id: id, usage: { inputTokens: 120, outputTokens: 30 } });
+}

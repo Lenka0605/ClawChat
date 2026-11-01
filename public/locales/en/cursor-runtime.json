@@ -1,0 +1,12 @@
+{
+  "Cursor session not found：会话编号无效": "Cursor session not found: invalid session ID",
+  "Cursor session not found：找不到上一轮的记忆": "Cursor session not found: the previous conversation memory is missing",
+  "Cursor 启动失败：{error}": "Cursor failed to start: {error}",
+  "Cursor 已停止": "Cursor stopped",
+  "Cursor 检测失败：{error}": "Cursor check failed: {error}",
+  "Cursor 用不了这个模型：{error}": "Cursor can't use this model: {error}",
+  "Cursor 的额度用完了，或者请求太频繁，等额度恢复后再试": "Cursor usage is used up or requests are too frequent. Try again once your quota resets.",
+  "Cursor 还没登录或登录过期了：在终端运行 cursor-agent login 重新登录": "Cursor isn't signed in or the login expired: run cursor-agent login in Terminal",
+  "Cursor 还没登录：在终端运行 cursor-agent login，用你的 Cursor 账号登录": "Cursor isn't signed in: run cursor-agent login in Terminal and sign in with your Cursor account",
+  "找不到 cursor-agent 命令：先装 Cursor CLI（curl https://cursor.com/install -fsS | bash），再运行 cursor-agent login 登录": "cursor-agent not found: install Cursor CLI (curl https://cursor.com/install -fsS | bash), then run cursor-agent login"
+}

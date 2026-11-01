@@ -262,7 +262,7 @@ function normalizeRoom(body, creating, room = null) {
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok' };
+    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok', cursor: 'Cursor' };
     for (const a of Object.keys(AGENTS)) {
       if (!custom.includes(a) && !keep(a) && !validModel(engineOf(a), out.models[a])) {
         throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
@@ -374,6 +374,8 @@ const ICON_URLS = {
   gemini: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
   // Grok 是 grok.com 网站自己的图标（黑底白标）。grok.com 拦着不让程序直接下载，从 Google 缓存的网站图标里取
   grok: 'https://www.google.com/s2/favicons?domain=grok.com&sz=256',
+  // Cursor 官方 GitHub 账号的头像（方形、不带圆角）
+  cursor: 'https://github.com/cursor.png?size=256',
 };
 // 换过图的：记在 icons/versions.json 里，旧的那张会重新下载一次（Grok 0.7.32 用的是 App Store 里的立体图标，不对；
 // 第 3 版：grok.com 的图标自带大圆角、四个角是白底，界面上的圆角小，白角会露出来，下载后把白角填成黑色）
@@ -708,7 +710,7 @@ async function api(req, res, url, access = 'local') {
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
     // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code
     const { engine } = await readBody(req);
-    if (!['claude', 'codex', 'grok'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
+    if (!['claude', 'codex', 'grok', 'cursor'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
     const result = await updateEngine(engine);
     await refreshEngines();
     return send(res, 200, { ...result, engines });
@@ -1158,7 +1160,9 @@ function engineSummary() {
   const gemini = !gem?.path ? 'Gemini 没装' : `Gemini（${gem.cli === 'agy' ? 'Antigravity 订阅' : 'Gemini CLI API'} ${gem.version || '?'}）${gem.ok ? '' : `，${gem.error || '用不了'}`}`;
   const gk = engines.grok;
   const grok = !gk?.path ? 'Grok 没装' : `Grok Build ${String(gk.version || '').match(/\d+\.\d+[\w.-]*/)?.[0] || '?'}（${gk.loggedIn ? '已登录' : '没登录'}）${gk.ok ? '' : `，${gk.error || '用不了'}`}${gk.apiKeyWarning ? '，配了 API Key' : ''}`;
-  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini, grok].join(' · ');
+  const cu = engines.cursor;
+  const cursor = !cu?.path ? 'Cursor 没装' : `Cursor CLI ${cu.version || '?'}（${cu.loggedIn ? '已登录' : '没登录'}）${cu.ok ? '' : `，${cu.error || '用不了'}`}`;
+  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini, grok, cursor].join(' · ');
 }
 
 // 上次升级后新版本没能启动、重启脚本已经退回原来的版本：告诉界面（只说一次）
