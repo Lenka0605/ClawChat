@@ -268,6 +268,12 @@ html.native .logo { visibility: hidden; }
 .folder-avatar.has-image { background-size: cover; background-position: center; }
 /* 侧栏可以用键盘上下切：焦点框不画，停在收纳组上时那一行淡淡地亮一下 */
 #conv-list:focus { outline: none; }
+/* 手指长按拖动排序：长按时不弹系统的放大镜、选字菜单；拖着的那一行稍微浮起来 */
+@media (pointer: coarse) {
+  #conv-list .conv-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
+#conv-list.touch-dragging .conv-item.dragging { opacity: 0.55; transform: scale(0.98); transition: transform 0.15s var(--ease), opacity 0.15s; }
+dialog:focus, dialog:focus-visible { outline: none; box-shadow: var(--glass-edge), var(--shadow); } /* 手机上打开弹窗时焦点交给弹窗本身（免得弹键盘）：别给整个弹窗描一圈蓝框 */
 #sidebar.nav-on .conv-item.kbd { background: var(--fill); }
 /* 侧栏里看不见的小输入框：接键盘（上下切换、打字先打在这里再搬到输入框），不占位置 */
 #sidebar { position: relative; }
@@ -553,6 +559,7 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 .dm-btn { border: 0; padding: 0; background: none; border-radius: 50%; line-height: 0; }
 .dm-btn:hover .avatar { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
 .dm-entry .avatar { width: 24px; height: 24px; }
+.dm-label { display: none; }
 /* 窗口窄：私聊头像收进一个按钮（点开是成员列表），给群名和模型按钮让出位置 */
 .dm-more { display: none; align-items: center; gap: 2px; height: 24px; padding: 0 4px; border-radius: 8px; line-height: normal; background: var(--glass); box-shadow: var(--glass-edge); }
 .dm-more .dm-stack { display: flex; }
@@ -1590,4 +1597,31 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .form-row input:not([type="checkbox"]):not([type="radio"]), #spot-input, #find-input, .edit-input, #text-input, #avatar-text {
     font-size: 16px;
   }
+}
+
+/* 手机：顶栏、设置窗口、群设置（Claude 负责的这几块；输入区在上面那段里） */
+@media (max-width: 600px) {
+  /* 顶栏：「模型」「私聊」两个按钮只写字，不再各放一串头像（两串头像长得一样，分不清，还把群名挤没了） */
+  #room-head .model-more .chip-stack, .dm-entry .dm-more .dm-stack { display: none; }
+  .dm-entry .dm-more .dm-label { display: inline; font-size: 13px; color: var(--text); }
+  #room-head .model-more, .dm-entry .dm-more { gap: 2px; padding: 0 10px; font-size: 13px; }
+  .room-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 软件更新：图标和版本一行，状态在下面，两个按钮占满一行 */
+  .update-hero { flex-wrap: wrap; align-items: center; gap: 12px 14px; }
+  .hero-icon { width: 48px; height: 48px; }
+  .hero-text { flex: 1 1 0; }
+  .hero-actions { flex: 1 1 100%; }
+  .hero-actions button { flex: 1; height: 40px; font-size: 14px; }
+  .update-changes { max-height: none; }
+
+  /* 程序与模型：名字和说明占一整行，状态和「更新」按钮放在下面一行，不再把说明挤成三四行 */
+  #set-engines .list-row { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "icon text text" "icon status btn"; column-gap: 12px; row-gap: 4px; align-items: center; }
+  #set-engines .list-row > .avatar { grid-area: icon; align-self: start; }
+  #set-engines .list-row > .row-text { grid-area: text; }
+  #set-engines .list-row > .status { grid-area: status; justify-self: start; }
+  #set-engines .list-row > button { grid-area: btn; min-height: 36px; }
+
+  /* 群设置：成员卡片一列，「还没填 API Key」「OpenAI Codex」这些不会被折成两行 */
+  .members { grid-template-columns: 1fr; gap: 6px; }
 }

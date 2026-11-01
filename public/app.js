@@ -1369,6 +1369,9 @@ function revealSideItem(key) {
   el?.scrollIntoView({ block: 'nearest' });
 }
 
+// 有鼠标（或触控板）的设备：手指点的手机、平板上，别把焦点交给看不见的输入框，不然会弹出键盘
+const finePointer = () => matchMedia('(pointer: fine)').matches;
+
 function toggleFolder(id) {
   if (toggleFolder.busy) return; // 动画没放完又点了一下：忽略，免得抖
   const closing = !collapsedFolders.has(id);
@@ -1854,7 +1857,7 @@ function renderShell() {
   entry.hidden = dm || !group;
   // 窄窗口下这些头像收进一个按钮里（CSS 换），顶栏才不会被挤成两行
   entry.innerHTML = group && !dm
-    ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}<button class="dm-btn dm-more" data-dm-menu title="${tr('私聊')}" aria-label="${tr('私聊')}"><span class="dm-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span>${CHEVRON_SVG}</button>`
+    ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}<button class="dm-btn dm-more" data-dm-menu title="${tr('私聊')}" aria-label="${tr('私聊')}"><span class="dm-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span><span class="dm-label">${tr('私聊')}</span>${CHEVRON_SVG}</button>`
     : '';
   $('#group-tools').hidden = !!dm || !group;
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
@@ -5104,7 +5107,15 @@ function openDialog(room, preset = null) {
   roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
   reportDragRegions();
-  formField('name').focus();
+  // 手机上不自动聚焦名字：一打开群设置就弹键盘，挡住大半个窗口；窗口自己拿焦点（showModal 会把焦点给第一个输入框）
+  if (finePointer()) formField('name').focus();
+  else blurInDialog($('#dlg-room'));
+}
+
+// 手指点的设备上，弹窗打开时别让输入框拿到焦点（不然键盘会弹出来）：把焦点交给弹窗本身
+function blurInDialog(dlg) {
+  if (!dlg.hasAttribute('tabindex')) dlg.setAttribute('tabindex', '-1');
+  dlg.focus({ preventScroll: true });
 }
 
 // 群设置里填的东西（名字、成员、模型、收纳组……），用来看打开以后有没有改过。
@@ -5253,10 +5264,17 @@ function bind() {
   let dragging = null;
   const clearMarks = () => list.querySelectorAll('.drop-before, .drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after'));
   const dropSpot = (e) => {
-    const li = e.target.closest('[data-drag-key]');
+    const li = e.target?.closest?.('[data-drag-key]');
     if (!dragging || !li || li === dragging || li.dataset.dragScope !== dragging.dataset.dragScope) return null;
     const r = li.getBoundingClientRect();
     return { li, after: e.clientY > r.top + r.height / 2 };
+  };
+  const dropAt = (spot) => {
+    const scope = dragging.dataset.dragScope;
+    const keys = [...list.querySelectorAll(`[data-drag-scope="${CSS.escape(scope)}"]`)].map((el) => el.dataset.dragKey).filter((k) => k !== dragging.dataset.dragKey);
+    keys.splice(keys.indexOf(spot.li.dataset.dragKey) + (spot.after ? 1 : 0), 0, dragging.dataset.dragKey);
+    saveSideOrder(scope, keys);
+    renderConvs();
   };
   list.addEventListener('dragstart', (e) => {
     dragging = e.target.closest?.('[data-drag-key]');
@@ -5278,12 +5296,8 @@ function bind() {
     clearMarks();
     if (!spot) return;
     e.preventDefault();
-    const scope = dragging.dataset.dragScope;
-    const keys = [...list.querySelectorAll(`[data-drag-scope="${CSS.escape(scope)}"]`)].map((el) => el.dataset.dragKey).filter((k) => k !== dragging.dataset.dragKey);
-    keys.splice(keys.indexOf(spot.li.dataset.dragKey) + (spot.after ? 1 : 0), 0, dragging.dataset.dragKey);
-    saveSideOrder(scope, keys);
-    renderConvs();
-    $('#side-sink').focus(); // 列表重画后原来那一行已经不在了，dragend 冒不到列表上：放下时直接把键盘交回侧栏
+    dropAt(spot);
+    if (finePointer()) $('#side-sink').focus(); // 列表重画后原来那一行已经不在了，dragend 冒不到列表上：放下时直接把键盘交回侧栏
   });
   // 键盘：点过侧栏以后按上下在收纳组、群、私聊之间移动（移到聊天上就打开它）；→ / ← 展开、收起；回车跳到输入框
   // （停在收纳组上是展开收起）。焦点其实落在侧栏里一个看不见的小输入框上：直接打字（包括拼音组字）先在它里面打，
@@ -5291,7 +5305,8 @@ function bind() {
   const sink = $('#side-sink');
   const sidebar = $('#sidebar');
   // 用鼠标点了侧栏才把焦点交给它（拖完放下时在 drop 里交）；用 Tab 键路过侧栏不接管，不然 Tab 会被困在这里出不去
-  list.addEventListener('click', () => sink.focus());
+  // 手机、平板（手指点的）不交：焦点落到这个看不见的输入框上，iPhone 会把键盘弹出来
+  list.addEventListener('click', () => finePointer() && sink.focus());
   sink.addEventListener('focus', () => {
     sidebar.classList.add('nav-on');
     markSideNav();
@@ -5344,6 +5359,77 @@ function bind() {
     dragging?.classList.remove('dragging');
     dragging = null;
   });
+  // 手机、平板：浏览器不支持网页的拖动事件，改成长按半秒（轻震一下）后拖着走，松手放下；手指一开始就在动的是在滚列表，不算
+  let touch = null; // { li, x, y, timer, on, lastY }
+  let swallowClick = false;
+  const endTouchDrag = (drop) => {
+    if (!touch) return;
+    clearTimeout(touch.timer);
+    cancelAnimationFrame(touch.raf);
+    if (touch.on) {
+      const spot = drop ? dropSpot({ target: document.elementFromPoint(touch.x, touch.lastY), clientY: touch.lastY }) : null;
+      clearMarks();
+      if (spot) dropAt(spot);
+      dragging?.classList.remove('dragging');
+      list.classList.remove('touch-dragging');
+      dragging = null;
+      swallowClick = true; // 松手时浏览器还会补一个 click，别把它当成「打开这个聊天」
+      setTimeout(() => (swallowClick = false), 400);
+    }
+    touch = null;
+  };
+  list.addEventListener('touchstart', (e) => {
+    const li = e.target.closest('[data-drag-key]');
+    if (!li || e.touches.length > 1 || e.target.closest('button')) return;
+    const t = e.touches[0];
+    touch = { li, x: t.clientX, y: t.clientY, lastY: t.clientY, on: false };
+    touch.timer = setTimeout(() => {
+      if (!touch) return;
+      touch.on = true;
+      dragging = li;
+      li.classList.add('dragging');
+      list.classList.add('touch-dragging');
+      navigator.vibrate?.(12);
+      // 手指停在列表上下边缘时，列表跟着慢慢滚
+      const scroller = list; // 聊天列表自己滚
+      const tick = () => {
+        if (!touch?.on) return;
+        const r = scroller.getBoundingClientRect();
+        const edge = 48;
+        if (touch.lastY < r.top + edge) scroller.scrollTop -= 6;
+        else if (touch.lastY > r.bottom - edge) scroller.scrollTop += 6;
+        touch.raf = requestAnimationFrame(tick);
+      };
+      touch.raf = requestAnimationFrame(tick);
+    }, 450);
+  }, { passive: true });
+  list.addEventListener('touchmove', (e) => {
+    if (!touch) return;
+    const t = e.touches[0];
+    if (!touch.on) {
+      if (Math.hypot(t.clientX - touch.x, t.clientY - touch.y) > 8) endTouchDrag(false); // 在滚列表
+      return;
+    }
+    e.preventDefault(); // 拖着的时候别让页面跟着滚
+    touch.lastY = t.clientY;
+    touch.x = t.clientX;
+    const spot = dropSpot({ target: document.elementFromPoint(t.clientX, t.clientY), clientY: t.clientY });
+    clearMarks();
+    if (spot) spot.li.classList.add(spot.after ? 'drop-after' : 'drop-before');
+  }, { passive: false });
+  list.addEventListener('touchend', () => endTouchDrag(true));
+  list.addEventListener('touchcancel', () => endTouchDrag(false));
+  // 长按拖动时别弹菜单（安卓长按会触发右键菜单）：在捕获阶段拦下，群的右键菜单也不出来
+  list.addEventListener('contextmenu', (e) => {
+    if (!touch?.on) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+  list.addEventListener('click', (e) => {
+    if (!swallowClick) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
   $('#conv-list').addEventListener('click', (e) => {
     const folderToggle = e.target.closest('[data-folder-toggle]');
     if (folderToggle) {
