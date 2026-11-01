@@ -9,12 +9,12 @@ const REVEAL_LABEL = IS_WIN ? tr('在资源管理器中显示') : tr('在访达�
 // 列举几位时的分隔符：中文用顿号，英文用逗号
 const LIST_SEP = tr('、');
 // 五位固定成员；AGENT_IDS 还包括多开的（比如 ChatGPT2），按服务端的成员表重算（rebuildMembers）
-const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok'];
+const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok', 'cursor'];
 let AGENT_IDS = [...BASE_IDS];
 // 多开的那位是谁的几号：头像、配色、程序都跟本体一样。已经删掉的（老消息里还有）按 id 认：gpt2 就是 ChatGPT 的 2 号
 const cloneInfo = (a) => {
   if (S.agents?.[a]) return S.agents[a].base ? { base: S.agents[a].base, n: S.agents[a].n } : null;
-  const m = String(a || '').match(/^(claude|gpt|deepseek|glm|gemini)([2-9])$/);
+  const m = String(a || '').match(/^(claude|gpt|deepseek|glm|gemini|grok|cursor)([2-9])$/);
   return m ? { base: m[1], n: Number(m[2]) } : null;
 };
 const baseOf = (a) => cloneInfo(a)?.base || a;
@@ -51,6 +51,9 @@ const S = {
   attachments: [], // 待发送的图片
   attachDrafts: new Map(), // 别的会话里还没发出去的图片：会话 key -> 那个会话的 attachments（切回去时放回来）
   engines: {},
+  installing: {}, // 正在安装的程序：engine -> true（安装过程由服务端跑，完成前会推 installing 事件）
+  loggingIn: {}, // 正在等登录的程序：engine -> true
+  loginLinks: {}, // 点过登录后官方命令打印出来的登录网址：engine -> { url, code }（浏览器没自动打开时用）
   usage: {}, // 订阅额度最近一次的用量（Claude、ChatGPT）
   agents: {},
   folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
@@ -129,7 +132,7 @@ function applyTheme(mode) {
 
 // 官方头像（打包时从本机官方应用里取的、启动时从 DeepSeek 官方 GitHub 下载的）在不在：
 // 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
-const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok' };
+const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor' };
 function detectIcons(bust = '') {
   for (const a of BASE_IDS) {
     const img = new Image();
@@ -395,8 +398,8 @@ function agentName(id) {
 
 // 每位用哪个程序；多开的（gpt2）查不到就用本体的
 const byBase = (map) => new Proxy(map, { get: (t, k) => (k in t ? t[k] : t[baseOf(k)]) });
-const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok' });
-const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置'), grok: tr('跟随 Grok Build 的设置') });
+const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor' });
+const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置'), grok: tr('跟随 Grok Build 的设置'), cursor: tr('跟随 Cursor CLI 的设置') });
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
 // 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
@@ -817,6 +820,7 @@ const ENGINE_INFO = [
   { key: 'glm', name: 'GLM', agent: 'glm' },
   { key: 'gemini', name: 'Gemini', agent: 'gemini' },
   { key: 'grok', name: 'Grok Build', agent: 'grok' },
+  { key: 'cursor', name: 'Cursor', agent: 'cursor' },
 ];
 
 function engineState(e, key) {
@@ -835,6 +839,13 @@ function engineState(e, key) {
     if (e.loggedIn === false) return `${v} · ${tr('没登录 Grok 账号（在终端运行 grok login）')}`;
     return `${v}${e.apiKeyWarning ? ` · ${tr('API 配置已隔离')}` : ''}`;
   }
+  if (key === 'cursor') {
+    // Cursor 也是账号登录：装好、登录以后才有模型列表
+    if (!e.path) return tr('没找到，请先安装 Cursor CLI');
+    if (e.loggedIn === false) return `${e.version ? `${esc(e.version)} · ` : ''}${tr('没登录 Cursor 账号（在终端运行 cursor-agent login）')}`;
+    if (!e.ok) return e.error ? esc(e.error) : tr('没找到，请先安装 Cursor CLI');
+    return esc(e.version || tr('已就绪'));
+  }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
   if (e.ok && e.loggedIn === false) return `${esc(e.version || '')} · ${key === 'claude' ? tr('没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）') : tr('没登录 ChatGPT 账号')}`;
   if (!e.ok && e.error) return esc(e.error); // 比如 Codex 太旧：说清楚要升级，别写成「没找到」
@@ -848,43 +859,91 @@ const NEEDS_CLAUDE_CODE = ['claude', 'deepseek', 'glm'];
 const needsClaudeCode = (a) => NEEDS_CLAUDE_CODE.includes(baseOf(a));
 const claudeMissing = () => !!S.engines.claude && !S.engines.claude.path;
 
-function installButtonHtml(cls) {
-  if (S.engines.claude?.path) return `<button class="${cls}" disabled>${tr('已装好 Claude Code')}</button>`;
-  return `<button class="${cls}" data-install="claude"${S.installing ? ' disabled' : ''}>${S.installing ? tr('正在安装 Claude Code…') : tr('安装 Claude Code')}</button>`;
+// 各家的命令行：装的什么、登录要跑什么命令（登录由服务端在电脑上跑，浏览器会自己打开）
+const INSTALL_NAMES = { claude: 'Claude Code', codex: 'Codex', grok: 'Grok Build', cursor: 'Cursor CLI' };
+const LOGIN_NAMES = { codex: 'ChatGPT', grok: 'Grok', cursor: 'Cursor' };
+const CAN_INSTALL = ['claude', 'codex', 'grok', 'cursor'];
+// 登录是在电脑上打开浏览器：手机上点了没用，所以只在电脑上显示登录按钮。
+// 手机横过来可能比 600 宽，所以除了窗口窄，还看是不是触屏
+const isPhone = () => isNarrow() && window.matchMedia('(pointer: coarse)').matches;
+
+function installButtonHtml(cls, engine = 'claude') {
+  const name = INSTALL_NAMES[engine] || engine;
+  const busy = !!S.installing[engine];
+  return `<button class="${cls}" data-install="${esc(engine)}"${busy ? ' disabled' : ''}>${busy ? tr('正在安装 {name}…', { name }) : tr('安装 {name}', { name })}</button>`;
 }
 
 function refreshInstallButtons() {
-  document.querySelectorAll('[data-install]').forEach((b) => (b.outerHTML = installButtonHtml(b.className)));
+  document.querySelectorAll('[data-install]').forEach((b) => (b.outerHTML = installButtonHtml(b.className, b.dataset.install)));
 }
 
-async function installClaudeCode() {
-  if (S.installing || !claudeMissing()) return;
-  S.installing = true;
+// 帮用户装一个程序：用各家官方的安装脚本，装在用户自己的目录里，不用管理员密码
+async function installEngineUI(engine) {
+  const name = INSTALL_NAMES[engine] || engine;
+  if (S.installing[engine] || S.engines[engine]?.path) return;
+  S.installing[engine] = true;
   refreshInstallButtons();
-  toast(tr('正在安装 Claude Code（Anthropic 官方的安装程序），大概要一两分钟…'), 8000);
+  renderEngines();
+  toast(tr('正在安装 {name}（官方的安装程序），大概要一两分钟…', { name }), 8000);
   try {
-    const res = await api('POST', '/api/engines/install', { engine: 'claude' });
+    const res = await api('POST', '/api/engines/install', { engine });
     S.engines = res.engines || S.engines;
     toast(
       res.ok
-        ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
-        : tr('Claude Code 没装上：{output}', { output: res.output || tr('未知错误') }),
+        ? engine === 'claude'
+          ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
+          : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name })
+        : tr('{name} 没装上：{output}', { name, output: res.output || tr('未知错误') }),
       res.ok ? 9000 : 12000,
     );
   } catch (err) {
     toast(err.message, 8000);
   } finally {
-    S.installing = false;
+    S.installing[engine] = false;
     renderEngines();
     renderShell();
     refreshInstallButtons();
+    if ($('#dlg-room')?.open) {
+      updateMemberStates();
+      syncMemberFields(); // 刚装好 / 状态变了，建群提示里的「要装…」跟着更新
+    }
+  }
+}
+
+const installClaudeCode = () => installEngineUI('claude');
+
+// 帮用户登录：服务端在电脑上跑官方的登录命令，它自己会打开浏览器；打印出来的网址我们也记下来，
+// 浏览器没自动打开时界面上有链接可以点。凭证由官方命令行自己保存，ClawChat 不经手
+async function loginEngineUI(engine) {
+  if (S.loggingIn[engine]) return;
+  const name = LOGIN_NAMES[engine] || engine;
+  S.loggingIn[engine] = true;
+  renderEngines();
+  try {
+    const res = await api('POST', '/api/engines/login', { engine });
+    S.engines = res.engines || S.engines;
+    if (res.ok && res.url) {
+      S.loginLinks[engine] = { url: res.url, code: res.code || '' };
+      toast(tr('已经在电脑上打开浏览器：用你的 {name} 账号登录，登完这里会自动变成已就绪。', { name }), 9000);
+    } else if (res.ok && res.done) {
+      toast(tr('{name} 登录好了。', { name }), 5000);
+    } else if (res.ok) {
+      toast(tr('已经打开 {name} 的登录窗口，按里面的提示操作就行。', { name }), 9000);
+    } else {
+      toast(res.error || tr('登录没有开始，可以再点一次。'), 8000);
+    }
+  } catch (err) {
+    toast(err.message, 8000);
+  } finally {
+    S.loggingIn[engine] = false;
+    renderEngines();
   }
 }
 
 // 主动问一次要不要装：启动时检测到没装（问过一次、用户说以后再说就不再自动问）；
 // 填了 DeepSeek / GLM 的 Key、建了要借它的成员的群时，不管问没问过都再问一次
 async function offerClaudeCode(reason = 'start', who = []) {
-  if (!claudeMissing() || S.installing || S.offeringInstall) return;
+  if (!claudeMissing() || S.installing.claude || S.offeringInstall) return;
   if (reason === 'start' && storeGet('clawchat.claudeCodeAsked')) return;
   if (reason === 'start' && $('dialog[open]')) return; // 启动时别的窗口开着就先不打扰；填完 Key（设置窗口还开着）、建完群时照样问，确认框盖在上面
   S.offeringInstall = true;
@@ -907,6 +966,7 @@ function memberReady(a) {
   if (b === 'claude') return !!E.claude?.path && E.claude.loggedIn !== false;
   if (b === 'gpt') return !!E.codex?.path && E.codex.ok !== false && E.codex.loggedIn !== false;
   if (b === 'grok') return !!E.grok?.path && E.grok.ok !== false && E.grok.loggedIn !== false;
+  if (b === 'cursor') return !!E.cursor?.path && E.cursor.ok !== false && E.cursor.loggedIn !== false;
   return !!E[b]?.ok;
 }
 
@@ -945,7 +1005,7 @@ function syncCloneFields() {
       );
     }
     if (!document.querySelector(`.mention-chip[data-who="${a}"]`)) {
-      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok' }[el.dataset.mention]) === info.base).at(-1);
+      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor' }[el.dataset.mention]) === info.base).at(-1);
       after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(name)}" data-who="${esc(a)}" title="@${esc(name)}">${avatarHtml(a)}<span class="chip-name">@${esc(name)}</span></button>`);
       const chip = document.querySelector(`.mention-chip[data-who="${a}"]`);
       if (chip) chip.onclick = () => insertMention(name);
@@ -965,31 +1025,50 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI', cursor: 'Anysphere' };
+  // 登录完成了（或者换了程序）：之前留下的登录网址收起来
+  for (const k of Object.keys(S.loginLinks)) {
+    const en = S.engines[k];
+    if (!en?.path || en.loggedIn !== false) delete S.loginLinks[k];
+  }
   $('#set-engines').innerHTML = ENGINE_INFO.map(({ key, name, agent }) => {
     const e = S.engines[key];
+    const installed = !!e?.path;
+    const loggedOut = installed && e?.loggedIn === false;
+    const busyLogin = !!S.loggingIn[key];
+    const link = S.loginLinks[key];
     const bad = BYOK[key]
-      ? !e?.path
+      ? !installed
         ? tr('缺 Claude Code')
         : !e?.hasKey
           ? tr('没填 Key')
           : tr('Key 不对')
-      : key === 'grok'
-        ? !e?.path
-          ? tr('没找到')
-          : e.ok
-            ? ''
-            : tr('还没配好')
-        : !e?.path
-          ? tr('没找到')
-          : e.error
+      : !installed
+        ? tr('没找到')
+        : loggedOut
+          ? tr('没登录')
+          : e?.error
             ? tr('版本太旧')
-            : tr('没找到');
-    const status = e ? (e.ok ? `<span class="status ok">${tr('已就绪')}</span>` : `<span class="status bad">${bad}</span>`) : `<span class="status">${tr('检测中…')}</span>`;
-    // DeepSeek 用的就是 Claude Code，更新放在 Claude Code 那一行
-    return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small></span>${status}${
-      (e?.ok || (key === 'codex' && e?.error) || (key === 'grok' && e?.error && e?.path)) && !BYOK[key] && key !== 'gemini' ? `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>` : e && !e.path && (key === 'claude' || BYOK[key]) ? installButtonHtml('secondary') : ''
-    }</div>`;
+            : tr('还没配好');
+    const status = !e
+      ? `<span class="status">${tr('检测中…')}</span>`
+      : e.ok && !loggedOut
+        ? `<span class="status ok">${tr('已就绪')}</span>`
+        : busyLogin || link
+          ? `<span class="status wait">${tr('等待登录…')}</span>`
+          : `<span class="status bad">${bad}</span>`;
+    // 没装：给「安装」；装了没登录：给「登录」（登录是在电脑上开浏览器，手机上不显示）；都好了：给「更新」
+    // DeepSeek、GLM 用的是 Claude Code，安装按钮装的是 Claude Code，更新放在 Claude Code 那一行
+    let action = '';
+    if (CAN_INSTALL.includes(key) && !installed) action = installButtonHtml('secondary', key);
+    else if (BYOK[key] && !installed) action = installButtonHtml('secondary', 'claude');
+    else if (loggedOut && LOGIN_NAMES[key] && !isPhone()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
+    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
+    // 浏览器没自动打开时：官方命令打印出来的登录网址（有验证码的话一起显示）
+    const extra = link && loggedOut
+      ? `<small class="engine-login-hint">${link.code ? `${tr('验证码 {code} · ', { code: esc(link.code) })}` : ''}<a href="${esc(link.url)}" target="_blank" rel="noopener">${tr('浏览器没打开？点这里')}</a></small>`
+      : '';
+    return `<div class="list-row">${avatarHtml(agent)}<span class="row-text"><b>${name}</b><small>${maker[key]} · ${engineState(e, key)}</small>${extra}</span>${status}${action}</div>`;
   }).join('');
   // Grok 的登录状态和计费说明：登录过期、配置里有 API Key 都要提醒
   const gnote = $('#grok-note');
@@ -1975,7 +2054,7 @@ function renderShell() {
   if (dm || !group) closeAtPanel();
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok' }[b.dataset.mention];
+    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   renderTargets(room, dm);
@@ -3397,11 +3476,16 @@ function handleEvent(ev) {
       renderEngines();
       renderShell(); // 模型列表可能多了新模型
       refreshInstallButtons();
+      if ($('#dlg-room')?.open) {
+        updateMemberStates();
+        syncMemberFields(); // 登录、安装完成时，建群提示跟着更新
+      }
       offerClaudeCode('start');
       break;
     case 'installing':
-      S.installing = !!ev.on;
+      S.installing[ev.engine] = !!ev.on;
       refreshInstallButtons();
+      renderEngines();
       break;
     case 'restarting':
       showRestarting();
@@ -3614,7 +3698,7 @@ const MENTION_SEP = '\u2003';
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
 // @ 谁认的写法：按成员表生成（多开的 ChatGPT2 也认，长的写法排前面），和 lib/hub.js 的 mentionTables 一致
 const ALL_WORDS = '所有人|全体成员|全体|大家|all|everyone';
-const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'], grok: ['grok', '格罗克'] };
+const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'], grok: ['grok', '格罗克'], cursor: ['cursor'] };
 let MENTION_WHO = {};
 let MENTION_SHOW_RE, MENTION_TAIL_RE, MENTION_MSG_RE, MENTION_TAG_RE;
 function buildMentionRes() {
@@ -3724,6 +3808,7 @@ const BASE_MENTION_ITEMS = [
   { id: 'glm', label: 'GLM', sub: tr('智谱'), insert: 'GLM', keys: ['glm', '智谱', 'zhipu', 'bigmodel'] },
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
   { id: 'grok', label: 'Grok', sub: 'xAI', insert: 'Grok', keys: ['grok', '格罗克', 'xai'] },
+  { id: 'cursor', label: 'Cursor', sub: 'Anysphere', insert: 'Cursor', keys: ['cursor'] },
   { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 // 多开的排在本体后面
@@ -4496,7 +4581,7 @@ async function submitCustomModel(e) {
 
 // 一键更新 Claude Code / Codex：新模型常常要新版本才看得到
 async function updateEngine(engine, btn) {
-  const name = { codex: 'Codex', grok: 'Grok Build' }[engine] || 'Claude Code';
+  const name = { codex: 'Codex', grok: 'Grok Build', cursor: 'Cursor CLI' }[engine] || 'Claude Code';
   btn.disabled = true;
   btn.textContent = tr('更新中…');
   try {
@@ -5301,16 +5386,33 @@ function syncMemberFields() {
   for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
   refreshSpeedField();
   formField('name').placeholder = members.length === 1 ? tr('留空就叫「{name}」', { name: agentLabel(members[0]) }) : tr('比如：今天争取不加班');
-  // 勾了还不能用的成员，提前说一声（不拦着，先建好也行）
-  const ds = S.engines.deepseek;
+  // 勾了还不能用的成员，提前说一声（不拦着，先建好也行）；没装的直接给「安装」按钮
   const hint = $('#member-hint');
-  hint.textContent = !members.includes('deepseek') || !ds || ds.ok
-    ? ''
-    : !ds.path
-      ? tr('DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。')
-      : tr('DeepSeek 还没填 API Key：建好后在「设置 → 程序与模型」里填一下就能用。');
-  hint.hidden = !hint.textContent;
+  hint.innerHTML = memberHintHtml(members);
+  hint.hidden = !hint.textContent.trim();
   return members;
+}
+
+// 群设置里提示：勾上的成员缺什么。没装的给一键安装的按钮，没登录的说清去哪登录
+function memberHintHtml(members) {
+  const rows = [];
+  const has = (b) => members.some((a) => baseOf(a) === b);
+  // Claude、DeepSeek、GLM 都要借 Claude Code，没装就一起说
+  const needs = NEEDS_CLAUDE_CODE.filter(has);
+  if (needs.length && claudeMissing()) {
+    rows.push(`${esc(tr('Claude Code 是 {names} 干活必需的，这台电脑还没装：', { names: needs.map(agentName).join(LIST_SEP) }))} ${installButtonHtml('secondary', 'claude')}`);
+  }
+  const ds = S.engines.deepseek;
+  if (has('deepseek') && ds && !claudeMissing() && !ds.hasKey) rows.push(esc(tr('DeepSeek 还没填 API Key：建好后在「设置 → 程序与模型」里填一下就能用。')));
+  for (const b of ['gpt', 'grok', 'cursor']) {
+    if (!has(b)) continue;
+    const key = AGENT_ENGINE[b];
+    const e = S.engines[key];
+    if (!e) continue;
+    if (!e.path) rows.push(`${esc(tr('{name} 要装 {bin} 才能用：', { name: agentName(b), bin: INSTALL_NAMES[key] }))} ${installButtonHtml('secondary', key)}`);
+    else if (e.loggedIn === false) rows.push(esc(tr('{name} 还没登录：到「设置 → 程序与模型」里点「登录」。', { name: agentName(b) })));
+  }
+  return rows.join('<br>');
 }
 
 // 新建聊天时默认勾上能用的成员；一个都不能用（比如还在检测）就勾 Claude 和 GPT。
@@ -5332,6 +5434,7 @@ function memberIssue(a) {
   if (b === 'gpt') return !E.codex?.path ? tr('没装') : E.codex.error ? tr('要升级 Codex') : E.codex.loggedIn === false ? tr('没登录') : '';
   if (b === 'gemini') return E.gemini?.ok ? '' : E.gemini?.path ? tr('还没配好') : tr('没装');
   if (b === 'grok') return !E.grok?.path ? tr('没装') : E.grok.loggedIn === false ? tr('没登录') : E.grok.error ? tr('要升级 Grok') : '';
+  if (b === 'cursor') return !E.cursor?.path ? tr('没装') : E.cursor.loggedIn === false ? tr('没登录') : E.cursor.error ? tr('要升级 Cursor') : '';
   const e = E[b];
   if (!e?.hasKey) return tr('还没填 API Key');
   if (!E.claude?.path) return tr('没装 Claude Code');
@@ -5989,10 +6092,13 @@ function bind() {
   });
   $('#set-engines').addEventListener('click', (e) => {
     const b = e.target.closest('.engine-update');
-    if (b) updateEngine(b.dataset.engine, b);
+    if (b) return updateEngine(b.dataset.engine, b);
+    const l = e.target.closest('[data-login]');
+    if (l) loginEngineUI(l.dataset.login);
   });
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-install]:not([disabled])')) installClaudeCode();
+    const b = e.target.closest('[data-install]:not([disabled])');
+    if (b) installEngineUI(b.dataset.install || 'claude'); // 设置里的安装按钮、建群提示里的安装按钮都走这里
   });
   $('#custom-model-form').addEventListener('submit', submitCustomModel);
   $('#btn-custom-cancel').onclick = () => closeDialog($('#dlg-model'));
