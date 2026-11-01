@@ -251,3 +251,17 @@ test('转接器：忘掉记忆后，之前记下的思考（内存和磁盘）�
   await call(history, { token: apiBridgeToken('room-f:api') });
   assert.equal(lastBody.messages[1].reasoning_content, undefined, '清之后才回来的思考不写回');
 });
+
+test('转接器：只清某一位时，同群另一位 API 成员正在等的回答照常记下思考', async () => {
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
+  let release;
+  script = (req, res) => new Promise((r) => { release = () => { sse(res, [delta({ reasoning_content: 'API2 的思考' }), delta({ tool_calls: [{ index: 0, id: 'k2', function: { name: 'Bash', arguments: '{}' } }] }), delta({}, 'tool_calls')]); r(); }; });
+  const pending = call({ tools }, { token: apiBridgeToken('room-h:api2') });
+  while (!release) await new Promise((r) => setTimeout(r, 10));
+  forgetApiReasoning('room-h', 'api'); // 只清 API（1 号）
+  release();
+  await pending;
+  script = (req, res) => sse(res, [delta({ content: 'ok' }), delta({}, 'stop')]);
+  await call({ tools, messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: [{ type: 'tool_use', id: 'k2', name: 'Bash', input: {} }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k2', content: 'r' }] }] }, { token: apiBridgeToken('room-h:api2') });
+  assert.equal(lastBody.messages[1].reasoning_content, 'API2 的思考');
+});
