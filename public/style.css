@@ -227,7 +227,9 @@ html.native #sidebar { background: var(--side-native); }
 .side-head { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 10px 0 16px; flex: none; }
 html.native .side-head { padding-left: 80px; }
 html.native .logo { visibility: hidden; }
-.logo { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.logo { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 7px; }
+/* 顶栏的 ClawChat 图标（液态玻璃气泡，和 App 图标同一张）：手机、安卓 APK、桌面浏览器的顶栏都显示；Mac 外壳里整行隐藏 */
+.logo-mark { width: 22px; height: 22px; flex: none; background: url(/favicon.png) center / contain no-repeat; }
 .icon-btn {
   border: 0; background: transparent; width: 30px; height: 28px; border-radius: 6px;
   display: grid; place-items: center; color: var(--muted); flex: none;
