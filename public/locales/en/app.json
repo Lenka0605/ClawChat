@@ -272,7 +272,7 @@
   "留空就叫「{name}」": "Leave empty to name it “{name}”",
   "比如：今天争取不加班": "e.g. No overtime today",
   "DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。": "DeepSeek runs on Claude Code, which isn't installed on this computer yet.",
-  "DeepSeek 还没填 API Key：建好后点左下角「设置 → 程序与模型」填一下就能用。": "DeepSeek has no API key yet. After creating the chat, add one in Settings → Engines & Models (bottom left).",
+  "DeepSeek 还没填 API Key：建好后在「设置 → 程序与模型」里填一下就能用。": "DeepSeek has no API key yet. After creating the chat, add one in Settings → Engines & Models.",
   "聊天设置": "Chat Settings",
   "群设置": "Group Settings",
   "新建聊天": "New Chat",

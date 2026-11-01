@@ -2617,8 +2617,10 @@ function renderStopControls(conv) {
   const box = $('#stop-controls');
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
-  // 窄屏上「停止」出现后要给 @ 名字让位置：CSS 靠这个类先把「接着上一位」收起来
-  document.querySelector('.composer-tools')?.classList.toggle('has-stop', runs.length > 0);
+  // 窄屏上「停止」出现后要给 @ 名字让位置：CSS 靠这两个类决定什么时候先把「接着上一位」收起来
+  const tools = document.querySelector('.composer-tools');
+  tools?.classList.toggle('has-stop', runs.length > 0);
+  tools?.classList.toggle('has-stop-all', runs.length > 1);
   const who = (r) => (r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent));
   if (runs.length === 1) {
     const r = runs[0];
@@ -5005,7 +5007,7 @@ function syncMemberFields() {
     ? ''
     : !ds.path
       ? tr('DeepSeek 要借 Claude Code 干活，这台电脑还没装 Claude Code。')
-      : tr('DeepSeek 还没填 API Key：建好后点左下角「设置 → 程序与模型」填一下就能用。');
+      : tr('DeepSeek 还没填 API Key：建好后在「设置 → 程序与模型」里填一下就能用。');
   hint.hidden = !hint.textContent;
   return members;
 }

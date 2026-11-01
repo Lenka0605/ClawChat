@@ -1670,7 +1670,12 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   #btn-new svg { width: 20px; height: 20px; }
 }
 
-/* 窄屏（比如 320 宽）同时又在干活：一行放不下这么多，先藏「不 @ 时」，把位置留给 @ 名字和停止 */
+/* 窄屏同时又在干活：一行放不下「@ 名字 + 接着谁（带名字）+ 停止」，先把「不 @ 时」收起来，
+   把位置留给 @ 名字和停止；停下以后它会自动回来。
+   393 宽只有一个「停止」时还放得下，两位同时干活（「全部停止」更长）才收。 */
+@media (max-width: 430px) {
+  .composer-tools.has-stop-all .target { display: none; }
+}
 @media (max-width: 360px) {
   .composer-tools.has-stop .target { display: none; }
 }
