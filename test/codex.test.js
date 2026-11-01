@@ -34,7 +34,8 @@ const clearLog = () => fs.rmSync(process.env.FAKE_CODEX_RPC_LOG, { force: true }
 async function until(check) {
   const start = Date.now();
   while (!check()) {
-    assert.ok(Date.now() - start < 5000, '等待假进程超时');
+    // 放宽到 15 秒：整套测试是多文件并行的，机器忙时轮询会慢；check 不满足照样挂，不放过真问题
+    assert.ok(Date.now() - start < 15000, '等待假进程超时');
     await new Promise((r) => setTimeout(r, 10));
   }
 }
@@ -350,14 +351,23 @@ test('Codex 经 Hub：结构化上下文超限会自动换会话恢复，不需�
 
 test('Codex 经 Hub 完整收发：老板、同事的插话进同一回合，只发一次回复，退出重载后还能续聊', async () => {
   clearLog();
+  const savedSecs = process.env.FAKE_CODEX_SECS;
+  process.env.FAKE_CODEX_SECS = '10'; // 让假 ChatGPT 干久一点：两条插话的回执来得及赶上同一轮，不受别的测试抢 CPU 影响
   const store = new Store();
   const r = store.createRoom({ ...room, name: '完整插话', members: ['gpt', 'claude'], collab: true });
   const hub = new Hub(store, { imageBytes: async () => 0 });
-  hub.postUserMessage(r.id, '@ChatGPT 开工');
-  await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'run'));
-  hub.postUserMessage(r.id, '@ChatGPT 老板的补充');
-  hub.deliver(r.id, 'claude', '@ChatGPT 同事的补充', false, {});
-  await until(() => !hub.runs.size && !hub.wanted.size);
+  try {
+    hub.postUserMessage(r.id, '@ChatGPT 开工');
+    await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'run'));
+    hub.postUserMessage(r.id, '@ChatGPT 老板的补充');
+    hub.deliver(r.id, 'claude', '@ChatGPT 同事的补充', false, {});
+    // 先等插话的回执到（过程里会出现「收到新消息」这一步）；回执没赶上时插话会排成下一轮，下面的条数断言照样能抓住
+    await until(() => hub.runs.get(hub.key(r.id, 'gpt'))?.steps.some((s) => s.kind === 'say') || (!hub.runs.size && !hub.wanted.size));
+    await until(() => !hub.runs.size && !hub.wanted.size);
+  } finally {
+    if (savedSecs === undefined) delete process.env.FAKE_CODEX_SECS;
+    else process.env.FAKE_CODEX_SECS = savedSecs;
+  }
   const messages = store.getMessages(r.id).filter((m) => m.from === 'gpt');
   assert.equal(messages.length, 1);
   assert.match(messages[0].text, /中途收到 2 条新消息/);

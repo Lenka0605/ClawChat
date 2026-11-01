@@ -77,7 +77,9 @@ test('Gemini：停止真实的假进程后，首轮失败的会话不能进入�
     hub.postUserMessage(room.id, '这一轮要停止');
     await Promise.race([activity, new Promise((_, reject) => setTimeout(() => reject(new Error('假进程没有启动')), 3000).unref())]);
     hub.stop(room.id, 'gemini');
-    const end = Date.now() + 3000;
+    // 停止要结束整棵进程树：清理本身允许全量 ps 快照轮询最多 3 秒 + 确认 1 秒（lib/processes.js），
+    // 机器忙时会更慢，这里等 10 秒，验证的是「停得掉」，不是秒级精度
+    const end = Date.now() + 10000;
     while (hub.runs.size) {
       assert.ok(Date.now() < end, '停止后子进程必须及时结束');
       await new Promise((resolve) => setTimeout(resolve, 10));
