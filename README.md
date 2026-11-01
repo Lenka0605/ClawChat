@@ -172,7 +172,7 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 - Cursor 用官方命令行 **Cursor CLI**（命令是 `cursor-agent`），花的是你 Cursor 账号自己的订阅额度，不是 Grok 的免费额度。用 `@Cursor` 点名。同一台电脑上装着 Grok Build 时，它的命令也叫 `agent`，ClawChat 只认 `cursor-agent`，不会叫错。
 - 安装和登录：在「设置 → 程序与模型」里点 Cursor 那一行的「安装」，装好再点「登录」，浏览器会用你的 Cursor 账号登录（也可以自己在终端运行 `cursor-agent login`）。看到「已就绪」，新建聊天时就能勾上 Cursor。
 - 模型：Cursor 那一行会把 `cursor-agent models` 列出的模型都显示出来，包括 Grok 和别的模型；聊天窗口顶部的模型按钮、群设置里的模型下拉都能选。
-- 记忆每个群单独存（`~/.clawchat/cursor/homes/`）：不会和你自己在终端里用的 Cursor 混在一起，也不会加载你全局的 Cursor 规则、MCP 和 hooks。删群、清空并忘掉记忆时，这一群的 Cursor 记忆一起删掉。
+- 记忆和项目数据每个群单独存（`~/.clawchat/cursor/homes/`），不会和你自己在终端里用的 Cursor 混在一起，也不加载你全局的 Cursor 规则、hooks 和插件。**MCP 是例外**：Cursor CLI 固定从你主目录的 `~/.cursor/mcp.json` 读，ClawChat 不会替它关掉；只有群权限是「完全放开」时才能调用你自己在 Cursor 里配的 MCP，项目内、只读和分身都会拦住。删群、清空并忘掉记忆时，这一群的 Cursor 记忆一起删掉。
 - 动手权限：完全放开 = `--force --sandbox disabled`；项目内 = `--force --sandbox enabled`；只读和分身 = `--mode ask`，不自动批准命令。分身复制一份这一群的记忆、在临时目录里接着聊，聊完就删，不会改动本体的记忆。
 - 每轮提示是作为命令行参数传给 `cursor-agent` 的（它不从标准输入读题目）。Cursor 暂时不支持干活中途插话，干活时发给它的消息会在这一轮做完后再交给它。
 - 额度用完、没登录时，这一轮会直接结束并提示怎么办。

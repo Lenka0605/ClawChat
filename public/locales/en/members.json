@@ -57,5 +57,5 @@
   "浏览器没打开？点这里": "Browser didn't open? Click here",
   "Claude Code 是 {names} 干活必需的，这台电脑还没装：": "Claude Code is required for {names}, but it isn't installed:",
   "{name} 要装 {bin} 才能用：": "{name} needs {bin} to work:",
-  "{name} 还没登录：到「设置 → 程序与模型」里点「登录」。": "{name} isn't signed in. Go to Settings → Programs & Models and click “Sign In”."
+  "{name} 还没登录：登录要在电脑上做，打开「设置 → 程序与模型」点「登录」。": "{name} isn't signed in. Signing in has to happen on the computer: open Settings → Programs & Models and click “Sign In”."
 }

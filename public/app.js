@@ -864,8 +864,8 @@ const INSTALL_NAMES = { claude: 'Claude Code', codex: 'Codex', grok: 'Grok Build
 const LOGIN_NAMES = { codex: 'ChatGPT', grok: 'Grok', cursor: 'Cursor' };
 const CAN_INSTALL = ['claude', 'codex', 'grok', 'cursor'];
 // 登录是在电脑上打开浏览器：手机上点了没用，所以只在电脑上显示登录按钮。
-// 手机横过来可能比 600 宽，所以除了窗口窄，还看是不是触屏
-const isPhone = () => isNarrow() && window.matchMedia('(pointer: coarse)').matches;
+// 判断的是「页面是不是在这台电脑上打开的」（127.0.0.1 / localhost），不按窗口宽度：
+// 手机横过来比 600 宽，但它是经 Tailscale 连进来的，地址不是本机，照样不显示。
 
 function installButtonHtml(cls, engine = 'claude') {
   const name = INSTALL_NAMES[engine] || engine;
@@ -1062,7 +1062,7 @@ function renderEngines() {
     let action = '';
     if (CAN_INSTALL.includes(key) && !installed) action = installButtonHtml('secondary', key);
     else if (BYOK[key] && !installed) action = installButtonHtml('secondary', 'claude');
-    else if (loggedOut && LOGIN_NAMES[key] && !isPhone()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
+    else if (loggedOut && LOGIN_NAMES[key] && isLocalHost()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
     else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
     // 浏览器没自动打开时：官方命令打印出来的登录网址（有验证码的话一起显示）
     const extra = link && loggedOut
@@ -5410,7 +5410,7 @@ function memberHintHtml(members) {
     const e = S.engines[key];
     if (!e) continue;
     if (!e.path) rows.push(`${esc(tr('{name} 要装 {bin} 才能用：', { name: agentName(b), bin: INSTALL_NAMES[key] }))} ${installButtonHtml('secondary', key)}`);
-    else if (e.loggedIn === false) rows.push(esc(tr('{name} 还没登录：到「设置 → 程序与模型」里点「登录」。', { name: agentName(b) })));
+    else if (e.loggedIn === false) rows.push(esc(tr('{name} 还没登录：登录要在电脑上做，打开「设置 → 程序与模型」点「登录」。', { name: agentName(b) })));
   }
   return rows.join('<br>');
 }
