@@ -51,6 +51,7 @@ const S = {
   attachments: [], // 待发送的图片
   attachDrafts: new Map(), // 别的会话里还没发出去的图片：会话 key -> 那个会话的 attachments（切回去时放回来）
   engines: {},
+  usage: {}, // 订阅额度最近一次的用量（Claude、ChatGPT）
   agents: {},
   folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
   defaults: {},
@@ -1029,6 +1030,109 @@ function renderEngines() {
   }).join('');
   // 欢迎页「和 XX 单聊」：这台电脑上用不了的（没装、没登录、没填 Key）不出现
   document.querySelectorAll('[data-solo]').forEach((b) => (b.hidden = !memberReady(b.dataset.solo)));
+}
+
+// ---------------- 订阅用量（设置 → 程序与模型最上面） ----------------
+// 数据是 Claude Code / Codex 自己带回来的最近一次额度；DeepSeek、GLM 走 API，不显示。
+const USAGE_AGENTS = [
+  { agent: 'claude', key: 'claude' },
+  { agent: 'gpt', key: 'codex' },
+  { agent: 'gemini' },
+  { agent: 'grok' },
+];
+
+function usagePlanName(plan) {
+  const known = { plus: 'Plus', pro: 'Pro', team: 'Team', business: 'Business', enterprise: 'Enterprise', free: 'Free', edu: 'Edu', max: 'Max' };
+  return known[String(plan || '').toLowerCase()] || String(plan || '');
+}
+
+function usageWindowName(w) {
+  if (w.key === 'five_hour') return tr('5 小时');
+  if (w.key === 'seven_day') return tr('本周');
+  if (w.key === 'seven_day_opus') return tr('本周 Opus');
+  if (w.key === 'seven_day_sonnet') return tr('本周 Sonnet');
+  const minutes = Number(w.windowMinutes) || (/^\d+m$/.test(w.key) ? Number(w.key.slice(0, -1)) : 0);
+  return minutes ? tr('{n} 分钟', { n: minutes }) : String(w.key || '');
+}
+
+function usagePercentText(pct) {
+  const n = Number(pct) || 0;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+function usageResetText(ms) {
+  if (!ms) return '';
+  const left = ms - Date.now();
+  if (left <= 0) return tr('即将重置');
+  const minutes = Math.ceil(left / 60000);
+  if (minutes < 60) return tr('{n} 分钟后重置', { n: minutes });
+  const hours = Math.ceil(left / 3600000);
+  if (hours < 24) return tr('{n} 小时后重置', { n: hours });
+  return tr('{n} 天后重置', { n: Math.ceil(left / 86400000) });
+}
+
+function usageAgo(ms) {
+  if (!ms) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (minutes < 1) return tr('刚刚更新');
+  if (minutes < 60) return tr('{n} 分钟前更新', { n: minutes });
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? tr('{n} 小时前更新', { n: hours }) : tr('{n} 天前更新', { n: Math.round(hours / 24) });
+}
+
+function usageRowHtml(agent, key) {
+  const d = key ? S.usage?.[key] : null;
+  const plan = d?.plan ? `<span class="usage-plan">${esc(usagePlanName(d.plan))}</span>` : '';
+  const head = `<div class="list-row top usage-row">${avatarHtml(agent)}<span class="row-text"><span class="usage-name"><b>${esc(agentName(agent))}</b>${plan}</span>`;
+  if (!key) return `${head}<small class="usage-empty">${tr('暂时看不到余量')}</small></span></div>`;
+  const credits = d?.credits;
+  const windows = (Array.isArray(d?.windows) ? [...d.windows] : []).sort((a, b) => {
+    const order = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet'];
+    const ia = order.indexOf(a.key);
+    const ib = order.indexOf(b.key);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  if (!windows.length && !credits) return `${head}<small class="usage-empty">${tr('还没跑过，跑一轮后显示')}</small></span></div>`;
+  const bars = windows
+    .map((w) => {
+      // 重置时间已经过了：下一次跑之前就按 0 显示，别一直挂着「已用 100%」
+      const expired = !!w.resetsAt && w.resetsAt <= Date.now();
+      const pct = expired ? 0 : Math.max(0, Math.min(100, Number(w.usedPercent) || 0));
+      const level = pct >= 100 ? ' bad' : pct >= 80 ? ' warn' : '';
+      const reset = expired ? tr('已重置') : usageResetText(w.resetsAt);
+      return `<span class="usage-window"><span class="usage-window-head"><span class="usage-label">${esc(usageWindowName(w))}</span><span class="usage-pct${level}">${esc(tr('已用 {pct}%', { pct: usagePercentText(pct) }))}</span>${reset ? `<span class="usage-reset">· ${esc(reset)}</span>` : ''}</span><span class="usage-bar${level}"><i style="width:${pct.toFixed(1)}%"></i></span></span>`;
+    })
+    .join('');
+  let extra = '';
+  if (credits) {
+    const text = credits.unlimited
+      ? tr('额外点数不限')
+      : credits.balance !== null && credits.balance !== undefined && Number.isFinite(Number(credits.balance))
+        ? tr('额外点数余额 {n}', { n: Math.round(Number(credits.balance)) })
+        : credits.hasCredits
+          ? tr('还有额外点数')
+          : tr('额外点数已用完');
+    extra = `<small class="usage-credits">${esc(text)}</small>`;
+  }
+  const ago = usageAgo(d?.updatedAt);
+  return `${head}<span class="usage-windows">${bars}</span>${extra}${ago ? `<small class="usage-updated">${esc(ago)}</small>` : ''}</span></div>`;
+}
+
+function renderUsage() {
+  const box = $('#usage-list');
+  if (!box) return;
+  const title = $('#usage-title');
+  if (title) title.textContent = tr('订阅用量');
+  const hint = $('#usage-hint');
+  if (hint) hint.textContent = tr('数字是 AI 最近一次干活时官方工具带回来的；DeepSeek、GLM 按 API 收费，不显示余量。');
+  box.innerHTML = USAGE_AGENTS.map(({ agent, key }) => usageRowHtml(agent, key)).join('');
+}
+
+async function refreshUsage() {
+  try {
+    S.usage = (await api('GET', '/api/usage')) || {};
+    renderUsage();
+  } catch {}
 }
 
 function convAvatar(c) {
@@ -2773,6 +2877,7 @@ function applyState(st) {
   rebuildMembers();
   S.defaults = st.defaults || {};
   S.engines = st.engines || {};
+  S.usage = st.usage || {};
   S.projectsDir = st.projectsDir || '';
   S.queued = st.queued || [];
   setRuns(st.runs || []);
@@ -3228,6 +3333,10 @@ function handleEvent(ev) {
       setRuns(ev.runs || []);
       renderConvs();
       keepBottom(renderLive);
+      break;
+    case 'usage':
+      S.usage = ev.usage || {};
+      renderUsage();
       break;
     case 'agents':
       S.agents = ev.agents || {};
@@ -4435,6 +4544,13 @@ async function openSettings(tab = 'general') {
   reportDragRegions();
   showSettingsTab(tab);
   renderEngines();
+  renderUsage();
+  if (tab === 'engines') refreshUsage();
+  clearInterval(renderUsage.timer);
+  renderUsage.timer = setInterval(() => {
+    if (!$('#dlg-settings')?.open) return clearInterval(renderUsage.timer);
+    renderUsage();
+  }, 60000);
   refreshRemote();
   try {
     const info = await api('GET', '/api/app');

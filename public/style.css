@@ -1074,6 +1074,25 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
 .usage-bar.bad > i { background: var(--danger); }
 .row-text small.fresh-tip { margin-top: 2px; line-height: 1.45; opacity: 0.85; }
 
+/* 订阅用量：设置 → 程序与模型最上面的那一组 */
+.usage-row { align-items: flex-start; }
+.usage-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.usage-plan {
+  font-size: 10px; line-height: 1.5; color: var(--muted); background: var(--fill);
+  border-radius: 6px; padding: 0 6px; font-weight: 400;
+}
+.usage-empty { color: var(--muted); font-size: 11px; padding-top: 3px; }
+.usage-windows { display: grid; gap: 8px; margin-top: 7px; }
+.usage-window-head { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.usage-label { color: var(--text); font-weight: 500; }
+.usage-pct { color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-pct.warn { color: #ff9f0a; }
+.usage-pct.bad { color: var(--danger); }
+.usage-reset { color: var(--faint); }
+.usage-windows .usage-bar { max-width: none; width: 100%; margin: 4px 0 0; }
+.usage-credits { color: var(--muted); margin-top: 7px; }
+.usage-updated { color: var(--faint); margin-top: 5px; }
+
 /* 软件更新：像 macOS 的「软件更新」那样一张卡片 */
 .update-hero {
   display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--group); border-radius: 12px; box-shadow: 0 0 0 0.5px var(--line);
