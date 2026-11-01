@@ -9,12 +9,12 @@ const REVEAL_LABEL = IS_WIN ? tr('在资源管理器中显示') : tr('在访达�
 // 列举几位时的分隔符：中文用顿号，英文用逗号
 const LIST_SEP = tr('、');
 // 五位固定成员；AGENT_IDS 还包括多开的（比如 ChatGPT2），按服务端的成员表重算（rebuildMembers）
-const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok', 'cursor'];
+const BASE_IDS = ['claude', 'gpt', 'deepseek', 'glm', 'gemini', 'grok', 'cursor', 'api'];
 let AGENT_IDS = [...BASE_IDS];
 // 多开的那位是谁的几号：头像、配色、程序都跟本体一样。已经删掉的（老消息里还有）按 id 认：gpt2 就是 ChatGPT 的 2 号
 const cloneInfo = (a) => {
   if (S.agents?.[a]) return S.agents[a].base ? { base: S.agents[a].base, n: S.agents[a].n } : null;
-  const m = String(a || '').match(/^(claude|gpt|deepseek|glm|gemini|grok|cursor)([2-9])$/);
+  const m = String(a || '').match(/^(claude|gpt|deepseek|glm|gemini|grok|cursor|api)([2-9])$/);
   return m ? { base: m[1], n: Number(m[2]) } : null;
 };
 const baseOf = (a) => cloneInfo(a)?.base || a;
@@ -132,7 +132,7 @@ function applyTheme(mode) {
 
 // 官方头像（打包时从本机官方应用里取的、启动时从 DeepSeek 官方 GitHub 下载的）在不在：
 // 在就给 <html> 加上 icon-gpt 这样的标记，CSS 用它把头像底色换成透明 / 白色，不然图标圆角外会露出一圈深色底
-const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor' };
+const ICON_FILE = { claude: 'claude', gpt: 'gpt', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor', api: 'api' };
 function detectIcons(bust = '') {
   for (const a of BASE_IDS) {
     const img = new Image();
@@ -398,8 +398,8 @@ function agentName(id) {
 
 // 每位用哪个程序；多开的（gpt2）查不到就用本体的
 const byBase = (map) => new Proxy(map, { get: (t, k) => (k in t ? t[k] : t[baseOf(k)]) });
-const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor' });
-const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置'), grok: tr('跟随 Grok Build 的设置'), cursor: tr('跟随 Cursor CLI 的设置') });
+const AGENT_ENGINE = byBase({ claude: 'claude', gpt: 'codex', deepseek: 'deepseek', glm: 'glm', gemini: 'gemini', grok: 'grok', cursor: 'cursor', api: 'api' });
+const DEFAULT_HINT = byBase({ claude: tr('跟随 Claude Code 的设置'), gpt: tr('跟随 Codex 的设置'), deepseek: tr('又快又便宜，能看图'), glm: tr('智谱的 GLM'), gemini: tr('跟随当前 CLI 的设置'), grok: tr('跟随 Grok Build 的设置'), cursor: tr('跟随 Cursor CLI 的设置'), api: tr('跟随平台的默认模型') });
 // 这几位是自己填 API Key、借 Claude Code 干活的（不是本机装好的命令行）
 const BYOK = { deepseek: true, glm: true };
 // 设置里要填 API Key 的几位（Gemini 的 Key 是可选的：不填就用 Gemini CLI 自己的登录）
@@ -409,7 +409,9 @@ const KEY_TARGETS = ['deepseek', 'glm', 'gemini'];
 function modelOptions(agent) {
   const e = S.engines[AGENT_ENGINE[agent]] || {};
   const label = e.defaultLabel || (e.defaultModel ? modelLabel(e.defaultModel) : '');
-  const def = { id: '', name: label ? tr('默认 · {label}', { label }) : tr('默认'), description: DEFAULT_HINT[agent] || '' };
+  const defModel = (e.models || []).find((m) => m.id === (e.defaultModel || e.models?.[0]?.id));
+  // 「默认」那项也带上能不能看图，菜单里才不会少一个图标
+  const def = { id: '', name: label ? tr('默认 · {label}', { label }) : tr('默认'), description: DEFAULT_HINT[agent] || '', vision: defModel?.vision };
   return [def, ...(e.models || [])];
 }
 
@@ -821,6 +823,7 @@ const ENGINE_INFO = [
   { key: 'gemini', name: 'Gemini', agent: 'gemini' },
   { key: 'grok', name: 'Grok Build', agent: 'grok' },
   { key: 'cursor', name: 'Cursor', agent: 'cursor' },
+  { key: 'api', name: 'API', agent: 'api' },
 ];
 
 function engineState(e, key) {
@@ -846,6 +849,17 @@ function engineState(e, key) {
     if (!e.ok) return e.error ? esc(e.error) : tr('没找到，请先安装 Cursor CLI');
     return esc(e.version || tr('已就绪'));
   }
+  if (key === 'api') {
+    // API 是「填一个 OpenAI 兼容平台的地址和 Key」：两样都填好、平台也连得上才算能用
+    if (!e.hasKey) {
+      if (S.engines.claude && !S.engines.claude.path) return tr('要先装 Claude Code，再填接口地址和 API Key');
+      return e.base ? tr('地址已填，还差 API Key') : tr('还没填接口地址和 API Key');
+    }
+    if (!e.base) return tr('还没填接口地址');
+    if (!e.ok) return e.keyError ? esc(e.keyError) : tr('连不上这个平台，检查一下地址和 Key');
+    const host = String(e.base || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    return `${host ? esc(host) : tr('已填')}${e.models?.length ? ` · ${tr('{n} 个模型', { n: e.models.length })}` : ''}`;
+  }
   if (BYOK[key]) return !e.path ? tr('要先装 Claude Code') : !e.hasKey ? tr('还没填 API Key') : e.ok ? tr('API Key 已填（{hint}）', { hint: esc(e.keyHint) }) : tr('API Key 不对');
   if (e.ok && e.loggedIn === false) return `${esc(e.version || '')} · ${key === 'claude' ? tr('没登录 Claude 账号（DeepSeek、GLM 照样能借它干活）') : tr('没登录 ChatGPT 账号')}`;
   if (!e.ok && e.error) return esc(e.error); // 比如 Codex 太旧：说清楚要升级，别写成「没找到」
@@ -855,7 +869,7 @@ function engineState(e, key) {
 // 程序状态：侧栏底部两个小点、欢迎页一行字、设置里的「程序与模型」
 // ---------------- 没装 Claude Code：说明哪几位要借它干活，用户点了就帮他装 ----------------
 // Claude、DeepSeek、GLM 都要借 Claude Code（DeepSeek、GLM 只借它的工具，不用登录 Claude 账号）
-const NEEDS_CLAUDE_CODE = ['claude', 'deepseek', 'glm'];
+const NEEDS_CLAUDE_CODE = ['claude', 'deepseek', 'glm', 'api'];
 const needsClaudeCode = (a) => NEEDS_CLAUDE_CODE.includes(baseOf(a));
 const claudeMissing = () => !!S.engines.claude && !S.engines.claude.path;
 
@@ -888,12 +902,21 @@ async function installEngineUI(engine) {
   try {
     const res = await api('POST', '/api/engines/install', { engine });
     S.engines = res.engines || S.engines;
+    // 刚装好、还没登录时服务端会自动打开一次登录页（只在电脑本机上）：像点了「登录」那样把网址接过来
+    const login = res.login;
+    if (res.ok && login?.url) S.loginLinks[engine] = { url: login.url, code: login.code || '' };
     toast(
-      res.ok
-        ? engine === 'claude'
+      !res.ok
+        ? tr('{name} 没装上：{output}', { name, output: res.output || tr('未知错误') })
+        : engine === 'claude'
           ? tr('Claude Code 装好了：DeepSeek、GLM 现在就能干活。要用 Claude 的话，还要在终端运行一次 claude 登录 Claude 账号。')
-          : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name })
-        : tr('{name} 没装上：{output}', { name, output: res.output || tr('未知错误') }),
+          : login?.url
+            ? tr('{name} 装好了，已经在电脑上打开浏览器：登录以后这里会自动变成已就绪。', { name })
+            : login?.ok
+              ? tr('{name} 装好了，登录窗口也打开了：按里面的提示操作就行。', { name })
+              : login
+                ? tr('{name} 装好了，但登录页没能自动打开：{error}。点旁边的「登录」再试一次。', { name, error: login.error || tr('没有说明原因') })
+                : tr('{name} 装好了：点旁边的「登录」，在打开的浏览器里登录一下就能用。', { name }),
       res.ok ? 9000 : 12000,
     );
   } catch (err) {
@@ -967,6 +990,7 @@ function memberReady(a) {
   if (b === 'gpt') return !!E.codex?.path && E.codex.ok !== false && E.codex.loggedIn !== false;
   if (b === 'grok') return !!E.grok?.path && E.grok.ok !== false && E.grok.loggedIn !== false;
   if (b === 'cursor') return !!E.cursor?.path && E.cursor.ok !== false && E.cursor.loggedIn !== false;
+  if (b === 'api') return !!E.api?.ok;
   return !!E[b]?.ok;
 }
 
@@ -1005,7 +1029,7 @@ function syncCloneFields() {
       );
     }
     if (!document.querySelector(`.mention-chip[data-who="${a}"]`)) {
-      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor' }[el.dataset.mention]) === info.base).at(-1);
+      const after = [...document.querySelectorAll('.mention-chip')].filter((el) => (el.dataset.who ? baseOf(el.dataset.who) : { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor', API: 'api' }[el.dataset.mention]) === info.base).at(-1);
       after?.insertAdjacentHTML('afterend', `<button class="chip mention-chip" data-mention="${esc(name)}" data-who="${esc(a)}" title="@${esc(name)}">${avatarHtml(a)}<span class="chip-name">@${esc(name)}</span></button>`);
       const chip = document.querySelector(`.mention-chip[data-who="${a}"]`);
       if (chip) chip.onclick = () => insertMention(name);
@@ -1025,7 +1049,7 @@ function renderEngines() {
     const e = S.engines[key];
     return `<div class="engine"><span class="dot ${e ? (e.ok ? 'ok' : 'bad') : ''}"></span>${tr('{name}：{state}', { name, state: engineState(e, key) })}</div>`;
   }).join('');
-  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI', cursor: 'Anysphere' };
+  const maker = { claude: 'Anthropic', codex: 'OpenAI', deepseek: tr('深度求索 · 借 Claude Code 干活'), glm: tr('智谱 · 借 Claude Code 干活'), gemini: `Google · ${S.engines.gemini?.cli === 'agy' ? 'Antigravity' : 'Gemini CLI'}`, grok: 'xAI', cursor: 'Anysphere', api: tr('OpenAI 兼容') };
   // 登录完成了（或者换了程序）：之前留下的登录网址收起来
   for (const k of Object.keys(S.loginLinks)) {
     const en = S.engines[k];
@@ -1037,13 +1061,19 @@ function renderEngines() {
     const loggedOut = installed && e?.loggedIn === false;
     const busyLogin = !!S.loggingIn[key];
     const link = S.loginLinks[key];
-    const bad = BYOK[key]
-      ? !installed
-        ? tr('缺 Claude Code')
-        : !e?.hasKey
-          ? tr('没填 Key')
-          : tr('Key 不对')
-      : !installed
+    const bad = key === 'api'
+      ? !e?.hasKey
+        ? tr('没填 Key')
+        : !e?.base
+          ? tr('没填地址')
+          : tr('连不上')
+      : BYOK[key]
+        ? !installed
+          ? tr('缺 Claude Code')
+          : !e?.hasKey
+            ? tr('没填 Key')
+            : tr('Key 不对')
+        : !installed
         ? tr('没找到')
         : loggedOut
           ? tr('没登录')
@@ -1063,7 +1093,7 @@ function renderEngines() {
     if (CAN_INSTALL.includes(key) && !installed) action = installButtonHtml('secondary', key);
     else if (BYOK[key] && !installed) action = installButtonHtml('secondary', 'claude');
     else if (loggedOut && LOGIN_NAMES[key] && isLocalHost()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
-    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
+    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini' && key !== 'api') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
     // 浏览器没自动打开时：官方命令打印出来的登录网址（有验证码的话一起显示）
     const extra = link && loggedOut
       ? `<small class="engine-login-hint">${link.code ? `${tr('验证码 {code} · ', { code: esc(link.code) })}` : ''}<a href="${esc(link.url)}" target="_blank" rel="noopener">${tr('浏览器没打开？点这里')}</a></small>`
@@ -1101,12 +1131,37 @@ function renderEngines() {
             : tr('没填 Key：走订阅要先装 Antigravity CLI（agy）；也可以在这里填 Gemini API Key，按用量计费。')
           : tr('还没填。填好后，新建聊天时勾上 {name} 就能用了。', { name: agentName(id) });
   }
+  // API：地址 + Key，单独一节
+  const api = S.engines.api;
+  const apiStatus = $('#api-status');
+  if (apiStatus) {
+    apiStatus.className = `hint${api?.hasKey && !api.ok ? ' error' : ''}`;
+    apiStatus.textContent = !api
+      ? ''
+      : !api.hasKey
+        ? api.base
+          ? tr('地址已填：{base}。还差 API Key，填好再点保存。', { base: api.base })
+          : tr('还没填。填好后，新建聊天时勾上 API 就能用了。')
+        : !api.ok
+          ? !api.base
+            ? tr('还没填接口地址：填好再点保存。')
+            : tr('Key 不对或者连不上：{error}。检查一下接口地址和 Key，再点保存。', { error: api.keyError || tr('没有说明原因') })
+          : tr('已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。', { base: api.base || '', n: (api.models || []).length });
+    const baseEl = $('#api-base');
+    if (baseEl && document.activeElement !== baseEl) baseEl.value = api?.base || '';
+  }
   $('#set-models').innerHTML = ENGINE_INFO.map(({ agent }) => {
     const opts = modelOptions(agent).filter((o) => o.id); // 「默认」单独说明，这里只列模型
     const eng = S.engines[AGENT_ENGINE[agent]] || {};
     const def = eng.defaultLabel || (eng.defaultModel ? modelLabel(eng.defaultModel) : tr('默认'));
-    return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>${tr('默认用 {model}', { model: esc(def) })}</small>
-      <span class="model-list">${opts.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('')}</span></span></div>`;
+    // 模型多的（平台的 API 有二十几个）只列前 12 个，后面收成「+N」，鼠标停上去看全部
+    const shown = opts.slice(0, 12);
+    const pills = shown.map((o) => `<span class="model-pill" title="${esc(o.description || '')}">${esc(o.name)}</span>`).join('') +
+      (opts.length > shown.length ? `<span class="model-pill more" title="${esc(opts.slice(shown.length).map((o) => o.name).join('、'))}">+${opts.length - shown.length}</span>` : '');
+    // API 还没填地址和 Key 时模型列表是空的：别显示「默认用 默认」
+    const empty = agent === 'api' && !eng.hasKey;
+    return `<div class="list-row top">${avatarHtml(agent)}<span class="row-text"><b>${agentName(agent)}</b><small>${empty ? tr('还没填接口地址和 API Key') : tr('默认用 {model}', { model: esc(def) })}</small>
+      ${empty ? '' : `<span class="model-list">${pills}</span>`}</span></div>`;
   }).join('');
   // 欢迎页「和 XX 单聊」：这台电脑上用不了的（没装、没登录、没填 Key）不出现
   document.querySelectorAll('[data-solo]').forEach((b) => (b.hidden = !memberReady(b.dataset.solo)));
@@ -2054,7 +2109,7 @@ function renderShell() {
   if (dm || !group) closeAtPanel();
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
-    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor' }[b.dataset.mention];
+    const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok', Cursor: 'cursor', API: 'api' }[b.dataset.mention];
     b.hidden = id ? !room.members.includes(id) : false;
   });
   renderTargets(room, dm);
@@ -2067,6 +2122,7 @@ function renderShell() {
 
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
   syncToolsRow();
+  renderVisionHint(); // 换了聊天、换了模型：图片提醒跟着更新
   fitHead();
   requestAnimationFrame(reportDragRegions);
 }
@@ -3563,7 +3619,98 @@ function renderAttachments() {
   for (const a of S.attachments) a.fresh = false; // 进场动画只播一次
   updateSendButton();
   saveAttachDrafts();
+  renderVisionHint(); // 挂了图：看看这次要回话的模型能不能看图
 }
+
+// ---------------- 图片和模型能不能看图 ----------------
+// 这条消息实际会发给谁：跟着 @ 名单、回复对象、群设置里的「不 @ 时发给」走，和 lib/hub.js 的规则一致
+function composeTargets(conv) {
+  const room = conv.room;
+  if (conv.dm) return [conv.dm];
+  if (room.members.length === 1) return [...room.members];
+  const tokens = mentionTokens($('#input').value || '');
+  if (tokens.some((t) => t.who === 'all')) return [...room.members];
+  const named = [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && room.members.includes(a)))];
+  if (named.length) return named;
+  if (S.replyTo && room.members.includes(S.replyTo.from)) return [S.replyTo.from];
+  if (room.defaultTarget === 'last') {
+    const last = lastSpeakerOf(room); // 还没人说过话：服务端会发给所有人
+    return last ? [last] : [...room.members];
+  }
+  if (room.defaultTarget === 'all' || room.defaultTarget === 'sequential') return [...room.members];
+  return room.members.includes(room.defaultTarget) ? [room.defaultTarget] : [...room.members];
+}
+
+// 某位现在用的模型（私聊里可能单独设过）：有没有 vision 这个字段，true / false / null
+function modelInfoFor(agent, room) {
+  const eng = S.engines[AGENT_ENGINE[agent]] || {};
+  const list = eng.models || [];
+  const id = (room?.models?.[agent] || '') || eng.defaultModel || '';
+  return list.find((m) => m.id === id) || list.find((m) => m.id === eng.defaultModel) || list[0] || null;
+}
+
+function hasVisionAlternative(agent, room) {
+  const list = S.engines[AGENT_ENGINE[agent]]?.models || [];
+  const cur = modelInfoFor(agent, room);
+  return list.some((m) => m.vision === true && m.id !== cur?.id);
+}
+
+// 挂了图片、这一条又要发给看不了图的模型时，在附件下面提醒一句；不拦发送
+function renderVisionHint() {
+  const box = $('#vision-hint');
+  if (!box) return;
+  const conv = currentConv();
+  const hasImages = S.attachments.some((a) => a.status === 'done');
+  if (!conv || !hasImages) {
+    box.hidden = true;
+    return;
+  }
+  const targets = composeTargets(conv);
+  const cant = [];
+  const unknown = [];
+  for (const a of targets) {
+    const m = modelInfoFor(a, convRoom(conv, a));
+    if (m?.vision === false) cant.push({ agent: a, model: m });
+    else if (m?.vision === null) unknown.push({ agent: a, model: m });
+  }
+  if (!cant.length && !unknown.length) {
+    box.hidden = true;
+    return;
+  }
+  const names = (arr) => arr.map((x) => agentName(x.agent)).join(LIST_SEP);
+  const modelName = (x) => x.model.name || x.model.id;
+  const lines = [];
+  if (cant.length) {
+    lines.push(
+      cant.length === 1
+        ? tr('{name} 现在用的「{model}」看不了图片，发过去它只会收到图片的文件路径。', { name: agentName(cant[0].agent), model: modelName(cant[0]) })
+        : tr('{names} 看不了图片，发过去只会收到图片的文件路径。', { names: names(cant) }),
+    );
+  }
+  if (unknown.length) {
+    lines.push(
+      unknown.length === 1
+        ? tr('还不确定「{model}」能不能看图：图片会照常发过去，没反应到图里的内容就是没看到。', { model: modelName(unknown[0]) })
+        : tr('{names} 能不能看图还不确定：图片会照常发过去。', { names: names(unknown) }),
+    );
+  }
+  box.className = `vision-hint${cant.length ? ' warn' : ''}`;
+  box.innerHTML = lines.map((x) => `<span>${esc(x)}</span>`).join('<br>');
+  // 只有一位收件人、而且有能看图的模型可选时，给个「换模型」的入口
+  const one = targets.length === 1 ? targets[0] : null;
+  if (one && hasVisionAlternative(one, convRoom(conv, one))) {
+    box.insertAdjacentHTML('beforeend', `<button type="button" class="vision-switch" data-vision-switch="${esc(one)}">${tr('换成能看图的模型')}</button>`);
+  }
+  box.hidden = false;
+}
+
+// 点「换成能看图的模型」：打开这一位的模型菜单；窄窗口里它收在「模型」按钮里，就点那个
+function openModelMenuFor(agent) {
+  const chip = document.querySelector(`#model-switch [data-menu="${agent}"]`);
+  if (chip && chip.offsetParent) return openModelMenu(agent, chip);
+  document.querySelector('#model-switch [data-model-more]')?.click();
+}
+
 
 function clearAttachments() {
   for (const a of S.attachments) URL.revokeObjectURL(a.url);
@@ -3698,7 +3845,7 @@ const MENTION_SEP = '\u2003';
 const cleanMentions = (s) => String(s).replace(new RegExp(`@${MENTION_GAP}`, 'g'), '@').replace(new RegExp(MENTION_SEP, 'g'), ' ');
 // @ 谁认的写法：按成员表生成（多开的 ChatGPT2 也认，长的写法排前面），和 lib/hub.js 的 mentionTables 一致
 const ALL_WORDS = '所有人|全体成员|全体|大家|all|everyone';
-const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'], grok: ['grok', '格罗克'], cursor: ['cursor'] };
+const BASE_ALIASES = { claude: ['claude', '克劳德'], gpt: ['chatgpt', 'gpt', 'codex'], deepseek: ['deepseek', '深度求索'], glm: ['glm', '智谱'], gemini: ['gemini', '谷歌'], grok: ['grok', '格罗克'], cursor: ['cursor'], api: ['api'] };
 let MENTION_WHO = {};
 let MENTION_SHOW_RE, MENTION_TAIL_RE, MENTION_MSG_RE, MENTION_TAG_RE;
 function buildMentionRes() {
@@ -3809,6 +3956,7 @@ const BASE_MENTION_ITEMS = [
   { id: 'gemini', label: 'Gemini', sub: 'Google', insert: 'Gemini', keys: ['gemini', '谷歌', 'google'] },
   { id: 'grok', label: 'Grok', sub: 'xAI', insert: 'Grok', keys: ['grok', '格罗克', 'xai'] },
   { id: 'cursor', label: 'Cursor', sub: 'Anysphere', insert: 'Cursor', keys: ['cursor'] },
+  { id: 'api', label: 'API', sub: tr('OpenAI 兼容'), insert: 'API', keys: ['api'] },
   { id: 'all', label: tr('所有人'), sub: tr('大家一起'), insert: ALL_WORD, keys: ['所有人', 'all', 'everyone', '大家', '全体', 'suoyouren'] },
 ];
 // 多开的排在本体后面
@@ -4046,11 +4194,13 @@ function startReply(seq) {
   $('#reply-hint').textContent = m.from !== 'user' && !solo ? tr('只有 {name} 会回复', { name: agentName(m.from) }) : '';
   $('#reply-bar').hidden = false;
   $('#input').focus();
+  renderVisionHint(); // 回复某一位时，这条只会发给它：图片提醒跟着换
 }
 
 function cancelReply() {
   S.replyTo = null;
   $('#reply-bar').hidden = true;
+  renderVisionHint();
 }
 
 async function jumpTo(seq) {
@@ -4438,6 +4588,17 @@ function modelChipHtml(a, room) {
     effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
+// 模型能不能看图的小标记：true 能看（眼睛）、false 看不了（眼睛划掉）、null 还不确定（淡一点的眼睛）。
+// 没有这个字段（比如 Codex 的模型目录里没写）就什么都不画，别乱标。
+const EYE_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.6-6.2 9.5-6.2S21.5 12 21.5 12s-3.6 6.2-9.5 6.2S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
+const EYE_OFF_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.6-6.2 9.5-6.2S21.5 12 21.5 12s-3.6 6.2-9.5 6.2S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/><path d="m4 4 16 16"/></svg>';
+function visionMarkHtml(vision) {
+  if (vision === true) return `<span class="vision-mark" title="${esc(tr('能看图'))}">${EYE_SVG}</span>`;
+  if (vision === false) return `<span class="vision-mark off" title="${esc(tr('看不了图片：发过去它只会收到文件路径'))}">${EYE_OFF_SVG}</span>`;
+  if (vision === null) return `<span class="vision-mark unknown" title="${esc(tr('还不确定能不能看图'))}">${EYE_SVG}</span>`;
+  return '';
+}
+
 function menuItemHtml(attrs, label, sub, checked) {
   return `<button class="menu-item" role="menuitemradio" aria-checked="${checked}" ${attrs}><span class="menu-check">${checked ? CHECK_SVG : ''}</span><span class="menu-text"><span class="menu-label">${label}</span>${
     sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
@@ -4465,7 +4626,7 @@ function openModelMenu(agent, chip) {
     if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', tr('恢复成和群聊一样'), '', false) + '<div class="menu-sep"></div>';
   }
   html += `<div class="menu-section">${tr('模型')}</div>`;
-  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, esc(o.name), descForUi(o.description), o.id === cur)).join('');
+  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, `${esc(o.name)}${visionMarkHtml(o.vision)}`, descForUi(o.description), o.id === cur)).join('');
   html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, tr('自定义模型…'), '', false);
   const efforts = effortsFor(agent, cur);
   if (efforts.length || room.efforts?.[agent]) {
@@ -5282,6 +5443,41 @@ async function saveProviderKey(id) {
   renderShell();
 }
 
+// API：填一个 OpenAI 兼容平台的地址和 Key。服务端先读出模型列表试试，能用才存
+async function saveApiKey() {
+  const baseEl = $('#api-base');
+  const keyEl = $('#api-key');
+  const btn = $('#btn-api-save');
+  btn.disabled = true;
+  btn.textContent = tr('检查中…');
+  const base = baseEl.value.trim();
+  const key = keyEl.value.trim();
+  try {
+    if (!base && key) throw new Error(tr('先填接口地址（到 /v1 为止），再填 Key'));
+    // 地址清空、Key 也空着 = 删掉；只改地址、Key 空着 = 保留原来的 Key（服务端收到不带 key 的请求就保留）
+    const body = { base };
+    if (key) body.key = key;
+    if (!base) body.key = '';
+    const res = await api('POST', '/api/api/key', body);
+    S.engines = res.engines || S.engines;
+    keyEl.value = '';
+    toast(
+      res.warning ||
+        (!base ? tr('已删掉 API 的地址和 Key') : key ? tr('API 的地址和 Key 已保存，可以用了') : tr('接口地址已保存')),
+      4000,
+    );
+    if (S.engines.api?.hasKey) setTimeout(() => offerClaudeCode('key', ['api']), 600); // 借来干活的 Claude Code 还没装的话问一下
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = tr('保存');
+  }
+  renderEngines();
+  $('#model-switch')._html = null; // 模型列表可能变了
+  renderShell();
+}
+
 // 彻底退出（Windows 和浏览器里用）：后台服务也停掉
 async function quitApp() {
   const btn = $('#btn-quit');
@@ -5412,6 +5608,12 @@ function memberHintHtml(members) {
     if (!e.path) rows.push(`${esc(tr('{name} 要装 {bin} 才能用：', { name: agentName(b), bin: INSTALL_NAMES[key] }))} ${installButtonHtml('secondary', key)}`);
     else if (e.loggedIn === false) rows.push(esc(tr('{name} 还没登录：登录要在电脑上做，打开「设置 → 程序与模型」点「登录」。', { name: agentName(b) })));
   }
+  // API：填了地址和 Key 没填、或者连不上，说一声
+  const api = S.engines.api;
+  if (has('api') && api) {
+    if (!api.hasKey) rows.push(esc(tr('API 还没填接口地址和 API Key：建好后在「设置 → 程序与模型」里填一下就能用。')));
+    else if (!api.ok) rows.push(esc(tr('API 连不上：{error}', { error: !api.base ? tr('还没填接口地址') : api.keyError || tr('检查一下地址和 Key') })));
+  }
   return rows.join('<br>');
 }
 
@@ -5435,6 +5637,13 @@ function memberIssue(a) {
   if (b === 'gemini') return E.gemini?.ok ? '' : E.gemini?.path ? tr('还没配好') : tr('没装');
   if (b === 'grok') return !E.grok?.path ? tr('没装') : E.grok.loggedIn === false ? tr('没登录') : E.grok.error ? tr('要升级 Grok') : '';
   if (b === 'cursor') return !E.cursor?.path ? tr('没装') : E.cursor.loggedIn === false ? tr('没登录') : E.cursor.error ? tr('要升级 Cursor') : '';
+  if (b === 'api') {
+    if (!E.api) return '';
+    if (!E.api.hasKey) return tr('还没填 API Key');
+    if (!E.claude?.path) return tr('没装 Claude Code');
+    if (!E.api.base) return tr('还没填地址');
+    return E.api.ok ? '' : tr('连不上平台');
+  }
   const e = E[b];
   if (!e?.hasKey) return tr('还没填 API Key');
   if (!E.claude?.path) return tr('没装 Claude Code');
@@ -6083,6 +6292,12 @@ function bind() {
       if (e.key === 'Enter' && !e.isComposing) saveProviderKey(id);
     });
   }
+  $('#btn-api-save').onclick = saveApiKey;
+  for (const id of ['api-base', 'api-key']) {
+    $(`#${id}`)?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) saveApiKey();
+    });
+  }
   $('#btn-quit').onclick = quitApp;
   document.addEventListener('keydown', (e) => {
     if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
@@ -6099,6 +6314,8 @@ function bind() {
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-install]:not([disabled])');
     if (b) installEngineUI(b.dataset.install || 'claude'); // 设置里的安装按钮、建群提示里的安装按钮都走这里
+    const v = e.target.closest('[data-vision-switch]');
+    if (v) openModelMenuFor(v.dataset.visionSwitch); // 图片提醒里的「换成能看图的模型」
   });
   $('#custom-model-form').addEventListener('submit', submitCustomModel);
   $('#btn-custom-cancel').onclick = () => closeDialog($('#dlg-model'));
@@ -6328,6 +6545,7 @@ function bind() {
   window.addEventListener('drop', (e) => e.preventDefault());
 
   input.addEventListener('input', autoGrow);
+  input.addEventListener('input', renderVisionHint); // @ 了谁会让这条消息换了收件人
   input.addEventListener('input', () => {
     clearTimeout(saveDraft.timer);
     saveDraft.timer = setTimeout(() => saveDraft(S.current), 400);

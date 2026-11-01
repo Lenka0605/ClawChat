@@ -57,5 +57,8 @@
   "浏览器没打开？点这里": "Browser didn't open? Click here",
   "Claude Code 是 {names} 干活必需的，这台电脑还没装：": "Claude Code is required for {names}, but it isn't installed:",
   "{name} 要装 {bin} 才能用：": "{name} needs {bin} to work:",
-  "{name} 还没登录：登录要在电脑上做，打开「设置 → 程序与模型」点「登录」。": "{name} isn't signed in. Signing in has to happen on the computer: open Settings → Programs & Models and click “Sign In”."
+  "{name} 还没登录：登录要在电脑上做，打开「设置 → 程序与模型」点「登录」。": "{name} isn't signed in. Signing in has to happen on the computer: open Settings → Programs & Models and click “Sign In”.",
+  "{name} 装好了，已经在电脑上打开浏览器：登录以后这里会自动变成已就绪。": "{name} is installed and the browser has opened on this computer. Once you sign in, this row will show Ready.",
+  "{name} 装好了，登录窗口也打开了：按里面的提示操作就行。": "{name} is installed and the sign-in window is open. Follow the prompts there.",
+  "{name} 装好了，但登录页没能自动打开：{error}。点旁边的「登录」再试一次。": "{name} is installed, but the sign-in page couldn't open automatically: {error}. Click “Sign In” next to it to try again."
 }

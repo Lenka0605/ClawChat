@@ -69,6 +69,7 @@
             <button class="link-btn" data-solo="gemini">和 Gemini 单聊</button>
             <button class="link-btn" data-solo="grok">和 Grok 单聊</button>
             <button class="link-btn" data-solo="cursor">和 Cursor 单聊</button>
+            <button class="link-btn" data-solo="api">和 API 单聊</button>
           </div>
           <div id="welcome-engines" class="welcome-engines"></div>
         </div>
@@ -131,6 +132,7 @@
               <button class="chip mention-chip" data-mention="Gemini" title="@Gemini"><span class="avatar av-gemini"></span><span class="chip-name">@Gemini</span></button>
               <button class="chip mention-chip" data-mention="Grok" title="@Grok"><span class="avatar av-grok"></span><span class="chip-name">@Grok</span></button>
               <button class="chip mention-chip" data-mention="Cursor" title="@Cursor"><span class="avatar av-cursor"></span><span class="chip-name">@Cursor</span></button>
+              <button class="chip mention-chip" data-mention="API" title="@API"><span class="avatar av-api"></span><span class="chip-name">@API</span></button>
               <button class="chip mention-chip" data-mention="所有人" title="@所有人"><span class="chip-stack" id="mention-all-icons"></span><span class="chip-name">@所有人</span></button>
             </span>
             <label class="target" title="不 @ 人或者 @所有人 时，大家怎么接"><span class="target-label">不 @ 时</span>
@@ -148,6 +150,7 @@
             </button>
           </div>
           <div id="attachments" class="attachments" hidden></div>
+          <div id="vision-hint" class="vision-hint" hidden></div>
           <div class="composer-row">
             <button id="btn-image" class="round-btn" title="发送图片（也可以直接粘贴或拖进来）" aria-label="发送图片">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="3"/><circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="m4 17.5 5-5 4 4 2.5-2.5 4.5 4.5"/></svg>
@@ -202,6 +205,7 @@
             <label class="member"><input type="checkbox" name="memberGemini"><span class="avatar av-gemini"></span><span class="member-name">Gemini<small>Google</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGrok"><span class="avatar av-grok"></span><span class="member-name">Grok<small>xAI</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberCursor"><span class="avatar av-cursor"></span><span class="member-name">Cursor<small>Anysphere</small></span><span class="check-mark"></span></label>
+            <label class="member"><input type="checkbox" name="memberApi"><span class="avatar av-api"></span><span class="member-name">API<small>OpenAI 兼容</small></span><span class="check-mark"></span></label>
             <button type="button" class="member-add" id="btn-clone-add"><span class="member-add-plus" aria-hidden="true">＋</span><span id="btn-clone-add-text"></span></button>
             <div class="clone-picker" id="clone-picker" hidden></div>
           </div>
@@ -255,6 +259,8 @@
               <span class="model-pair"><select name="modelGrok" data-pair="grok"></select><span class="pair-sep">思考</span><select name="effortGrok"></select></span></div>
             <div class="form-row" id="field-model-cursor"><span class="with-icon"><span class="avatar av-cursor"></span>Cursor</span>
               <span class="model-pair"><select name="modelCursor" data-pair="cursor"></select><span class="pair-sep">思考</span><select name="effortCursor"></select></span></div>
+            <div class="form-row" id="field-model-api"><span class="with-icon"><span class="avatar av-api"></span>API</span>
+              <span class="model-pair"><select name="modelApi" data-pair="api"></select><span class="pair-sep">思考</span><select name="effortApi"></select></span></div>
           </div>
         </section>
         <section class="form-section" id="speed-fields" hidden>
@@ -432,6 +438,19 @@
             <p class="hint" id="gemini-status"></p>
             <p class="hint">订阅（Google AI Pro / Ultra）：Key 留空，用 Antigravity CLI 跑，消耗订阅额度，用完要等恢复。个人订阅已经不能再用 Gemini CLI。</p>
             <p class="hint">API：填 Gemini API Key（在 Google AI Studio 创建），按用量计费。Key 只存在这台电脑上。</p>
+          </section>
+          <section class="form-section">
+            <h3>API</h3>
+            <div class="group-box">
+              <label class="form-row"><span>接口地址</span><input id="api-base" placeholder="https://…/v1" autocomplete="off" spellcheck="false"></label>
+              <div class="form-row">
+                <span>API Key</span>
+                <span class="row"><input id="api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false"><button id="btn-api-save" class="secondary">保存</button></span>
+              </div>
+            </div>
+            <p class="hint" id="api-status"></p>
+            <p class="hint">填任何 OpenAI 兼容平台的地址（到 /v1 为止）和 Key，模型列表、能不能看图都从平台读。API 借 Claude Code 干活，所以要装好 Claude Code，但不用登录 Claude 账号。</p>
+            <p class="hint">内容会经过该平台，平台可能记录提问。Key 只存在这台电脑上。</p>
           </section>
           <section class="form-section">
             <h3>现在能用的模型</h3>
