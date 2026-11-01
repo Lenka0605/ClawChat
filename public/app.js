@@ -1417,6 +1417,7 @@ function ctxItemHtml(label, item) {
 }
 
 function openCtxMenu(items, x, y) {
+  delete $('#ctx-menu').dataset.for; // 是哪个按钮打开的：打开的那个按钮再点一下就收起（由调用方在打开后标上）
   const menu = $('#ctx-menu');
   const sub = $('#ctx-sub');
   sub.hidden = true;
@@ -3015,8 +3016,16 @@ function enterMobileChat(key, { fromHistory = false } = {}) {
 function bindMobileViewport() {
   const vv = window.visualViewport;
   const sync = () => {
-    if (!isNarrow()) return void document.documentElement.style.removeProperty('--vvh');
-    document.documentElement.style.setProperty('--vvh', `${Math.round(vv?.height || window.innerHeight)}px`);
+    const root = document.documentElement.style;
+    if (!isNarrow()) {
+      root.removeProperty('--vvh');
+      root.removeProperty('--vvtop');
+      return;
+    }
+    // iPhone 弹键盘时，看得见的那块区域（visual viewport）会变矮，整页还会被往上推一截（offsetTop）：
+    // 界面按它的高度缩、再挪到它的位置上，输入框正好贴着键盘，中间不会空出一大段
+    root.setProperty('--vvh', `${Math.round(vv?.height || window.innerHeight)}px`);
+    root.setProperty('--vvtop', `${Math.round(vv?.offsetTop || 0)}px`);
     if (document.activeElement === $('#input') && S.pinned) scrollToBottom();
   };
   if (vv) {
@@ -5490,7 +5499,8 @@ function bind() {
     openRoomMenu(conv.roomId, e.clientX, e.clientY);
   });
   document.addEventListener('mousedown', (e) => {
-    if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub')) closeMenus();
+    // 按在打开这个菜单的按钮上：先别关，交给按钮的点击来切换（不然这里刚关上，点击又把它打开，看着像「刷一下又打开了」）
+    if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub, [data-model-more], [data-dm-menu]')) closeMenus();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeMenus();
@@ -5511,6 +5521,8 @@ function bind() {
     const modelMore = e.target.closest('[data-model-more]');
     if (modelMore) {
       const conv = currentConv();
+      // 菜单开着、又点了这个按钮：收起来
+      if (!$('#ctx-menu').hidden && $('#ctx-menu').dataset.for === 'model') return void closeMenus();
       if (conv && !conv.dm) {
         const r = modelMore.getBoundingClientRect();
         const room = conv.room;
@@ -5522,6 +5534,7 @@ function bind() {
           Math.round(r.left),
           Math.round(r.bottom + 6),
         );
+        $('#ctx-menu').dataset.for = 'model';
       }
       return;
     }
@@ -5529,12 +5542,14 @@ function bind() {
     if (more) {
       const conv = currentConv();
       const r = more.getBoundingClientRect();
+      if (!$('#ctx-menu').hidden && $('#ctx-menu').dataset.for === 'dm') return void closeMenus();
       if (conv && !conv.dm) {
         openCtxMenu(
           conv.room.members.map((a) => ({ label: tr('私聊 {name}', { name: agentLabel(a) }), act: () => openConv(`d:${conv.roomId}:${a}`) })),
           Math.round(r.right),
           Math.round(r.bottom + 6),
         );
+        $('#ctx-menu').dataset.for = 'dm';
       }
       return;
     }

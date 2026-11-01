@@ -1506,7 +1506,9 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 /* ---------- 手机版（≤600 宽）：单页切换，先看聊天列表，点进去全屏聊天 ---------- */
 #btn-back { display: none; }
 @media (max-width: 600px) {
-  #app { height: var(--vvh, 100dvh); }
+  /* 固定在看得见的那块区域里：键盘弹起时整页被往上推，界面跟着挪过去，不会在输入框和键盘之间空出一大段 */
+  html, body { overflow: hidden; overscroll-behavior: none; }
+  #app { position: fixed; left: 0; right: 0; top: var(--vvtop, 0px); height: var(--vvh, 100dvh); }
   #sidebar {
     width: 100%;
     border-right: 0;
