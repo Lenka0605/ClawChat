@@ -1958,3 +1958,22 @@ test('群里的分身还没回完、本体私聊那一轮先做完了：分身�
   groupRun.finish('看完了');
   await settle(hub);
 });
+
+test('换了新会话：带上的历史记录里以前的图只给路径，只有新发来的图整张附上（不然新会话一开始就很重）', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner(() => '好');
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt'] });
+  hub.postUserMessage(room.id, '@ChatGPT 看这张旧图', [{ id: 'old.png', type: 'image/png' }]);
+  await settle(hub);
+  assert.equal(calls.at(-1).images.length, 1, '第一次照常附上');
+  assert.equal(hub.resetAgent(room.id, 'gpt', 'boss'), 'reset');
+  hub.postUserMessage(room.id, '@ChatGPT 再看这张新图', [{ id: 'new.png', type: 'image/png' }]);
+  await settle(hub);
+  const fresh = calls.at(-1);
+  assert.equal(fresh.agent, 'gpt');
+  assert.equal(fresh.session, null, '是新会话');
+  assert.deepEqual(fresh.images.map((i) => path.basename(i.path)), ['new.png'], '只附上新图');
+  assert.match(fresh.prompt, /看这张旧图 〔图片：.*old\.png〕/, '旧图只给路径');
+  assert.match(fresh.prompt, /以前发过的图片只给了文件路径/);
+});
