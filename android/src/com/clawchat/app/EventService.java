@@ -29,6 +29,7 @@ public class EventService extends Service {
     private static final String CH_REPLY = "replies";
     private static final int ONGOING_ID = 1;
     private static final String ACTION_STOP = "com.clawchat.app.STOP";
+    static final boolean BuildConfig_DEBUG = false; // 排查问题时临时改成 true，日志里只有事件类型和发言人，没有内容
 
     private volatile boolean running = false;
     private Thread worker;
@@ -103,9 +104,12 @@ public class EventService extends Service {
     }
 
     // 断了就重连：3 秒起，每次翻倍，最多等 1 分钟
+    private volatile String origin = "";
+
     private void loop() {
         long wait = 3000;
-        while (running) {
+        origin = Config.origin(this);
+        while (running && origin.equals(Config.origin(this)) && !origin.isEmpty()) {
             try {
                 loadState();
                 listen();
@@ -124,7 +128,7 @@ public class EventService extends Service {
     }
 
     private HttpsURLConnection open(String path, int readTimeout) throws Exception {
-        URL url = new URL(Config.origin(this) + path);
+        URL url = new URL(origin + path);
         if (!"https".equals(url.getProtocol())) throw new IllegalStateException("only https");
         HttpsURLConnection c = (HttpsURLConnection) url.openConnection();
         c.setConnectTimeout(15000);
@@ -172,13 +176,17 @@ public class EventService extends Service {
         conn = c;
         try {
             if (c.getResponseCode() != 200) throw new IllegalStateException("events " + c.getResponseCode());
+            if (BuildConfig_DEBUG) android.util.Log.i("ClawChat", "事件流已连上，成员 " + agentNames.size() + " 位，群 " + roomNames.size() + " 个");
             BufferedReader in = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
             String line;
             while (running && (line = in.readLine()) != null) {
                 if (!line.startsWith("data:")) continue;
                 try {
                     handle(new JSONObject(line.substring(5).trim()));
-                } catch (Exception ignored) {}
+                } catch (Throwable e) {
+                    // 一条事件处理不了就跳过，别让后台线程死掉（以后就再也收不到通知了）
+                    if (BuildConfig_DEBUG) android.util.Log.w("ClawChat", "处理事件出错", e);
+                }
             }
         } finally {
             conn = null;
@@ -188,6 +196,7 @@ public class EventService extends Service {
 
     private void handle(JSONObject ev) {
         String type = ev.optString("type");
+        if (BuildConfig_DEBUG) android.util.Log.i("ClawChat", "事件 " + type + " 前台=" + MainActivity.visible + " 来自=" + (ev.optJSONObject("message") != null ? ev.optJSONObject("message").optString("from") : "-"));
         if ("rooms".equals(type)) {
             applyRooms(ev.optJSONArray("rooms"));
             return;
@@ -212,11 +221,25 @@ public class EventService extends Service {
         else if (!dm.isEmpty() && !solo) title = Config.L(name + "（私聊）", name + " (private)");
         else if (solo) title = name;
         else title = name + " · " + room;
-        notifyReply(conv, title, plain(text));
+        // 默认只说「有新回复」，内容预览要在 App 设置里自己打开；出错的提示不带内容
+        String body = agent ? Config.L("有新回复", "New reply") : Config.L("出错了，点开看看", "Something went wrong — tap to see");
+        if (agent && Config.preview(this)) {
+            try {
+                String p = plain(text);
+                if (!p.isEmpty()) body = p;
+            } catch (Throwable ignored) {} // 整理内容出了任何问题：照样提醒，只是不带预览
+        }
+        notifyReply(conv, title, body);
+    }
+
+    // 换电脑时清掉旧电脑发来的通知（常驻那条「已连接」不动）
+    static void clearReplies(Context c) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        for (android.service.notification.StatusBarNotification n : nm.getActiveNotifications()) if (n.getId() != ONGOING_ID) nm.cancel(n.getId());
     }
 
     private void notifyReply(String conv, String title, String body) {
-        Intent open = new Intent(this, MainActivity.class).putExtra("conv", conv).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Intent open = new Intent(this, MainActivity.class).putExtra("conv", conv).putExtra("origin", origin).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, conv.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, CH_REPLY)
             .setSmallIcon(android.R.drawable.stat_notify_chat)

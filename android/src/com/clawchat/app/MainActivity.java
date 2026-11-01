@@ -142,8 +142,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static String convOf(Intent i) {
-        return i == null ? null : i.getStringExtra("conv");
+    // 从通知点进来要打开哪个聊天：通知是别的电脑（换地址以前）发的，就不跳
+    private String convOf(Intent i) {
+        if (i == null || i.getStringExtra("conv") == null) return null;
+        return Config.origin(this).equals(i.getStringExtra("origin")) ? i.getStringExtra("conv") : null;
     }
 
     // ---------------- 第一次打开：填地址 ----------------
@@ -187,6 +189,12 @@ public class MainActivity extends Activity {
         notify.setPadding(0, dp(8), 0, dp(8));
         box.addView(notify);
 
+        CheckBox preview = new CheckBox(this);
+        preview.setText(Config.L("通知里显示回复内容（锁屏上旁人也看得到）", "Show reply text in notifications (visible on the lock screen)"));
+        preview.setChecked(Config.preview(this));
+        preview.setPadding(0, 0, 0, dp(8));
+        box.addView(preview);
+
         TextView err = new TextView(this);
         err.setTextColor(Color.rgb(255, 69, 58));
         err.setText(error == null ? "" : error);
@@ -200,8 +208,14 @@ public class MainActivity extends Activity {
                 err.setText(Config.L("地址不对：要填电脑上「手机访问」里显示的 https://…ts.net 地址", "That doesn't look right: enter the https://…ts.net address shown under Phone access"));
                 return;
             }
+            // 换了电脑：先断开旧电脑的后台连接、清掉旧通知，再连新的（不然旧连接还在、旧通知点开会进到新电脑上）
+            if (!origin.equals(Config.origin(this))) {
+                stopService(new Intent(this, EventService.class));
+                EventService.clearReplies(this);
+            }
             Config.setOrigin(this, origin);
             Config.setNotify(this, notify.isChecked());
+            Config.setPreview(this, preview.isChecked());
             showWeb();
         });
         box.addView(go);
@@ -311,18 +325,29 @@ public class MainActivity extends Activity {
             super.onActivityResult(request, result, data);
             return;
         }
-        Uri[] uris = null;
+        java.util.List<Uri> picked = new java.util.ArrayList<>();
         if (result == RESULT_OK && data != null) {
             if (data.getClipData() != null) {
-                int n = data.getClipData().getItemCount();
-                uris = new Uri[n];
-                for (int i = 0; i < n; i++) uris[i] = data.getClipData().getItemAt(i).getUri();
+                for (int i = 0; i < data.getClipData().getItemCount(); i++) picked.add(data.getClipData().getItemAt(i).getUri());
             } else if (data.getData() != null) {
-                uris = new Uri[] { data.getData() };
+                picked.add(data.getData());
             }
         }
-        pendingFiles.onReceiveValue(uris);
+        // 只收别的 App 提供的 content:// 文件（相册、文件管理器）；file:// 和指向本 App 自己的一律不要，
+        // 免得被不怀好意的选择器塞进本 App 的私有文件（Android 官方要求检查选择器的返回结果）
+        java.util.List<Uri> ok = new java.util.ArrayList<>();
+        for (Uri u : picked) if (safePick(u)) ok.add(u);
+        pendingFiles.onReceiveValue(ok.isEmpty() ? null : ok.toArray(new Uri[0]));
         pendingFiles = null;
+    }
+
+    private boolean safePick(Uri u) {
+        if (u == null || !"content".equals(u.getScheme())) return false;
+        String auth = u.getAuthority();
+        if (auth == null || auth.isEmpty()) return false;
+        String me = getPackageName();
+        for (String a : auth.split(";")) if (a.equals(me) || a.startsWith(me + ".")) return false;
+        return true;
     }
 
     // 手机的返回键：网页里能退（比如从聊天退回列表）就先退，退到头了才退出 App
