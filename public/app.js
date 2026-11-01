@@ -1965,6 +1965,11 @@ function renderShell() {
     ? `<span class="muted">${tr('私聊')}</span>${room.members.map((a) => `<button class="dm-btn" data-dm="${esc(a)}" title="${esc(tr('私聊 {name}', { name: agentLabel(a) }))}">${avatarHtml(a)}</button>`).join('')}<button class="dm-btn dm-more" data-dm-menu title="${tr('私聊')}" aria-label="${tr('私聊')}"><span class="dm-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span><span class="dm-label">${tr('私聊')}</span>${CHEVRON_SVG}</button>`
     : '';
   $('#group-tools').hidden = !!dm || !group;
+  // 手机上的 @ 按钮：只有群聊（两位以上）才有；私聊、单聊藏起来
+  $('#btn-at').hidden = !!dm || !group;
+  $('#btn-at').title = tr('提到谁（@）');
+  $('#btn-at').setAttribute('aria-label', tr('提到谁'));
+  if (dm || !group) closeAtPanel();
   setHtml($('#mention-all-icons'), room.members.map((a) => avatarHtml(a)).join(''));
   document.querySelectorAll('[data-mention]').forEach((b) => {
     const id = b.dataset.who || { Claude: 'claude', ChatGPT: 'gpt', DeepSeek: 'deepseek', GLM: 'glm', Gemini: 'gemini', Grok: 'grok' }[b.dataset.mention];
@@ -2725,7 +2730,7 @@ function renderStopControls(conv) {
   const tools = document.querySelector('.composer-tools');
   tools?.classList.toggle('has-stop', runs.length > 0);
   tools?.classList.toggle('has-stop-all', runs.length > 1);
-  const who = (r) => (r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent));
+  const who = stopControlWho;
   if (runs.length === 1) {
     const r = runs[0];
     // 手机上一行要同时放下 @ 按钮、接着谁和停止：停止只写「停止」，谁在干活看头像和上面的气泡
@@ -2736,6 +2741,7 @@ function renderStopControls(conv) {
     setHtml(box, `<button class="chip danger strong" data-stop="" title="${esc(tr('{names} 正在干活。要单独停某一位，点它气泡里的「停止」', { names: runs.map(who).join(LIST_SEP) }))}"><span class="chip-stack">${faces}</span>${tr('全部停止')}</button>`);
   } else setHtml(box, '');
   fitTools();
+  updateSendButton(); // 有人在干活、输入框空着时，手机上的发送键要变成停止
 }
 
 // 输入框上面那一行始终只占一行：电脑上放不下时 @ 按钮只留头像；手机上横着滚，名字都留着
@@ -3133,6 +3139,7 @@ function bindMobileViewport() {
     // 界面按它的高度缩、再挪到它的位置上，输入框正好贴着键盘，中间不会空出一大段
     root.setProperty('--vvh', `${Math.round(vv?.height || window.innerHeight)}px`);
     root.setProperty('--vvtop', `${Math.round(vv?.offsetTop || 0)}px`);
+    fitAtPanel();
     if (document.activeElement === $('#input') && S.pinned) scrollToBottom();
   };
   if (vv) {
@@ -3145,6 +3152,8 @@ function bindMobileViewport() {
   window.addEventListener('resize', () => {
     const conv = currentConv();
     if (conv && !$('#chat').hidden) renderTargets(conv.room, conv.dm);
+    if (!isNarrow()) closeAtPanel();
+    fitAtPanel();
     autoGrow();
   });
   sync();
@@ -3152,6 +3161,7 @@ function bindMobileViewport() {
 
 function exitMobileChat() {
   document.documentElement.classList.remove('mobile-chat');
+  closeAtPanel();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   document.activeElement?.blur?.(); // 回列表时把键盘收起来
 }
@@ -3179,6 +3189,7 @@ async function openConv(key, { keepFocus = false, stayList = false, fromHistory 
     closeFind();
     saveDraft(S.current);
     stashAttachments(S.current); // 还没发出去的图片跟着这个会话收起来，切回来时还在
+    closeAtPanel();
     cancelReply();
     S.editMsg = null; // 正在改的消息是别的会话的，别带过去
   }
@@ -3536,10 +3547,44 @@ function addFiles(files) {
 // ---------------- 输入与操作 ----------------
 
 function updateSendButton() {
-  const hasText = !!$('#input').value.trim();
+  const el = $('#input');
+  const hasText = !!el.value.trim();
   const uploading = S.attachments.some((a) => a.status === 'uploading');
   const ready = S.attachments.some((a) => a.status === 'done');
-  $('#btn-send').disabled = uploading || (!hasText && !ready);
+  const conv = currentConv();
+  const runs = conv ? convRuns(conv) : [];
+  // 手机上：这个聊天里有人干活、输入框空着、也没有待发的图片时，发送键变成停止键
+  const stopping = isNarrow() && !S.editMsg && runs.length > 0 && !hasText && S.attachments.length === 0;
+  const btn = $('#btn-send');
+  btn.classList.toggle('stopping', stopping);
+  btn.disabled = stopping ? false : uploading || (!hasText && !ready);
+  if (stopping) {
+    const label = runs.length > 1 ? tr('全部停止') : tr('停止 {name}', { name: stopControlWho(runs[0]) });
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  } else {
+    btn.title = tr('发送（Enter）');
+    btn.setAttribute('aria-label', tr('发送'));
+  }
+}
+
+function stopControlWho(r) {
+  return r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent);
+}
+
+// 手机上发送键兼做停止：一位就停它，几位就全部停（和原来「停止」那一行一样）
+function stopFromSend() {
+  const conv = currentConv();
+  if (!conv) return;
+  const runs = convRuns(conv);
+  if (!runs.length) return updateSendButton();
+  const btn = $('#btn-send');
+  btn.disabled = true;
+  const body = runs.length === 1 ? { agent: runs[0].agent, only: runs[0].side ? 'side' : 'main' } : {};
+  api('POST', `/api/rooms/${conv.roomId}/stop`, body).catch((err) => {
+    toast(err.message);
+    updateSendButton();
+  });
 }
 
 function autoGrow() {
@@ -4147,6 +4192,50 @@ function insertMention(name, el = $('#input')) {
   const before = el.value.slice(0, start);
   const token = `${before && !/\s$/.test(before) ? ' ' : ''}@${name === '所有人' || name === 'everyone' ? '' : MENTION_GAP}${name}${MENTION_SEP}`;
   editInput(el, start, end, token);
+}
+
+// 手机上的「@」面板：提到谁、以及不 @ 时发给谁（电脑上用输入框上面的那一行）
+function closeAtPanel() {
+  const p = $('#at-panel');
+  if (p) p.hidden = true;
+}
+
+function atPanelHtml() {
+  const conv = currentConv();
+  if (!conv) return '';
+  const people = conv.room.members
+    .map((a) => `<button type="button" class="at-person" data-at-insert="${esc(agentName(a))}">${avatarHtml(a)}<span>${esc(agentName(a))}</span></button>`)
+    .join('');
+  const all = `<button type="button" class="at-person" data-at-all><span class="at-all-avatar">@</span><span>${tr('所有人')}</span></button>`;
+  const sel = $('#default-target');
+  const options = sel
+    ? [...sel.options]
+        .map(
+          (o) =>
+            `<button type="button" class="at-target" data-at-target="${esc(o.value)}"><span class="at-check">${o.value === sel.value ? CHECK_SVG : ''}</span><span>${esc(o.textContent)}</span></button>`,
+        )
+        .join('')
+    : '';
+  return `<div class="at-title">${tr('提到谁')}</div><div class="at-people">${people}${all}</div><div class="at-sep"></div><div class="at-title">${tr('不 @ 时发给')}</div><div class="at-targets">${options}</div>`;
+}
+
+function fitAtPanel() {
+  const panel = $('#at-panel');
+  if (!panel || panel.hidden) return;
+  const headBottom = $('#room-head')?.getBoundingClientRect().bottom || 0;
+  const composerTop = $('#composer').getBoundingClientRect().top;
+  panel.style.maxHeight = `${Math.max(120, Math.min(420, Math.floor(composerTop - headBottom - 10)))}px`;
+}
+
+function toggleAtPanel() {
+  const panel = $('#at-panel');
+  if (!panel) return;
+  if (!panel.hidden) return void (panel.hidden = true);
+  const conv = currentConv();
+  if (!conv || conv.dm || conv.room.members.length < 2) return;
+  panel.innerHTML = atPanelHtml();
+  panel.hidden = false;
+  fitAtPanel();
 }
 
 const pickResolvers = new Map();
@@ -5620,10 +5709,20 @@ function bind() {
     // 按在打开这个菜单的按钮上：先别关，交给按钮的点击来切换（不然这里刚关上，点击又把它打开，看着像「刷一下又打开了」）
     if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub, [data-model-more], [data-dm-menu]')) closeMenus();
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeMenus();
+  document.addEventListener('mousedown', (e) => {
+    const panel = $('#at-panel');
+    if (panel && !panel.hidden && !e.target.closest('#at-panel, #btn-at')) closeAtPanel();
   });
-  window.addEventListener('blur', closeMenus);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeMenus();
+      closeAtPanel();
+    }
+  });
+  window.addEventListener('blur', () => {
+    closeMenus();
+    closeAtPanel();
+  });
   // 群设置里的「收纳组」：选「新建…」就先建一个组，保存群设置时再放进去
   $('#set-folder').addEventListener('change', async (e) => {
     if (e.target.value !== '__new__') return;
@@ -6060,7 +6159,36 @@ function bind() {
       sendMessage();
     }
   });
-  $('#btn-send').onclick = sendMessage;
+  // 按 @ 和面板里的按钮时别让输入框失去焦点：键盘不会一开一关
+  $('#btn-at').addEventListener('mousedown', (e) => e.preventDefault());
+  $('#btn-at').onclick = (e) => {
+    e.stopPropagation();
+    toggleAtPanel();
+  };
+  $('#at-panel').addEventListener('mousedown', (e) => {
+    if (e.target.closest('.at-person, .at-target')) e.preventDefault();
+  });
+  $('#at-panel').addEventListener('click', (e) => {
+    const person = e.target.closest('[data-at-insert]');
+    if (person) {
+      insertMention(person.dataset.atInsert);
+      closeAtPanel();
+      return;
+    }
+    if (e.target.closest('[data-at-all]')) {
+      insertMention(ALL_WORD);
+      closeAtPanel();
+      return;
+    }
+    const target = e.target.closest('[data-at-target]');
+    if (target) {
+      const sel = $('#default-target');
+      sel.value = target.dataset.atTarget;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      closeAtPanel();
+    }
+  });
+  $('#btn-send').onclick = () => ($('#btn-send').classList.contains('stopping') ? stopFromSend() : sendMessage());
   window.addEventListener('focus', () => {
     refreshEngines(); // 切回窗口时顺便看看有没有新模型
     if (S.current && S.unread.get(S.current)) {

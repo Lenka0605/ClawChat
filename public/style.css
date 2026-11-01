@@ -783,6 +783,43 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
 .send-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .send-btn:active:not(:disabled) { transform: scale(0.94); }
 .send-btn:disabled { opacity: 0.3; }
+/* 手机上发送键兼做停止：输入框空着、这个聊天里有人在干活时，箭头换成方块 */
+.send-btn .send-stop { display: none; }
+.send-btn.stopping { background: var(--danger); }
+.send-btn.stopping .send-arrow { display: none; }
+.send-btn.stopping .send-stop { display: block; }
+.send-btn.stopping:hover:not(:disabled) { background: var(--danger); filter: brightness(1.08); }
+/* 「@」按钮和它的面板：只在手机上出现（电脑上那一行 @ 按钮还在） */
+.at-btn { display: none; font-size: 19px; font-weight: 500; }
+.at-panel {
+  position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 9;
+  max-height: min(420px, calc(var(--vvh, 100dvh) - 130px)); overflow-y: auto; overscroll-behavior: contain;
+  padding: 8px; border-radius: 14px; color: var(--text);
+  /* 比普通菜单再实一点：面板很大，太透会把后面的聊天字透出来，看着乱；玻璃边和模糊保留 */
+  background-color: var(--menu-bg); background-image: linear-gradient(var(--menu-bg), var(--menu-bg));
+  box-shadow: var(--glass-edge), var(--shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  display: grid; gap: 4px;
+}
+.at-title { font-size: 11px; color: var(--muted); padding: 4px 6px 2px; }
+.at-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.at-person {
+  border: 0; background: var(--fill); border-radius: 9px; min-height: 44px; padding: 4px 8px;
+  display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; text-align: left; min-width: 0;
+}
+.at-person:hover { background: var(--fill-hover); }
+.at-person .avatar { width: 24px; height: 24px; border-radius: 7px; flex: none; }
+.at-person span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-all-avatar { width: 24px; height: 24px; border-radius: 7px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 15px; font-weight: 600; }
+.at-sep { height: 0.5px; background: var(--line); margin: 4px 6px; }
+.at-targets { display: grid; gap: 2px; }
+.at-target {
+  border: 0; background: none; border-radius: 8px; min-height: 44px; padding: 0 8px;
+  display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; text-align: left;
+}
+.at-target:hover { background: var(--fill); }
+.at-check { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--accent); }
+@media (min-width: 601px) { #at-panel { display: none !important; } }
 
 /* ---------- 按钮 ---------- */
 .primary {
@@ -1564,6 +1601,9 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   /* 模型按钮和私聊按钮长得像：手机上把「模型」两个字留着，分得清 */
   #room-head .model-more .chip-model { display: inline; }
   /* 输入框上面的工具只占一行：@ 按钮带头像和短名字，放不下就横着滑；「接着上一位」和「停止」固定在右边 */
+  /* 手机上一整行 @ 按钮、接着谁、停止收掉：@ 放到输入行，停止并入发送键 */
+  .composer-tools { display: none !important; }
+  #btn-at { display: grid; width: 44px; height: 44px; }
   .composer-tools { margin-left: 0; flex-wrap: nowrap; gap: 6px; min-width: 0; overflow: visible; }
   .composer-tools .mention-chip {
     height: 44px; min-height: 44px; min-width: 44px; padding: 0 10px 0 6px; font-size: 13px;
@@ -1585,7 +1625,8 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .stop-controls .chip { height: 44px; padding: 0 12px; max-width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .composer-tools .spacer { display: none; } /* 只去掉输入区那一排的占位块；弹窗底部靠它把「取消」「保存」推到右边 */
   /* 输入框和两边的按钮一样高、半径一致（都在底边对齐，多行输入时按钮跟着往下） */
-  .composer-row { gap: 8px; }
+  .composer-row { gap: 6px; }
+  .at-panel { left: 10px; right: 10px; bottom: calc(100% + 6px); }
   .input-wrap { --input-fs: 16px; --input-lh: 22px; --input-py: 10px; --input-px: 14px; min-height: 44px; border-radius: 22px; border: 0; }
   /* 手机上不用边框（0.5px 也会让外壳比两边的圆钮高 1px），聚焦的蓝圈改画在里侧 */
   .input-wrap:focus-within { box-shadow: var(--glass-edge), var(--glass-shadow), inset 0 0 0 1px var(--accent-ring); }
