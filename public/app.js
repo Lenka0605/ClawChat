@@ -3144,11 +3144,11 @@ function lastSpeakerOf(room) {
 function renderTargets(room, dm) {
   const many = room.members.length > 2;
   const last = lastSpeakerOf(room);
-  // 手机上下拉框只有一个小胶囊宽：写「接着上一位」就够了，具体是谁看输入框的提示
+  // 手机上下拉框是个小胶囊：「接着上一位」和电脑上一样带上是谁（括号里），其余选项写短一点
   const narrow = isNarrow();
   const tiny = window.innerWidth <= 360; // 再窄一点（比如 320）：长群名会折成两行
   const targets = [
-    ['last', narrow ? tr('接着上一位') : last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
+    ['last', last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
     ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
     ['sequential', many ? tr('大家依次回答') : tr('两位依次回答')],
     ...room.members.map((a) => [a, narrow ? agentName(a) : tr('只发给 {name}', { name: agentName(a) })]),
