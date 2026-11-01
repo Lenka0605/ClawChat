@@ -1,10 +1,10 @@
 # ClawChat
 
-本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）、DeepSeek、GLM（智谱）、Gemini（Google）、Grok（xAI）和 Cursor（Anysphere）在一个群里，一起在你的项目文件夹里干活。
+本地 AI 群聊：你、Claude（Claude Code）、ChatGPT（Codex）、DeepSeek、GLM（智谱）、Gemini（Google）、Grok（xAI）、Cursor（Anysphere），还有你自己接进来的 API（任何 OpenAI 兼容平台），在一个群里一起在你的项目文件夹里干活。
 
-- 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT / Google / Grok / Cursor 账号，以及 DeepSeek、GLM、Gemini 的 API Key，不经过任何第三方服务器。
+- 全部跑在你自己的电脑上，用你自己的 Claude / ChatGPT / Google / Grok / Cursor 账号，以及 DeepSeek、GLM、Gemini 和你接的平台的 API Key，不经过任何第三方服务器（自己填的 API 平台除外，内容会经过那家平台）。
 - Mac 和 Windows（10 / 11）都能用。
-- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Antigravity CLI（订阅）或 Gemini CLI（API）、Grok Build、Cursor CLI；DeepSeek 和 GLM 都借 Claude Code 干活。没装的可以在「设置 → 程序与模型」里点「安装」，用各家官方的安装脚本装好再点「登录」。
+- ClawChat 本身没有第三方依赖，只需要 Node.js 22+，以及你想用的那几位：Claude Code、Codex、Antigravity CLI（订阅）或 Gemini CLI（API）、Grok Build、Cursor CLI；DeepSeek、GLM 和 API 都借 Claude Code 干活。没装的可以在「设置 → 程序与模型」里点「安装」，用各家官方的安装脚本装好再点「登录」。
 
 ## 在 Windows 上安装（给同事看的）
 
@@ -177,9 +177,18 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 - 每轮提示是作为命令行参数传给 `cursor-agent` 的（它不从标准输入读题目）。Cursor 暂时不支持干活中途插话，干活时发给它的消息会在这一轮做完后再交给它。
 - 额度用完、没登录时，这一轮会直接结束并提示怎么办。
 
+## API（自己接的平台）
+
+- 「API」是给**任何 OpenAI 兼容平台**留的一位成员：在「设置 → 程序与模型 → API」里填上平台的接口地址（到 `/v1` 为止）和 Key，就能在新建聊天、群设置里勾上它，用 `@API` 点名。模型列表、套餐和「能不能看图」都从平台读；平台有多少模型，顶部的模型菜单里就有多少（多的时候可滚动）。
+- 它借 Claude Code 干活：会改文件、跑命令、记住之前聊过的内容，所以这台电脑要装好 Claude Code（不用登录 Claude 账号）。每个群有单独的会话，不和你自己在终端里用的 Claude Code 混在一起。
+- **内容会经过这个平台**：平台可能记录提问，最好只拿它做对应的活。Key 只存在这台电脑上。
+- **看图**：模型菜单里，能看图的模型名字后面有一个小眼睛；看不了图的是眼睛加一道斜线；平台没说明的显示成淡一点的眼睛（还不确定）。挂了图片、这一条又要发给看不了图的模型时，输入框下面会出现一行提醒，还有一个「换成能看图的模型」的按钮；**不拦着发送**，只是让你知道对方只会收到图片的文件路径。
+- 想换平台或换 Key：直接改地址和 Key 再保存；清空 Key 后保存就是删掉。
+
 ## 模型
 
 - 聊天窗口顶部每位成员有一个小按钮，显示它现在用的模型和思考强度，点开就能换，从下一轮开始生效。换模型不影响记忆，会话照样接着。
+- **能不能看图**：模型菜单里名字后面有一个小眼睛表示这个模型能看图；眼睛加一道斜线是看不了（发了图它只会收到文件路径）；淡一点的是平台还没说明。挂着图片、这次又要发给看不了图的模型时，输入框下面会提醒一句，还能一键换成能看图的模型（不拦着发送）。
 - 模型旁边是**思考强度**：Claude 有 低 / 中 / 高 / 超高 / 最高 五档；ChatGPT 的档位取决于模型，多数是 低 / 中 / 高 / 超高 / 最高 / 极限（极限会自动把任务拆给帮手），Luna 系列没有极限。「默认」跟随 Claude Code / Codex 自己的设置。换了模型、新模型又不支持原来的强度时，会自动退回默认。
 - **私聊里单独设置**：在私聊里点顶部的按钮换模型、思考强度或速度，只改私聊，群里的设置不变（菜单最上面会写明）。私聊里没单独改过的项跟着群里走；想恢复，菜单里点「恢复成和群聊一样」。
 - 切换后群里会提示一条（私聊里改的，提示只出现在私聊里），每条回复的名字旁边会标出这次实际用的模型，比如 `Fable 5.1`、`GPT-6-Astra`。
@@ -217,7 +226,7 @@ ChatGPT（Codex）每看一张图，包括它自己刚做出来的图，都会�
 点左下角的「设置」，或者按 ⌘,：
 
 - **通用**：主题（浅色 / 深色 / 跟随系统）、语言、聊天记录放在哪。
-- **程序与模型**：Claude Code、Codex、Grok Build、Cursor CLI、Antigravity CLI / Gemini CLI 的版本和「更新」按钮；没装的点「安装」，装了没登录的点「登录」（会在电脑上打开浏览器）。DeepSeek、GLM、Gemini 的 API Key，以及现在能用的所有模型。
+- **程序与模型**：Claude Code、Codex、Grok Build、Cursor CLI、Antigravity CLI / Gemini CLI 的版本和「更新」按钮；没装的点「安装」，装了没登录的点「登录」（会在电脑上打开浏览器）。DeepSeek、GLM、Gemini 的 API Key，API 那一节的接口地址和 Key，以及现在能用的所有模型。
 - **更新**：当前版本，「检查更新」和「立即升级」。升级会从 GitHub 拉取最新代码、重新打包，然后自动重启。Mac 上打包时用本机固定的签名证书（第一次打包时自动生成，放在 `~/.clawchat/signing`，不碰登录钥匙串），系统认得升级后还是同一个应用，给过的权限不用再授权一次。聊天记录和记忆不受影响；正在干的活重启后会提示你接着做。ClawChat 每小时自动检查一次，有新版本时，左下角「设置」右边会出现一个蓝色的更新按钮，点它确认后就会更新并重启。
 
 菜单栏里的「ClawChat → 检查更新…」也可以直接检查。

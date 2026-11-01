@@ -414,7 +414,7 @@ mark.found { background: rgba(255, 204, 0, 0.45); color: inherit; border-radius:
   color: #fff; font-size: 13px; font-weight: 600; background-size: 58% 58%; background-position: center; background-repeat: no-repeat;
 }
 /* 内置的简笔头像（官方图标取不到时用）：彩色底 + 白色图案 */
-.av-claude, .av-gpt, .av-deepseek, .av-glm, .av-gemini, .av-grok, .av-cursor { border-radius: 23%; background-size: 58% 58%; }
+.av-claude, .av-gpt, .av-deepseek, .av-glm, .av-gemini, .av-grok, .av-cursor, .av-api { border-radius: 23%; background-size: 58% 58%; }
 .av-claude {
   background-color: var(--claude);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4'/%3E%3C/g%3E%3C/svg%3E");
@@ -463,6 +463,13 @@ html.icon-gemini .av-gemini { background-color: #fff; background-image: url("/ic
 html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/grok.png"); background-size: cover; box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22); }
 /* Cursor 的官方头像是浅灰底的方图：垫上同样的浅灰，圆角外面不会露底色 */
 html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("/icons/cursor.png"); background-size: cover; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.16); }
+/* API（自己填地址和 Key 的 OpenAI 兼容平台）：中性的石墨色底 + 白色尖括号 */
+.av-api {
+  background-color: #4b5563;
+  background-size: 52% 52%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.4 6 3.6 12l4.8 6'/%3E%3Cpath d='M15.6 6l4.8 6-4.8 6'/%3E%3C/g%3E%3C/svg%3E");
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+}
 .av-user { background-color: var(--accent); }
 /* 多开的成员（ChatGPT2 这类）：用本体的头像，右下角一个小圆标写着几号 */
 .avatar.clone { position: relative; }
@@ -558,6 +565,11 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 .menu-item:hover .menu-fast svg, .menu-item:focus-visible .menu-fast svg { color: #fff; }
 /* 收纳组的右键菜单：有子菜单的右边一个小箭头；「解散」用红色 */
 .menu-arrow { margin-left: auto; align-self: center; flex: none; opacity: 0.55; }
+/* 模型能不能看图的小标记：能看 = 眼睛，看不了 = 眼睛划掉，还不确定 = 淡一点的眼睛 */
+.vision-mark { display: inline-flex; margin-left: 5px; vertical-align: -2px; color: var(--faint); }
+.vision-mark.off { color: var(--muted); }
+.vision-mark.unknown { opacity: 0.5; }
+.menu-item:hover .vision-mark, .menu-item:focus-visible .vision-mark { color: inherit; opacity: 0.9; }
 .menu-item:hover .menu-arrow { opacity: 0.9; }
 .menu-item.danger .menu-label { color: var(--danger); }
 .menu-item.danger:hover { background: var(--danger); }
@@ -918,6 +930,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 .model-list { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 400px; }
 .model-pill { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--fill); color: var(--text); }
 .model-pill.def { color: var(--muted); }
+.model-pill.more { color: var(--muted); }
 .settings-head { display: grid; gap: 10px; justify-items: center; }
 .settings-head .tabs { width: min(420px, 100%); }
 .tab-panel { display: grid; gap: 16px; }
@@ -1465,6 +1478,17 @@ dialog.closing::backdrop { animation: fadeOut 0.16s ease forwards; }
 
 /* 输入区：回复条、图片预览、@ 菜单出现时的动画 */
 .reply-bar:not([hidden]), .attachments:not([hidden]) { animation: rise 0.2s var(--ease); }
+/* 挂了图、这次要回话的模型看不了图：附件下面提醒一句（不拦发送） */
+.vision-hint {
+  margin: 0 0 8px 40px; padding: 6px 10px; border-radius: 8px; background: var(--fill); color: var(--muted);
+  font-size: 11px; line-height: 1.55;
+}
+.vision-hint.warn { background: rgba(255, 159, 10, 0.12); color: var(--warn); }
+.vision-hint .vision-switch {
+  border: 0; background: none; color: var(--accent); font-size: 11px; padding: 0 2px; margin-left: 2px;
+  text-decoration: underline dotted var(--faint); text-underline-offset: 2px;
+}
+.vision-hint .vision-switch:hover { text-decoration: underline; }
 .att.enter { animation: popIn 0.22s var(--spring); }
 .mention-menu:not([hidden]) { animation: popIn 0.18s var(--spring); transform-origin: 10% 100%; }
 
