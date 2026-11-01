@@ -5324,7 +5324,7 @@ function openDialog(room, preset = null) {
   formField('cwd').placeholder = room ? '' : tr('留空就自动新建：{dir}/名字', { dir: S.projectsDir });
   formField('permission').value = d.permission || 'project';
   formField('collab').checked = d.collab !== false;
-  formField('maxAutoTurns').value = d.maxAutoTurns || 8;
+  formField('maxAutoTurns').value = d.maxAutoTurns || 25;
   // 收纳组：只有群能放（单聊勾一位成员的时候不显示）
   const folderSel = $('#set-folder');
   folderSel.innerHTML = [
