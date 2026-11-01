@@ -735,20 +735,22 @@ async function api(req, res, url, access = 'local') {
     const body = await readBody(req);
     // 「API」只改地址、不带 key 字段时：Key 留着原来的
     const key = p.bridge && body.key === undefined ? providerKey(p) : String(body.key || '').trim();
-    // 「API」还要填平台地址：只认 https 地址；先存地址，下面用新地址核对 Key
-    if (p.bridge && body.base !== undefined) {
-      const base = body.base ? validApiBase(body.base) : '';
+    // 「API」还要填平台地址：只认 https 地址。地址和 Key 一起用新的核对，核对通过才一起存，失败就什么都不改
+    // （不然改了地址、Key 没通过，旧 Key 会被发到新地址去）
+    let base;
+    if (p.bridge) {
+      base = body.base !== undefined ? (body.base ? validApiBase(body.base) : '') : readConfig()[p.baseField] || '';
       if (body.base && !base) return send(res, 400, { error: tr('地址不对：要填平台给的 https://…/v1 这种地址') });
-      saveConfig({ [p.baseField]: base });
+      if (key && !base) return send(res, 400, { error: tr('地址不对：要填平台给的 https://…/v1 这种地址') });
     }
     if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: tr('这不像 {name} 的 API Key（一般是一串字母数字）', { name: p.name }) });
     let warning = '';
     if (key) {
-      const check = await providerModelsFor(p.id, key);
+      const check = await providerModelsFor(p.id, key, base);
       if (check.badKey) return send(res, 400, { error: tr('{name} 说这个 API Key 不对，请检查一下有没有复制完整', { name: p.name }) });
       if (check.error) warning = tr('已保存，但现在{error}，等网络好了会自动用上', { error: check.error });
     }
-    saveConfig({ [p.keyField]: key });
+    saveConfig({ [p.keyField]: key, ...(p.bridge ? { [p.baseField]: base } : {}) });
     await refreshEngines(true);
     return send(res, 200, { ok: true, warning, engines });
   }

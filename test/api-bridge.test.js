@@ -1,7 +1,7 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { startApiBridge, stopApiBridge, toChat } from '../lib/api-bridge.js';
+import { startApiBridge, stopApiBridge, toChat, apiBridgeToken } from '../lib/api-bridge.js';
 
 // 假的 OpenAI 兼容平台：按每个测试设定的剧本回流式数据，不连任何真平台、不用真 Key
 let script = null;
@@ -36,7 +36,7 @@ const sse = (res, chunks, { done = true } = {}) => {
 };
 const delta = (d, finish = null) => ({ choices: [{ index: 0, delta: d, finish_reason: finish }] });
 
-async function call(body, { token = bridge.token, headers = {} } = {}) {
+async function call(body, { token = apiBridgeToken('room-a:api'), headers = {} } = {}) {
   const res = await fetch(`${bridge.url}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers }, body: JSON.stringify({ model: 'm', max_tokens: 5000, stream: true, messages: [{ role: 'user', content: 'hi' }], ...body }) });
   const text = await res.text();
   const events = text.split('\n\n').filter((b) => b.includes('data:')).map((b) => JSON.parse(b.split('\n').find((l) => l.startsWith('data:')).slice(5)));
@@ -46,19 +46,21 @@ async function call(body, { token = bridge.token, headers = {} } = {}) {
 test('转接器：没有令牌、令牌不对、浏览器发来的请求都拒绝，而且不会碰平台', async () => {
   const before = requests.length;
   assert.equal((await call({}, { token: 'wrong' })).status, 401);
+  const forged = `${Buffer.from('room-b:api').toString('base64url')}.${apiBridgeToken('room-a:api').split('.')[1]}`;
+  assert.equal((await call({}, { token: forged })).status, 401, '换了范围、签名对不上');
   assert.equal((await call({}, { headers: { origin: 'https://evil.example' } })).status, 403);
   assert.equal(requests.length, before);
 });
 
 test('转接器：文字流式回答翻译成 Anthropic 事件，顺序正确；用平台的真 Key、不用令牌', async () => {
-  script = (req, res) => sse(res, [delta({ role: 'assistant' }), delta({ content: '你' }), delta({ content: '好' }), delta({}, 'stop'), { choices: [], usage: { prompt_tokens: 12, completion_tokens: 3 } }]);
+  script = (req, res) => sse(res, [delta({ role: 'assistant' }), delta({ content: '你' }), delta({ content: '好' }), delta({}, 'stop'), { choices: [], usage: { prompt_tokens: 100, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 80 } } }]);
   const r = await call({ system: [{ type: 'text', text: '群规' }] });
   assert.equal(r.status, 200);
   assert.deepEqual(r.events.map((e) => e.type), ['message_start', 'content_block_start', 'content_block_delta', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop']);
   assert.equal(r.events.filter((e) => e.delta?.type === 'text_delta').map((e) => e.delta.text).join(''), '你好');
   const md = r.events.find((e) => e.type === 'message_delta');
   assert.equal(md.delta.stop_reason, 'end_turn');
-  assert.deepEqual(md.usage, { input_tokens: 12, output_tokens: 3 });
+  assert.deepEqual(md.usage, { input_tokens: 20, output_tokens: 3, cache_read_input_tokens: 80 }, '命中缓存的部分不算进普通输入');
   assert.equal(requests.at(-1).auth, 'Bearer real-upstream-key');
   assert.equal(lastBody.messages[0].role, 'system');
   assert.equal(lastBody.max_tokens, 1000, '按模型的输出上限截断');
@@ -135,7 +137,7 @@ test('转接器：Claude Code 断开（被停掉）时，同时中止发给平�
   script = (req, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(`data: ${JSON.stringify(delta({ content: '慢慢说' }))}\n\n`); };
   const ctrl = new AbortController();
   const before = aborted;
-  const res = await fetch(`${bridge.url}/v1/messages`, { method: 'POST', signal: ctrl.signal, headers: { authorization: `Bearer ${bridge.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'm', stream: true, messages: [{ role: 'user', content: 'x' }] }) });
+  const res = await fetch(`${bridge.url}/v1/messages`, { method: 'POST', signal: ctrl.signal, headers: { authorization: `Bearer ${apiBridgeToken('room-a:api')}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'm', stream: true, messages: [{ role: 'user', content: 'x' }] }) });
   const reader = res.body.getReader();
   await reader.read();
   ctrl.abort();
@@ -175,8 +177,42 @@ test('转接器：能看图的模型才发图，看不了的换成一句说明�
 
 test('转接器：非流式请求也能用', async () => {
   script = (req, res) => sse(res, [delta({ content: '好的' }), delta({}, 'stop')]);
-  const res = await fetch(`${bridge.url}/v1/messages`, { method: 'POST', headers: { authorization: `Bearer ${bridge.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'm', stream: false, messages: [{ role: 'user', content: 'x' }] }) });
+  const res = await fetch(`${bridge.url}/v1/messages`, { method: 'POST', headers: { authorization: `Bearer ${apiBridgeToken('room-a:api')}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'm', stream: false, messages: [{ role: 'user', content: 'x' }] }) });
   const json = await res.json();
   assert.equal(json.content[0].text, '好的');
   assert.equal(json.stop_reason, 'end_turn');
+});
+
+test('转接器：思考内容按群、按成员分开记；别的群返回同一个调用编号也不会串；分身找不到时用本体的', async () => {
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
+  const think = (text) => (req, res) => sse(res, [delta({ reasoning_content: text }), delta({ tool_calls: [{ index: 0, id: 'same_id', function: { name: 'Bash', arguments: '{}' } }] }), delta({}, 'tool_calls')]);
+  script = think('A 群的思考');
+  await call({ tools }, { token: apiBridgeToken('room-a:api') });
+  script = think('B 群的思考');
+  await call({ tools }, { token: apiBridgeToken('room-b:api') });
+  script = (req, res) => sse(res, [delta({ content: 'ok' }), delta({}, 'stop')]);
+  const history = { tools, messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: [{ type: 'tool_use', id: 'same_id', name: 'Bash', input: {} }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'same_id', content: 'r' }] }] };
+  await call(history, { token: apiBridgeToken('room-a:api') });
+  assert.equal(lastBody.messages[1].reasoning_content, 'A 群的思考');
+  await call(history, { token: apiBridgeToken('room-a:api~side-1') });
+  assert.equal(lastBody.messages[1].reasoning_content, 'A 群的思考', '分身复制了本体的记忆，用本体的思考');
+});
+
+test('转接器：流里报错提前结束时，也中止发给平台的请求', async () => {
+  const before = aborted;
+  script = (req, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(`data: ${JSON.stringify(delta({ content: 'a' }))}\n\n`); res.write('data: {"error":{"message":"boom"}}\n\n'); };
+  const r = await call({});
+  assert.ok(r.events.some((e) => e.type === 'error'));
+  for (let i = 0; i < 50 && aborted === before; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(aborted, before + 1);
+});
+
+test('转接器：平台以 content_filter 或不认识的方式结束时，里面的工具调用不执行', async () => {
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
+  for (const finish of ['content_filter', 'weird']) {
+    script = (req, res) => sse(res, [delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'Bash', arguments: '{"command":"ls"}' } }] }), delta({}, finish)]);
+    const r = await call({ tools });
+    assert.ok(r.events.some((e) => e.type === 'error'), finish);
+    assert.ok(!r.events.some((e) => e.content_block?.type === 'tool_use'), finish);
+  }
 });
