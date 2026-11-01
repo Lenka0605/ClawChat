@@ -148,6 +148,12 @@ test('splitReply：代码块里含三个反引号、双反引号行内代码、�
   assert.deepEqual(splitReply(open, false), { group: open, dm: '', pms: [] });
   assert.deepEqual(parseMentions(open), [], '代码里写的 @ 不叫人');
   assert.deepEqual(parseMentions('`` `x` @ChatGPT `` 和 @DeepSeek'), ['deepseek']);
+  // 被反斜杠转义的反引号不开代码：两个转义反引号中间的真标签照样认，正文里真正的点名也照样认
+  assert.deepEqual(splitReply('写法 \\`<私聊老板>机密</私聊老板>\\` 结束', false), { group: '写法 \\`\\` 结束', dm: '机密', pms: [] });
+  assert.deepEqual(parseMentions('\\` @ChatGPT \\`'), ['gpt']);
+  assert.deepEqual(parseMentions('\\\\`@ChatGPT`'), [], '两个反斜杠是转义了反斜杠本身，反引号照样开代码');
+  // 代码里面的反斜杠不算转义
+  assert.deepEqual(parseMentions('`a\\` @ChatGPT'), ['gpt']);
   // 找不到结尾的反引号当普通字符，后面的标签照样认
   assert.deepEqual(splitReply('一个落单的 ` 反引号<私聊老板>悄悄话</私聊老板>', false), { group: '一个落单的 ` 反引号', dm: '悄悄话', pms: [] });
 });
