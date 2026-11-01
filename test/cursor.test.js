@@ -193,3 +193,19 @@ test('Cursor：消息太长时放进临时文件，命令行里只放一句「�
   const file = c.prompt.match(/(\/\S+message\.md)/)[1];
   assert.ok(!fs.existsSync(file), '跑完删掉临时文件');
 });
+
+test('Cursor：按群的权限写拒绝规则，只有完全放开能调 MCP；只读、分身连命令和写文件都拦', async () => {
+  const { cursorDeny } = await import('../lib/cursor.js');
+  assert.deepEqual(cursorDeny({ permission: 'full' }), []);
+  assert.deepEqual(cursorDeny({ permission: 'project' }), ['Mcp(*:*)']);
+  assert.deepEqual(cursorDeny({ permission: 'readonly' }), ['Mcp(*:*)', 'Shell(*)', 'Write(**)']);
+  assert.deepEqual(cursorDeny({ permission: 'full' }, true), ['Mcp(*:*)', 'Shell(*)', 'Write(**)']);
+  await start().done;
+  const home = calls().at(-1).home;
+  const read = () => JSON.parse(fs.readFileSync(path.join(home, 'cli-config.json'), 'utf8')).permissions.deny;
+  assert.deepEqual(read(), ['Mcp(*:*)']);
+  await runAgent('cursor', { room: { ...room, permission: 'full' }, prompt: 'x' }).done;
+  assert.deepEqual(read(), [], '换了权限，下一轮就按新的来');
+  await start().done;
+  assert.deepEqual(read(), ['Mcp(*:*)']);
+});
