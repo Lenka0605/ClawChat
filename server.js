@@ -12,6 +12,7 @@ import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
 import { requestAccess, remoteInfo, setRemote, initRemote } from './lib/remote.js';
+import { squareIcon } from './lib/icon-fix.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -373,8 +374,10 @@ const ICON_URLS = {
   // Grok 是 grok.com 网站自己的图标（黑底白标）。grok.com 拦着不让程序直接下载，从 Google 缓存的网站图标里取
   grok: 'https://www.google.com/s2/favicons?domain=grok.com&sz=256',
 };
-// 换过图的：记在 icons/versions.json 里，旧的那张会重新下载一次（Grok 0.7.32 用的是 App Store 里的立体图标，不对）
-const ICON_VERSIONS = { grok: 2 };
+// 换过图的：记在 icons/versions.json 里，旧的那张会重新下载一次（Grok 0.7.32 用的是 App Store 里的立体图标，不对；
+// 第 3 版：grok.com 的图标自带大圆角、四个角是白底，界面上的圆角小，白角会露出来，下载后把白角填成黑色）
+const ICON_VERSIONS = { grok: 3 };
+const SQUARE_ICONS = new Set(['grok']);
 async function ensureIcons() {
   let added = false;
   const versionsFile = path.join(PUBLIC, 'icons', 'versions.json');
@@ -394,7 +397,7 @@ async function ensureIcons() {
       const png = buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
       if (!res.ok || !png || buf.length > 2 * 1024 * 1024) continue;
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, buf);
+      fs.writeFileSync(file, SQUARE_ICONS.has(name) ? squareIcon(buf) : buf);
       if (ICON_VERSIONS[name]) {
         versions[name] = ICON_VERSIONS[name];
         fs.writeFileSync(versionsFile, JSON.stringify(versions));
