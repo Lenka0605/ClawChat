@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
 import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits } from './lib/agents.js';
-import { PROVIDERS } from './lib/providers.js';
+import { PROVIDERS, providerKey, validApiBase, ensureApiBridge } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
 import { requestAccess, remoteInfo, setRemote, initRemote } from './lib/remote.js';
@@ -262,7 +262,7 @@ function normalizeRoom(body, creating, room = null) {
     // 列表外的模型只能走「自定义模型」：界面上先试过能用，才会带着 custom 标记提交
     const custom = Array.isArray(body.custom) ? body.custom : [];
     const keep = (agent) => (room?.models?.[agent] || '') === out.models[agent]; // 原来就在用的不重新校验
-    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok', cursor: 'Cursor' };
+    const owner = { claude: 'Claude', gpt: tr('当前的 Codex'), deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok', cursor: 'Cursor', api: 'API' };
     for (const a of Object.keys(AGENTS)) {
       if (!custom.includes(a) && !keep(a) && !validModel(engineOf(a), out.models[a])) {
         throw httpError(400, tr('{owner}用不了 {model} 这个模型，请从列表里选一个', { owner: owner[a], model: out.models[a] }));
@@ -726,7 +726,15 @@ async function api(req, res, url, access = 'local') {
   // 借外部接口那几位的 API Key（DeepSeek、GLM）：先用它读一次模型目录，Key 不对就不存；空的就是删掉。Key 只存在本机，不会再发回界面
   if (method === 'POST' && PROVIDERS[parts[0]] && parts[1] === 'key') {
     const p = PROVIDERS[parts[0]];
-    const key = String((await readBody(req)).key || '').trim();
+    const body = await readBody(req);
+    // 「API」只改地址、不带 key 字段时：Key 留着原来的
+    const key = p.bridge && body.key === undefined ? providerKey(p) : String(body.key || '').trim();
+    // 「API」还要填平台地址：只认 https 地址；先存地址，下面用新地址核对 Key
+    if (p.bridge && body.base !== undefined) {
+      const base = body.base ? validApiBase(body.base) : '';
+      if (body.base && !base) return send(res, 400, { error: tr('地址不对：要填平台给的 https://…/v1 这种地址') });
+      saveConfig({ [p.baseField]: base });
+    }
     if (key && !/^[\x21-\x7e]{8,200}$/.test(key)) return send(res, 400, { error: tr('这不像 {name} 的 API Key（一般是一串字母数字）', { name: p.name }) });
     let warning = '';
     if (key) {
@@ -1171,7 +1179,8 @@ function engineSummary() {
   const grok = !gk?.path ? 'Grok 没装' : `Grok Build ${String(gk.version || '').match(/\d+\.\d+[\w.-]*/)?.[0] || '?'}（${gk.loggedIn ? '已登录' : '没登录'}）${gk.ok ? '' : `，${gk.error || '用不了'}`}${gk.apiKeyWarning ? '，配了 API Key' : ''}`;
   const cu = engines.cursor;
   const cursor = !cu?.path ? 'Cursor 没装' : `Cursor CLI ${cu.version || '?'}（${cu.loggedIn ? '已登录' : '没登录'}）${cu.ok ? '' : `，${cu.error || '用不了'}`}`;
-  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini, grok, cursor].join(' · ');
+  const api = !engines.api?.hasKey ? 'API 没填 Key' : `API（借 Claude Code，${engines.api.models?.length || 0} 个模型）${engines.api.ok ? '' : `，${engines.api.keyError || '用不了'}`}`;
+  return [one('Claude Code', engines.claude), one('Codex', engines.codex), deepseek, glm, gemini, grok, cursor, api].join(' · ');
 }
 
 // 上次升级后新版本没能启动、重启脚本已经退回原来的版本：告诉界面（只说一次）
@@ -1180,6 +1189,8 @@ if (updateRollback) console.error(`[clawchat] 升级到 ${updateRollback.toVersi
 for (const file of recovered) console.error(`[clawchat] 用备份恢复了 ${file}`);
 
 setupPath();
+// 「API」成员用的本机转接器（只听 127.0.0.1 的随机端口，和主服务分开）
+ensureApiBridge().catch((err) => console.error('[clawchat] API 转接器没能启动', err.message));
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   initRemote();

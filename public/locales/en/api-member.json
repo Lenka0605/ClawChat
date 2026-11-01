@@ -1,0 +1,7 @@
+{
+  "API 的本机转接器没有启动，重启 ClawChat 试试": "The local bridge for API isn't running. Try restarting ClawChat.",
+  "还没填 API 平台的地址：在「设置 → 程序与模型」里填一下": "The API platform address isn't set: add it in Settings → Apps & Models",
+  "API 平台说额度不够（或者这个模型没开通），换一个模型，或者找平台管理员": "The API platform says there's not enough quota (or this model isn't enabled). Try another model or contact the platform admin.",
+  "API 的 Key 不对，请在「设置 → 程序与模型」里重新填一下": "The API key is wrong. Re-enter it in Settings → Apps & Models.",
+  "地址不对：要填平台给的 https://…/v1 这种地址": "That address doesn't look right: enter the https://…/v1 address from your platform"
+}

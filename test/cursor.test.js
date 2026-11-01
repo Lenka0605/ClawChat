@@ -165,12 +165,14 @@ test('Cursor：删群时清掉这一群的记忆目录，别的群不受影响',
 });
 
 test('一键安装、一键登录：用官方安装命令（测试里换成假的），装完能找到命令；登录把网址交给界面', async () => {
-  const { installEngine, loginEngine, INSTALLERS } = await import('../lib/agents.js');
+  const { installEngine, loginEngine, INSTALLERS, which } = await import('../lib/agents.js');
   assert.match(INSTALLERS.codex.mac, /chatgpt\.com\/codex\/install\.sh/);
   assert.match(INSTALLERS.grok.mac, /x\.ai\/cli\/install\.sh/);
   assert.match(INSTALLERS.cursor.mac, /cursor\.com\/install/);
   const target = path.join(root, 'installed');
   fs.mkdirSync(target);
+  // 装完会按登录 shell 重排 PATH：本机真装了 cursor-agent 时会排到假的前面，测完要把 PATH 还原
+  const savedPath = process.env.PATH;
   process.env.PATH = `${target}${path.delimiter}${process.env.PATH}`;
   process.env.CLAWCHAT_INSTALL_CMD = `printf '#!/bin/sh\\necho ok\\n' > "${target}/fake-tool-$CLAWCHAT_INSTALL_ENGINE"; echo installed`;
   const bad = await installEngine('nope');
@@ -178,6 +180,9 @@ test('一键安装、一键登录：用官方安装命令（测试里换成假�
   const res = await installEngine('codex');
   assert.match(res.output, /installed/);
   delete process.env.CLAWCHAT_INSTALL_CMD;
+  // 装完会按登录 shell 重排 PATH，本机真装了 cursor-agent 就会排到假的前面：先还原，下面的登录一定要用假的（真的会打开浏览器）
+  process.env.PATH = savedPath;
+  assert.ok(which('cursor-agent').startsWith(fake), '登录用的必须是假的 cursor-agent');
   const login = await loginEngine('cursor');
   assert.equal(login.ok, true);
   assert.match(login.url, /^https:\/\/cursor\.com\//);
