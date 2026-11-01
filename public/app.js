@@ -5906,8 +5906,10 @@ function bind() {
   langSel.onchange = async () => {
     I18N.setPref(langSel.value);
     const next = langSel.value === 'system' ? I18N.systemLang() : langSel.value;
-    if (next === I18N.lang) return;
+    // 亲手选的就要告诉服务端：手机上界面语言和电脑上的语言可能不一样（手机按自己的系统语言显示），
+    // 所以哪怕界面上已经是这门语言，也要把「AI 回复用什么语言」改过来
     await syncLang(next, true).catch(() => {});
+    if (next === I18N.lang) return;
     location.reload(); // 整个界面按新语言重画
   };
   $('#notify-switch').checked = notifyOn();
