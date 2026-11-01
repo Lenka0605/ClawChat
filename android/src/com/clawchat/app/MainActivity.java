@@ -6,12 +6,16 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
+import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Process;
+import android.provider.MediaStore;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -144,8 +148,10 @@ public class MainActivity extends Activity {
 
     // 从通知点进来要打开哪个聊天：通知是别的电脑（换地址以前）发的，就不跳
     private String convOf(Intent i) {
-        if (i == null || i.getStringExtra("conv") == null) return null;
-        return Config.origin(this).equals(i.getStringExtra("origin")) ? i.getStringExtra("conv") : null;
+        Uri d = i == null ? null : i.getData();
+        if (d == null || !EventService.OPEN_SCHEME.equals(d.getScheme())) return null;
+        String conv = d.getQueryParameter("conv");
+        return conv != null && Config.origin(this).equals(d.getQueryParameter("origin")) ? conv : null;
     }
 
     // ---------------- 第一次打开：填地址 ----------------
@@ -211,7 +217,7 @@ public class MainActivity extends Activity {
             // 换了电脑：先断开旧电脑的后台连接、清掉旧通知，再连新的（不然旧连接还在、旧通知点开会进到新电脑上）
             if (!origin.equals(Config.origin(this))) {
                 stopService(new Intent(this, EventService.class));
-                EventService.clearReplies(this);
+                EventService.switchComputer(this);
             }
             Config.setOrigin(this, origin);
             Config.setNotify(this, notify.isChecked());
@@ -285,12 +291,21 @@ public class MainActivity extends Activity {
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (pendingFiles != null) pendingFiles.onReceiveValue(null);
                 pendingFiles = callback;
-                Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
-                pick.addCategory(Intent.CATEGORY_OPENABLE);
-                pick.setType("image/*");
-                pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                boolean multi = params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE;
+                Intent pick;
+                if (Build.VERSION.SDK_INT >= 33) {
+                    // 安卓 13 起用系统自带的照片选择器：别的 App 没法冒充
+                    pick = new Intent(MediaStore.ACTION_PICK_IMAGES);
+                    if (multi) pick.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, Math.min(20, MediaStore.getPickImagesMaxLimit()));
+                } else {
+                    Intent get = new Intent(Intent.ACTION_GET_CONTENT);
+                    get.addCategory(Intent.CATEGORY_OPENABLE);
+                    get.setType("image/*");
+                    get.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multi);
+                    pick = Intent.createChooser(get, Config.L("选择图片", "Choose images"));
+                }
                 try {
-                    startActivityForResult(Intent.createChooser(pick, Config.L("选择图片", "Choose images")), PICK_FILES);
+                    startActivityForResult(pick, PICK_FILES);
                 } catch (ActivityNotFoundException e) {
                     pendingFiles = null;
                     return false;
@@ -336,18 +351,45 @@ public class MainActivity extends Activity {
         // 只收别的 App 提供的 content:// 文件（相册、文件管理器）；file:// 和指向本 App 自己的一律不要，
         // 免得被不怀好意的选择器塞进本 App 的私有文件（Android 官方要求检查选择器的返回结果）
         java.util.List<Uri> ok = new java.util.ArrayList<>();
-        for (Uri u : picked) if (safePick(u)) ok.add(u);
+        for (Uri u : picked) if (safePick(u, data)) ok.add(u);
         pendingFiles.onReceiveValue(ok.isEmpty() ? null : ok.toArray(new Uri[0]));
         pendingFiles = null;
     }
 
-    private boolean safePick(Uri u) {
-        if (u == null || !"content".equals(u.getScheme())) return false;
-        String auth = u.getAuthority();
-        if (auth == null || auth.isEmpty()) return false;
-        String me = getPackageName();
-        for (String a : auth.split(";")) if (a.equals(me) || a.startsWith(me + ".")) return false;
-        return true;
+    // 选择器交回来的每一张都要过五关，任何一关不过就丢掉：
+    // 1. 只要 content://，地址里不能带「用户编号@」；
+    // 2. 按地址找到真正提供这个文件的 App（看系统登记的提供者，不看名字像不像），是本 App 自己的不要；
+    // 3. 选择器这次明确给了读授权，系统也确认本 App 现在读得了；
+    // 4. 系统报的类型是图片；
+    // 5. 真的打得开。
+    private boolean safePick(Uri u, Intent data) {
+        try {
+            if (u == null || !"content".equals(u.getScheme())) return false;
+            String auth = u.getAuthority();
+            if (auth == null || auth.isEmpty() || auth.contains("@")) return false;
+            ProviderInfo p = getPackageManager().resolveContentProvider(auth, 0);
+            if (p == null || p.applicationInfo == null) return false;
+            if (p.applicationInfo.uid == Process.myUid() || getPackageName().equals(p.packageName)) return false;
+            if ((data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) return false;
+            if (checkUriPermission(u, Process.myPid(), Process.myUid(), Intent.FLAG_GRANT_READ_URI_PERMISSION) != PackageManager.PERMISSION_GRANTED) return false;
+            String type = getContentResolver().getType(u);
+            if (type == null || !type.startsWith("image/")) return false;
+            try (AssetFileDescriptor fd = getContentResolver().openAssetFileDescriptor(u, "r")) {
+                return fd != null;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        // 页面没了：还在等的选图回调交回空，别留着
+        if (pendingFiles != null) {
+            pendingFiles.onReceiveValue(null);
+            pendingFiles = null;
+        }
+        super.onDestroy();
     }
 
     // 手机的返回键：网页里能退（比如从聊天退回列表）就先退，退到头了才退出 App

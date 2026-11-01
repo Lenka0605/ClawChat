@@ -9,7 +9,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.net.Uri;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -17,6 +20,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,6 +36,11 @@ public class EventService extends Service {
     static final boolean BuildConfig_DEBUG = false; // 排查问题时临时改成 true，日志里只有事件类型和发言人，没有内容
 
     private volatile boolean running = false;
+    // 连接代次：换电脑时加一。旧线程手上正在处理的事件，到了真正发通知那一步发现代次不对就作罢
+    private static final AtomicInteger GEN = new AtomicInteger();
+    private int gen;
+    // 发通知统一放到主线程做，和「换电脑：作废旧代次 → 清旧通知」排在同一条队列里，不会交错
+    private final Handler main = new Handler(Looper.getMainLooper());
     private Thread worker;
     private HttpsURLConnection conn;
     private final Map<String, String> roomNames = new HashMap<>();
@@ -66,6 +75,7 @@ public class EventService extends Service {
         }
         if (!running) {
             running = true;
+            gen = GEN.get();
             worker = new Thread(this::loop, "clawchat-events");
             worker.start();
         }
@@ -75,6 +85,7 @@ public class EventService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        main.removeCallbacksAndMessages(null);
         HttpsURLConnection c = conn;
         if (c != null) c.disconnect();
         if (worker != null) worker.interrupt();
@@ -232,15 +243,42 @@ public class EventService extends Service {
         notifyReply(conv, title, body);
     }
 
-    // 换电脑时清掉旧电脑发来的通知（常驻那条「已连接」不动）
-    static void clearReplies(Context c) {
+    // 换电脑：先作废旧代次（旧线程之后再想发通知都会作罢），再清掉旧电脑发来的通知、撤销它们的点击凭据（常驻那条「已连接」不动）。
+    // 必须在主线程调用，和发通知排在同一条队列里
+    static void switchComputer(Context c) {
+        GEN.incrementAndGet();
         NotificationManager nm = c.getSystemService(NotificationManager.class);
-        for (android.service.notification.StatusBarNotification n : nm.getActiveNotifications()) if (n.getId() != ONGOING_ID) nm.cancel(n.getId());
+        for (android.service.notification.StatusBarNotification n : nm.getActiveNotifications()) {
+            if (n.getId() == ONGOING_ID) continue;
+            PendingIntent pi = n.getNotification().contentIntent;
+            if (pi != null) pi.cancel();
+            nm.cancel(n.getId());
+        }
+    }
+
+    // 点通知打开哪个聊天：电脑地址和聊天编号都放进 Intent 的 data 里（data 参与凭据的身份区分，extras 不参与），
+    // 两台电脑有同一个聊天编号也是两份不同的凭据，不会互相覆盖
+    static final String OPEN_SCHEME = "clawchat-notify";
+
+    static Uri openUri(String origin, String conv) {
+        return new Uri.Builder().scheme(OPEN_SCHEME).authority("open").appendQueryParameter("origin", origin).appendQueryParameter("conv", conv).build();
     }
 
     private void notifyReply(String conv, String title, String body) {
-        Intent open = new Intent(this, MainActivity.class).putExtra("conv", conv).putExtra("origin", origin).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pi = PendingIntent.getActivity(this, conv.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        final String from = origin;
+        final int myGen = gen;
+        main.post(() -> {
+            // 到主线程这一刻再核对：服务没停、没换过电脑、地址还是这台
+            if (!running || myGen != GEN.get() || !from.equals(Config.origin(this))) return;
+            post(from, conv, title, body);
+        });
+    }
+
+    private void post(String from, String conv, String title, String body) {
+        String key = from + "\n" + conv;
+        int id = key.hashCode() == ONGOING_ID ? ONGOING_ID + 1 : key.hashCode();
+        Intent open = new Intent(this, MainActivity.class).setData(openUri(from, conv)).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pi = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, CH_REPLY)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
@@ -249,7 +287,7 @@ public class EventService extends Service {
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build();
-        getSystemService(NotificationManager.class).notify(conv.hashCode(), n); // 同一个聊天只留最新一条
+        getSystemService(NotificationManager.class).notify(id, n); // 同一个聊天只留最新一条
     }
 
     // 通知里只放纯文字：去掉 Markdown 记号、私聊标签，太长就截断
