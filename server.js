@@ -705,7 +705,13 @@ async function api(req, res, url, access = 'local') {
     const result = await installEngine(engine);
     hub.emit('event', { type: 'installing', engine, on: false });
     await refreshEngines(true);
-    return send(res, 200, { ...result, engines });
+    // 刚装好、还没登录：顺手自动打开一次登录页（只这一次；之后只有用户自己点「登录」才会打开）。
+    // 只在电脑本机上点的安装才这么做：手机上点的，浏览器会在电脑上打开，手机这边看不到
+    let login = null;
+    if (result.ok && LOGINS[engine] && engines[engine]?.loggedIn === false && access === 'local') {
+      login = await loginEngine(engine, { onDone: () => refreshEngines(true).catch(() => {}) });
+    }
+    return send(res, 200, { ...result, login, engines });
   }
   // 帮用户登录 ChatGPT（Codex）、Grok、Cursor：在电脑上跑官方登录命令，它会打开浏览器；登完自动重新检测
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'login') {
