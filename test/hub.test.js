@@ -1967,6 +1967,7 @@ test('换了新会话：带上的历史记录里以前的图只给路径，只�
   hub.postUserMessage(room.id, '@ChatGPT 看这张旧图', [{ id: 'old.png', type: 'image/png' }]);
   await settle(hub);
   assert.equal(calls.at(-1).images.length, 1, '第一次照常附上');
+  assert.doesNotMatch(calls.at(-1).prompt, /以前发过的图片只给了文件路径/, '第一次叫它：没有以前的图，不加这句');
   assert.equal(hub.resetAgent(room.id, 'gpt', 'boss'), 'reset');
   hub.postUserMessage(room.id, '@ChatGPT 再看这张新图', [{ id: 'new.png', type: 'image/png' }]);
   await settle(hub);
