@@ -13,6 +13,7 @@ import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRoll
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
 import { requestAccess, remoteInfo, setRemote, initRemote } from './lib/remote.js';
 import { squareIcon } from './lib/icon-fix.js';
+import { getUsage, onUsageChange, seedCodexUsage } from './lib/usage.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -583,6 +584,7 @@ async function api(req, res, url, access = 'local') {
       rooms: store.listRooms(),
       folders: store.listFolders(),
       runs: hub.status(true),
+      usage: getUsage(),
       queued: hub.queued(),
       engines,
       agents: AGENTS,
@@ -609,6 +611,8 @@ async function api(req, res, url, access = 'local') {
     if (access !== 'local') return send(res, 400, { error: tr('手机上选不了文件夹，请直接填路径，或者回到电脑上操作') });
     return send(res, 200, { path: await pickFolder() });
   }
+  // 订阅额度还剩多少（Claude、ChatGPT）：最近一次跑的时候官方工具带回来的数
+  if (parts[0] === 'usage' && !parts[1] && method === 'GET') return send(res, 200, getUsage());
   // 手机远程访问（Tailscale）：看状态、开关。打开只能在电脑上点（手机这时还连不进来）
   if (parts[0] === 'remote' && !parts[1]) {
     if (method === 'GET') return send(res, 200, await remoteInfo());
@@ -1107,6 +1111,9 @@ setupPath();
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
   initRemote();
+  // 用量一变就推给网页；启动时先从最近的 Codex 会话里读一次 ChatGPT 的余量
+  onUsageChange((usage) => hub.emit('event', { type: 'usage', usage }));
+  seedCodexUsage();
   // 传上来、最后没发出去的图片：启动一分钟后清一次（放了一天以上的）
   setTimeout(() => {
     try {
