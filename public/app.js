@@ -4298,6 +4298,7 @@ function showSettingsTab(tab) {
     if (on) $('#prefs-title').textContent = b.dataset.title;
   });
   document.querySelectorAll('#dlg-settings [data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== tab));
+  if (changed) $('#dlg-settings .prefs-body').scrollTop = 0; // 换一页从头看，别沿用上一页滚到的位置
   if (changed && from && $('#dlg-settings').open && !reduceMotion()) {
     replay(panel, 'enter');
     win.style.height = 'auto';
@@ -5106,6 +5107,7 @@ function openDialog(room, preset = null) {
   $('#form-error').hidden = true;
   roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
+  $('#dlg-room .sheet-body').scrollTop = 0; // 上次滚到底下关掉的：再打开（尤其是新建）从头显示成员和名字
   reportDragRegions();
   // 手机上不自动聚焦名字：一打开群设置就弹键盘，挡住大半个窗口；窗口自己拿焦点（showModal 会把焦点给第一个输入框）
   if (finePointer()) formField('name').focus();
