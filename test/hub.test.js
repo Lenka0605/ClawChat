@@ -128,6 +128,15 @@ test('buildTurn：DeepSeek 用看不了图的模型时，图片只给文件路�
   assert.doesNotMatch(flash.prompt, /看不了图片/);
 });
 
+test('splitReply：代码里写到的标签不算（讲 <私聊老板> 怎么用的消息不会被截成两半）', () => {
+  const t = '改好了：显式写在 `<私聊老板>` 里的那段只给老板。\n\n```\n<群聊>示例</群聊>\n```\n@ChatGPT 请复核';
+  assert.deepEqual(splitReply(t, false), { group: t, dm: '', pms: [] });
+  assert.deepEqual(splitReply(t, true), { group: '', dm: t, pms: [] });
+  // 真的标签照样认，标签里的代码原样保留
+  assert.deepEqual(splitReply('群里的话 `a`<私聊老板>只给你：`<群聊>` 是写法</私聊老板>', false), { group: '群里的话 `a`', dm: '只给你：`<群聊>` 是写法', pms: [] });
+  assert.deepEqual(splitReply('讲讲 `<私聊 DeepSeek>` 的写法', false), { group: '讲讲 `<私聊 DeepSeek>` 的写法', dm: '', pms: [] });
+});
+
 test('splitReply 拆出私聊和群聊', () => {
   assert.deepEqual(splitReply('好的。<私聊老板>我觉得 Claude 的方案有问题</私聊老板>', false), { group: '好的。', dm: '我觉得 Claude 的方案有问题', pms: [] });
   assert.deepEqual(splitReply('<私聊老板>只跟你说', false), { group: '', dm: '只跟你说', pms: [] });
