@@ -4131,7 +4131,7 @@ function bindFind() {
     if (li) gotoFind(Number(li.dataset.findAt));
   });
   // 点到搜索框外面（比如去看消息了），结果列表收起来
-  document.addEventListener('mousedown', (e) => {
+  document.addEventListener('pointerdown', (e) => {
     if (!$('#find').hidden && !e.target.closest('#find')) $('#find-list').hidden = true;
   });
   document.addEventListener('keydown', (e) => {
@@ -5618,7 +5618,8 @@ function bind() {
     closeModelMenu();
     openRoomMenu(conv.roomId, e.clientX, e.clientY);
   });
-  document.addEventListener('mousedown', (e) => {
+  // 点外面关菜单用 pointerdown：iPhone 上点普通区域（消息、空白处）不会发 mousedown，用它的话手机上点外面关不掉
+  document.addEventListener('pointerdown', (e) => {
     // 按在打开这个菜单的按钮上：先别关，交给按钮的点击来切换（不然这里刚关上，点击又把它打开，看着像「刷一下又打开了」）
     if (!$('#ctx-menu').hidden && !e.target.closest('#ctx-menu, #ctx-sub, [data-model-more], [data-dm-menu]')) closeMenus();
   });
@@ -5641,7 +5642,8 @@ function bind() {
     const modelMore = e.target.closest('[data-model-more]');
     if (modelMore) {
       const conv = currentConv();
-      // 菜单开着、又点了这个按钮：收起来
+      // 菜单开着、又点了这个按钮：收起来（第二层的模型菜单开着也一样，别在上面再叠一层）
+      if (!$('#model-menu').hidden) return void closeModelMenu();
       if (!$('#ctx-menu').hidden && $('#ctx-menu').dataset.for === 'model') return void closeMenus();
       if (conv && !conv.dm) {
         const r = modelMore.getBoundingClientRect();
@@ -5737,7 +5739,7 @@ function bind() {
     }
   });
   // 点到「多开一位」和选项之外，收起来
-  document.addEventListener('mousedown', (e) => {
+  document.addEventListener('pointerdown', (e) => {
     const picker = $('#clone-picker');
     if (!picker.hidden && !e.target.closest('#clone-picker, #btn-clone-add')) picker.hidden = true;
   });
@@ -5918,7 +5920,7 @@ function bind() {
       document.querySelector(`.model-chip[data-menu="${agent}"]`)?.focus();
     }
   });
-  document.addEventListener('mousedown', (e) => {
+  document.addEventListener('pointerdown', (e) => {
     if (!e.target.closest('#model-menu, .model-chip')) closeModelMenu();
   });
   window.addEventListener('blur', closeModelMenu);
