@@ -850,9 +850,13 @@ function engineState(e, key) {
     return esc(e.version || tr('已就绪'));
   }
   if (key === 'api') {
-    // API 是「填一个 OpenAI 兼容平台的地址和 Key」：Key 填好、平台连得上才算能用
-    if (!e.hasKey) return S.engines.claude && !S.engines.claude.path ? tr('要先装 Claude Code，再填接口地址和 API Key') : tr('还没填接口地址和 API Key');
-    if (!e.ok) return e.error ? esc(e.error) : tr('连不上这个平台，检查一下地址和 Key');
+    // API 是「填一个 OpenAI 兼容平台的地址和 Key」：两样都填好、平台也连得上才算能用
+    if (!e.hasKey) {
+      if (S.engines.claude && !S.engines.claude.path) return tr('要先装 Claude Code，再填接口地址和 API Key');
+      return e.base ? tr('地址已填，还差 API Key') : tr('还没填接口地址和 API Key');
+    }
+    if (!e.base) return tr('还没填接口地址');
+    if (!e.ok) return e.keyError ? esc(e.keyError) : tr('连不上这个平台，检查一下地址和 Key');
     const host = String(e.base || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     return `${host ? esc(host) : tr('已填')}${e.models?.length ? ` · ${tr('{n} 个模型', { n: e.models.length })}` : ''}`;
   }
@@ -1051,7 +1055,9 @@ function renderEngines() {
     const bad = key === 'api'
       ? !e?.hasKey
         ? tr('没填 Key')
-        : tr('连不上')
+        : !e?.base
+          ? tr('没填地址')
+          : tr('连不上')
       : BYOK[key]
         ? !installed
           ? tr('缺 Claude Code')
@@ -1124,10 +1130,14 @@ function renderEngines() {
     apiStatus.textContent = !api
       ? ''
       : !api.hasKey
-        ? tr('还没填。填好后，新建聊天时勾上 API 就能用了。')
+        ? api.base
+          ? tr('地址已填：{base}。还差 API Key，填好再点保存。', { base: api.base })
+          : tr('还没填。填好后，新建聊天时勾上 API 就能用了。')
         : !api.ok
-          ? tr('Key 不对或者连不上：{error}。检查一下接口地址和 Key，再点保存。', { error: api.error || tr('没有说明原因') })
-          : tr('已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空 Key 后保存就是删掉。', { base: api.base || '', n: (api.models || []).length });
+          ? !api.base
+            ? tr('还没填接口地址：填好再点保存。')
+            : tr('Key 不对或者连不上：{error}。检查一下接口地址和 Key，再点保存。', { error: api.keyError || tr('没有说明原因') })
+          : tr('已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。', { base: api.base || '', n: (api.models || []).length });
     const baseEl = $('#api-base');
     if (baseEl && document.activeElement !== baseEl) baseEl.value = api?.base || '';
   }
@@ -5431,11 +5441,22 @@ async function saveApiKey() {
   const btn = $('#btn-api-save');
   btn.disabled = true;
   btn.textContent = tr('检查中…');
+  const base = baseEl.value.trim();
+  const key = keyEl.value.trim();
   try {
-    const res = await api('POST', '/api/api/key', { base: baseEl.value.trim(), key: keyEl.value.trim() });
+    if (!base && key) throw new Error(tr('先填接口地址（到 /v1 为止），再填 Key'));
+    // 地址清空、Key 也空着 = 删掉；只改地址、Key 空着 = 保留原来的 Key（服务端收到不带 key 的请求就保留）
+    const body = { base };
+    if (key) body.key = key;
+    if (!base) body.key = '';
+    const res = await api('POST', '/api/api/key', body);
     S.engines = res.engines || S.engines;
     keyEl.value = '';
-    toast(S.engines.api?.hasKey ? tr('API 的地址和 Key 已保存，可以用了') : tr('已删掉 API 的地址和 Key'), 4000);
+    toast(
+      res.warning ||
+        (!base ? tr('已删掉 API 的地址和 Key') : key ? tr('API 的地址和 Key 已保存，可以用了') : tr('接口地址已保存')),
+      4000,
+    );
     if (S.engines.api?.hasKey) setTimeout(() => offerClaudeCode('key', ['api']), 600); // 借来干活的 Claude Code 还没装的话问一下
   } catch (err) {
     toast(err.message, 5000);
@@ -5582,7 +5603,7 @@ function memberHintHtml(members) {
   const api = S.engines.api;
   if (has('api') && api) {
     if (!api.hasKey) rows.push(esc(tr('API 还没填接口地址和 API Key：建好后在「设置 → 程序与模型」里填一下就能用。')));
-    else if (!api.ok) rows.push(esc(tr('API 连不上：{error}', { error: api.error || tr('检查一下地址和 Key') })));
+    else if (!api.ok) rows.push(esc(tr('API 连不上：{error}', { error: !api.base ? tr('还没填接口地址') : api.keyError || tr('检查一下地址和 Key') })));
   }
   return rows.join('<br>');
 }
@@ -5611,6 +5632,7 @@ function memberIssue(a) {
     if (!E.api) return '';
     if (!E.api.hasKey) return tr('还没填 API Key');
     if (!E.claude?.path) return tr('没装 Claude Code');
+    if (!E.api.base) return tr('还没填地址');
     return E.api.ok ? '' : tr('连不上平台');
   }
   const e = E[b];

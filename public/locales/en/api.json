@@ -23,9 +23,16 @@
   "已删掉 API 的地址和 Key": "API endpoint and key removed",
   "还没填。填好后，新建聊天时勾上 API 就能用了。": "Not filled in yet. Once it is, add API when creating a chat and it will work.",
   "Key 不对或者连不上：{error}。检查一下接口地址和 Key，再点保存。": "Wrong key or can't connect: {error}. Check the endpoint and key, then save again.",
-  "已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空 Key 后保存就是删掉。": "Saved: {base} ({n} models). To change the endpoint or key, edit it and save again; clear the key and save to remove it.",
   "和 API 单聊": "Chat with API",
   "接口地址": "Endpoint",
   "填任何 OpenAI 兼容平台的地址（到 /v1 为止）和 Key，模型列表、能不能看图都从平台读。API 借 Claude Code 干活，所以要装好 Claude Code，但不用登录 Claude 账号。": "Fill in the endpoint (up to /v1) and key of any OpenAI-compatible platform; the model list and image support are read from the platform. API runs on Claude Code, so Claude Code must be installed, but you don't need to sign in to a Claude account.",
-  "内容会经过该平台，平台可能记录提问。Key 只存在这台电脑上。": "Your messages go through that platform, which may log prompts. The key is stored only on this computer."
+  "内容会经过该平台，平台可能记录提问。Key 只存在这台电脑上。": "Your messages go through that platform, which may log prompts. The key is stored only on this computer.",
+  "地址已填，还差 API Key": "Endpoint saved; an API key is still needed",
+  "还没填接口地址": "No endpoint yet",
+  "没填地址": "No endpoint",
+  "地址已填：{base}。还差 API Key，填好再点保存。": "Endpoint saved: {base}. An API key is still needed; fill it in and save again.",
+  "还没填接口地址：填好再点保存。": "No endpoint yet. Fill it in and save again.",
+  "先填接口地址（到 /v1 为止），再填 Key": "Fill in the endpoint first (up to /v1), then the key",
+  "接口地址已保存": "Endpoint saved",
+  "已填：{base}（{n} 个模型）。要换地址或 Key，改完再点保存；清空接口地址后保存就是删掉。": "Saved: {base} ({n} models). To change the endpoint or key, edit it and save again; clear the endpoint and save to remove it."
 }
