@@ -461,14 +461,38 @@ test('私聊里单独换的模型、强度只用在私聊那一轮，群里照�
   assert.equal(store.getRoom(room.id).efforts.claude, 'high');
 });
 
-test('私聊里 @ 了别人却没发到群里：不自动转，提醒老板并能一键转到群里', async () => {
+test('老板私聊里 AI @ 了一位同事：私下叫它来，它看得到这条、会被叫醒，回复接着放在这段私聊里', async () => {
   const store = new Store();
-  const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? '@ChatGPT 进度如下：APK 已打好' : 'gpt 收到'));
+  const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? '老板，热修好了。@ChatGPT 请复核这两个提交' : 'gpt 复核通过'));
   const hub = new Hub(store, { run });
   const room = newRoom(store);
+  hub.postUserMessage(room.id, '热修做一下', [], 'claude');
+  await tick();
+  await tick();
+  const msgs = store.getMessages(room.id);
+  const reply = msgs.find((m) => m.from === 'claude');
+  assert.equal(reply.pm, 'gpt', '这条私下发给了 ChatGPT');
+  assert.equal(reply.pmIn, 'claude', '还放在老板和 Claude 的私聊里，老板看得到');
+  assert.equal(reply.dm, undefined);
+  assert.ok(!msgs.some((m) => m.action?.type === 'forward'), '不用再提示老板转到群里');
+  assert.ok(!msgs.some((m) => !m.dm && !m.pm && m.from === 'claude'), '没有发到群里');
+  const gptCall = calls.find((c) => c.agent === 'gpt');
+  assert.ok(gptCall, 'ChatGPT 被叫醒了');
+  assert.match(gptCall.prompt, /Claude（私下发给你，别人看不到）\] 老板，热修好了。@ChatGPT 请复核/);
+  await settle(hub);
+  const gptReply = store.getMessages(room.id).find((m) => m.from === 'gpt');
+  assert.equal(gptReply.pm, 'claude');
+  assert.equal(gptReply.pmIn, 'claude', 'ChatGPT 的回复也在老板和 Claude 的私聊里');
+});
+
+test('私聊里 @ 了好几位：不自动转，提醒老板并能一键转到群里', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? '@ChatGPT @DeepSeek 进度如下：APK 已打好' : `${agent} 收到`));
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude', 'gpt', 'deepseek'] });
   hub.postUserMessage(room.id, '你去群里发一下进度', [], 'claude');
   await settle(hub);
-  assert.deepEqual(calls.map((c) => c.agent), ['claude']); // ChatGPT 没被叫起来：私聊里的话不自动公开
+  assert.deepEqual(calls.map((c) => c.agent), ['claude']); // 没人被叫起来：私聊里的话不自动公开
   const msgs = store.getMessages(room.id);
   const dmReply = msgs.find((m) => m.from === 'claude');
   assert.equal(dmReply.dm, 'claude');
@@ -478,8 +502,7 @@ test('私聊里 @ 了别人却没发到群里：不自动转，提醒老板并�
   // 老板点「发到群里」
   assert.equal(hub.forwardToGroup(room.id, dmReply.seq), true);
   await settle(hub);
-  assert.equal(calls.at(-1).agent, 'gpt');
-  assert.match(calls.at(-1).prompt, /Claude（老板从私聊转到群里的）\] @ChatGPT 进度如下/);
+  assert.ok(calls.some((c) => c.agent === 'gpt' && /Claude（老板从私聊转到群里的）\] @ChatGPT @DeepSeek 进度如下/.test(c.prompt)));
   assert.equal(store.getMessages(room.id).filter((m) => m.forwardOf === dmReply.seq).length, 1);
   hub.forwardToGroup(room.id, dmReply.seq); // 再点一次不会重复发
   assert.equal(store.getMessages(room.id).filter((m) => m.forwardOf === dmReply.seq).length, 1);
