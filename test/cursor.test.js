@@ -209,3 +209,27 @@ test('Cursor：按群的权限写拒绝规则，只有完全放开能调 MCP；�
   await start().done;
   assert.deepEqual(read(), ['Mcp(*:*)']);
 });
+
+test('登录：自己失败退出、又清理不掉时，记录留着，之后再点也不会再开一套', async () => {
+  const { loginEngine } = await import('../lib/agents.js');
+  const dir = fs.mkdtempSync(path.join(root, 'login-fail-'));
+  const pids = path.join(dir, 'pids.txt');
+  // 假登录：开一个脱离的子进程，然后自己失败退出；假 ps：查询总是失败（清理没法确认）
+  fs.writeFileSync(path.join(dir, 'cursor-agent'), `#!${process.execPath}\nimport fs from 'node:fs';import { spawn } from 'node:child_process';const c = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' });c.unref();fs.appendFileSync(${JSON.stringify(pids)}, c.pid + '\\n');console.error('登录失败');setTimeout(() => process.exit(1), 100);`, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'ps'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${oldPath}`;
+  try {
+    const first = await loginEngine('cursor');
+    assert.equal(first.ok, false);
+    await new Promise((r) => setTimeout(r, 4000)); // 等自动清理有结果
+    const second = await loginEngine('cursor');
+    const third = await loginEngine('cursor');
+    assert.equal(second.ok, false);
+    assert.equal(third.ok, false);
+    assert.equal(fs.readFileSync(pids, 'utf8').trim().split('\n').length, 1, '只开过一套登录');
+  } finally {
+    process.env.PATH = oldPath;
+    for (const pid of fs.readFileSync(pids, 'utf8').trim().split('\n')) try { process.kill(Number(pid), 'SIGKILL'); } catch {}
+  }
+});
