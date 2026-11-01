@@ -93,9 +93,10 @@ function native(msg) {
 const hasNative = () => !!window.webkit?.messageHandlers?.clawchat;
 
 // 界面语言告诉服务端（群里的提示、AI 回复用的语言跟着它）和原生外壳（菜单栏）
-function syncLang(lang) {
+// manual：老板在设置里亲手换的语言；页面打开时自动报的不带它（手机上自动报的服务端不认，免得把电脑的语言改掉）
+function syncLang(lang, manual = false) {
   native({ type: 'lang', value: lang });
-  return api('POST', '/api/lang', { lang });
+  return api('POST', '/api/lang', { lang, manual });
 }
 
 // ---------------- 外观（浅色 / 深色 / 跟随系统） ----------------
@@ -5906,7 +5907,7 @@ function bind() {
     I18N.setPref(langSel.value);
     const next = langSel.value === 'system' ? I18N.systemLang() : langSel.value;
     if (next === I18N.lang) return;
-    await syncLang(next).catch(() => {});
+    await syncLang(next, true).catch(() => {});
     location.reload(); // 整个界面按新语言重画
   };
   $('#notify-switch').checked = notifyOn();

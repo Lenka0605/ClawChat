@@ -600,6 +600,9 @@ async function api(req, res, url, access = 'local') {
     // 前端告诉服务端现在界面是什么语言：群里的提示、AI 的回复语言都跟着它
     const body = await readBody(req);
     const was = getLang();
+    // 手机（经 Tailscale 连进来的）打开页面时按手机自己的系统语言报上来，不能顺手把电脑上的语言改掉：
+    // 以前英文系统的安卓手机一连上，群里所有 AI 都被要求改说英文。手机上只有在设置里亲手换语言才算数
+    if (access === 'remote' && !body.manual) return send(res, 200, { lang: was });
     const lang = setLang(body.lang);
     if (readConfig().uiLang !== lang) saveConfig({ uiLang: lang });
     // 程序状态里的出错提示、模型说明是检测时按当时的语言写的，换了语言就重新检测一遍（有变化会推给界面）
