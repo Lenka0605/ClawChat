@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installClaudeCode } from './lib/agents.js';
+import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installClaudeCode, readCodexRateLimits } from './lib/agents.js';
 import { PROVIDERS } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -612,7 +612,11 @@ async function api(req, res, url, access = 'local') {
     return send(res, 200, { path: await pickFolder() });
   }
   // 订阅额度还剩多少（Claude、ChatGPT）：最近一次跑的时候官方工具带回来的数
-  if (parts[0] === 'usage' && !parts[1] && method === 'GET') return send(res, 200, getUsage());
+  // ?refresh=1（打开设置时）：顺便现读一次 ChatGPT 的余量（只查询，不开聊天、不花额度），最多等 8 秒；Claude 的只能等它下次干活带回来
+  if (parts[0] === 'usage' && !parts[1] && method === 'GET') {
+    if (url.searchParams.get('refresh')) await Promise.race([readCodexRateLimits(), new Promise((r) => setTimeout(r, 8000))]).catch(() => {});
+    return send(res, 200, getUsage());
+  }
   // 手机远程访问（Tailscale）：看状态、开关。打开只能在电脑上点（手机这时还连不进来）
   if (parts[0] === 'remote' && !parts[1]) {
     if (method === 'GET') return send(res, 200, await remoteInfo());

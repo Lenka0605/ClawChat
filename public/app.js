@@ -1130,7 +1130,7 @@ function renderUsage() {
 
 async function refreshUsage() {
   try {
-    S.usage = (await api('GET', '/api/usage')) || {};
+    S.usage = (await api('GET', '/api/usage?refresh=1')) || {}; // 打开时顺便现读一次 ChatGPT 的余量
     renderUsage();
   } catch {}
 }

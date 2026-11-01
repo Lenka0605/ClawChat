@@ -22,6 +22,10 @@ test('Claude 的额度：分窗口的按窗口存，小数换成百分数，秒�
   c = getUsage().claude;
   assert.deepEqual(c.windows.map((w) => [w.key, w.usedPercent]), [['five_hour', 90], ['seven_day', 70]]);
   assert.equal(c.status, 'allowed_warning');
+  // Claude 的 utilization 永远是比例：1.2 是超额用到 120%
+  recordClaudeRateLimit({ unifiedWindows: { five_hour: { utilization: 1.2, resetsAt: sec(1) } } });
+  assert.equal(getUsage().claude.windows.find((w) => w.key === 'five_hour').usedPercent, 120);
+  recordClaudeRateLimit({ status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.9, resetsAt: sec(1) });
   // 存到了文件里，重启后还在
   _resetUsage();
   assert.equal(getUsage().claude.windows.length, 2);
@@ -35,6 +39,9 @@ test('Codex 的额度：按窗口长度取名，蛇形和驼峰写法都认，�
   assert.equal(g.plan, 'pro');
   assert.deepEqual(g.credits, { hasCredits: true, unlimited: false, balance: '12.5' });
   assert.equal(recordCodexRateLimits(null), null);
+  // Codex 的 used_percent 永远是百分数：1 就是 1%，不是 100%
+  recordCodexRateLimits({ primary: { used_percent: 1, window_minutes: 300, resets_at: sec(3) } });
+  assert.equal(getUsage().codex.windows.find((w) => w.key === 'five_hour').usedPercent, 1);
   assert.equal(recordCodexRateLimits({}), null);
 });
 
