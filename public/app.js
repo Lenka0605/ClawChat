@@ -2616,10 +2616,14 @@ function renderStopControls(conv) {
   const box = $('#stop-controls');
   const runs = conv ? S.runs.filter((r) => r.roomId === conv.roomId) : [];
   box.hidden = runs.length === 0;
+  // 窄屏上「停止」出现后要给 @ 名字让位置：CSS 靠这个类先把「接着上一位」收起来
+  document.querySelector('.composer-tools')?.classList.toggle('has-stop', runs.length > 0);
   const who = (r) => (r.side ? tr('{name} 分身', { name: agentName(r.agent) }) : r.dm ? tr('{name}（私聊）', { name: agentName(r.agent) }) : agentName(r.agent));
   if (runs.length === 1) {
     const r = runs[0];
-    setHtml(box, `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}">${avatarHtml(r.agent)}${esc(tr('停止 {name}', { name: who(r) }))}</button>`);
+    // 手机上一行要同时放下 @ 按钮、接着谁和停止：停止只写「停止」，谁在干活看头像和上面的气泡
+    const label = isNarrow() ? tr('停止') : tr('停止 {name}', { name: who(r) });
+    setHtml(box, `<button class="chip danger" data-stop="${esc(r.agent)}" data-only="${r.side ? 'side' : 'main'}" title="${esc(tr('停止 {name}', { name: who(r) }))}">${avatarHtml(r.agent)}${esc(label)}</button>`);
   } else if (runs.length > 1) {
     const faces = [...new Set(runs.map((r) => r.agent))].map((a) => avatarHtml(a)).join('');
     setHtml(box, `<button class="chip danger strong" data-stop="" title="${esc(tr('{names} 正在干活。要单独停某一位，点它气泡里的「停止」', { names: runs.map(who).join(LIST_SEP) }))}"><span class="chip-stack">${faces}</span>${tr('全部停止')}</button>`);
@@ -2627,13 +2631,12 @@ function renderStopControls(conv) {
   fitTools();
 }
 
-// 输入框上面那一行始终只占一行：放不下时 @ 按钮只留头像，「不 @ 时」几个字也收起来
+// 输入框上面那一行始终只占一行：电脑上放不下时 @ 按钮只留头像；手机上横着滚，名字都留着
 function fitTools() {
   const row = document.querySelector('.composer-tools');
   if (!row || row.hidden) return;
   row.classList.remove('compact');
-  // 手机上 @ 按钮一律只留头像：字会挤成一竖排，而且放大了手指才点得准；放不下的在那一行里横着滚
-  if (isNarrow()) return void row.classList.add('compact');
+  // 手机上放不下时在那一行里横着滚，@ 按钮仍然带头像和名字（只留头像看不出是谁）
   const over = row.scrollWidth > row.clientWidth + 1;
   row.classList.toggle('compact', over);
 }
@@ -3022,10 +3025,11 @@ function bindMobileViewport() {
   }
   window.addEventListener('resize', sync);
   window.addEventListener('orientationchange', () => setTimeout(sync, 120));
-  // 横竖屏切换后提示语长短可能不一样
+  // 横竖屏切换后提示语长短可能不一样；输入框的最大高度也跟着窄/宽屏变一下
   window.addEventListener('resize', () => {
     const conv = currentConv();
     if (conv && !$('#chat').hidden) renderTargets(conv.room, conv.dm);
+    autoGrow();
   });
   sync();
 }
@@ -3131,11 +3135,14 @@ function lastSpeakerOf(room) {
 function renderTargets(room, dm) {
   const many = room.members.length > 2;
   const last = lastSpeakerOf(room);
+  // 手机上下拉框只有一个小胶囊宽：写「接着上一位」就够了，具体是谁看输入框的提示
+  const narrow = isNarrow();
+  const tiny = window.innerWidth <= 360; // 再窄一点（比如 320）：长群名会折成两行
   const targets = [
-    ['last', last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
+    ['last', narrow ? tr('接着上一位') : last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
     ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
     ['sequential', many ? tr('大家依次回答') : tr('两位依次回答')],
-    ...room.members.map((a) => [a, tr('只发给 {name}', { name: agentName(a) })]),
+    ...room.members.map((a) => [a, narrow ? agentName(a) : tr('只发给 {name}', { name: agentName(a) })]),
   ];
   setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
@@ -3146,7 +3153,9 @@ function renderTargets(room, dm) {
       ? isNarrow()
         ? tr('发给 {name}', { name: agentName(last) })
         : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
-      : tr('发送给 {name}', { name: room.name });
+      : tiny
+        ? tr('说点什么…') // 320 这种窄屏放不下长群名，用短提示，别在输入框里折成两行
+        : tr('发送给 {name}', { name: room.name });
 }
 
 function onMessage(roomId, m) {
@@ -3416,9 +3425,13 @@ function updateSendButton() {
 function autoGrow() {
   const el = $('#input');
   el.style.height = 'auto';
-  const full = el.scrollHeight + 2; // scrollHeight 不含上下边框
-  el.style.height = `${Math.min(full, 240)}px`;
-  el.style.overflowY = full > 240 ? 'auto' : 'hidden';
+  // 手机上没有边框，不用补这 2px；补了会比两边的按钮高出一截
+  const extra = isNarrow() ? 0 : 2;
+  const full = el.scrollHeight + extra; // scrollHeight 不含上下边框
+  // 手机上最多长到 5 行：再高会把输入框顶到顶栏上（键盘弹起来时尤其明显）
+  const max = isNarrow() ? 132 : 240;
+  el.style.height = `${Math.min(full, max)}px`;
+  el.style.overflowY = full > max ? 'auto' : 'hidden';
   renderInputMirror();
   updateSendButton();
 }
