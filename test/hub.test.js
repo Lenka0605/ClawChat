@@ -485,6 +485,33 @@ test('老板私聊里 AI @ 了一位同事：私下叫它来，它看得到这�
   assert.equal(gptReply.pmIn, 'claude', 'ChatGPT 的回复也在老板和 Claude 的私聊里');
 });
 
+test('老板私聊里 AI @ 同事：写在 <私聊老板> 里的只给老板，不转给同事；只在那里面提到 @ 谁也不叫醒它', async () => {
+  const store = new Store();
+  let reply = '@ChatGPT 请复核提交。\n<私聊老板>这段只给老板看。</私聊老板>';
+  const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? reply : 'gpt 收到'));
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '热修做一下', [], 'claude');
+  await settle(hub);
+  const mine = store.getMessages(room.id).filter((m) => m.from === 'claude');
+  const toGpt = mine.find((m) => m.pm === 'gpt');
+  assert.equal(toGpt.text, '@ChatGPT 请复核提交。');
+  assert.equal(mine.find((m) => m.dm === 'claude').text, '这段只给老板看。', '只给老板的那段留在私聊里');
+  const gptCall = calls.find((c) => c.agent === 'gpt');
+  assert.doesNotMatch(gptCall.prompt, /只给老板看/, 'ChatGPT 看不到只给老板的那段');
+
+  // 只在 <私聊老板> 里提到 @ChatGPT：不叫醒它，也不转
+  const store2 = new Store();
+  reply = '<私聊老板>要不要让 @ChatGPT 复核，您定。</私聊老板>';
+  const r2 = fakeRunner((agent) => (agent === 'claude' ? reply : 'gpt 收到'));
+  const hub2 = new Hub(store2, { run: r2.run });
+  const room2 = newRoom(store2);
+  hub2.postUserMessage(room2.id, '热修做一下', [], 'claude');
+  await settle(hub2);
+  assert.deepEqual(r2.calls.map((c) => c.agent), ['claude'], 'ChatGPT 没被叫醒');
+  assert.ok(!store2.getMessages(room2.id).some((m) => m.pm), '没有私下转给 ChatGPT');
+});
+
 test('私聊里 @ 了好几位：不自动转，提醒老板并能一键转到群里', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner((agent) => (agent === 'claude' ? '@ChatGPT @DeepSeek 进度如下：APK 已打好' : `${agent} 收到`));
