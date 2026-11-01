@@ -533,6 +533,11 @@ html.icon-grok .av-grok { background-color: #000; background-image: url("/icons/
   text-align: left; color: var(--text); font-size: 13px; line-height: 19px;
 }
 .menu-item:hover, .menu-item:focus-visible { background: var(--accent); color: #fff; box-shadow: none; }
+/* 菜单项前面的成员头像（「模型」「私聊」菜单） */
+.menu-icon { flex: none; display: inline-flex; align-self: center; margin-right: 8px; }
+.menu-icon .avatar { width: 20px; height: 20px; border-radius: 6px; }
+.menu-item:has(.menu-icon) .menu-check { display: none; } /* 有头像的菜单不用打勾，别空出一截 */
+.menu-item:has(.menu-icon) { padding-left: 10px; }
 .menu-check { width: 16px; height: 19px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .menu-item:hover .menu-check, .menu-item:focus-visible .menu-check { color: #fff; }
 .menu-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }

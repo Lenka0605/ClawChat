@@ -1517,7 +1517,9 @@ function ctxItemHtml(label, item) {
   const arrow = item.sub
     ? '<svg class="menu-arrow" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M3.6 2 7 5l-3.4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
     : '';
-  return `<button type="button" class="menu-item${item.danger ? ' danger' : ''}"><span class="menu-check"></span><span class="menu-text"><span class="menu-label">${esc(label)}</span></span>${arrow}</button>`;
+  // icon：菜单项前面的小图（比如成员头像），传进来的是现成的 HTML
+  const icon = item.icon ? `<span class="menu-icon">${item.icon}</span>` : '';
+  return `<button type="button" class="menu-item${item.danger ? ' danger' : ''}"><span class="menu-check"></span>${icon}<span class="menu-text"><span class="menu-label">${esc(label)}</span></span>${arrow}</button>`;
 }
 
 function openCtxMenu(items, x, y) {
@@ -5647,6 +5649,7 @@ function bind() {
         openCtxMenu(
           room.members.map((a) => ({
             label: `${agentLabel(a)} · ${modelShortName(a, room.models?.[a] || '')}${room.efforts?.[a] ? ` · ${EFFORT_LABEL[room.efforts[a]] || room.efforts[a]}` : ''}`,
+            icon: avatarHtml(a),
             act: () => openModelMenu(a, modelMore),
           })),
           Math.round(r.left),
@@ -5663,7 +5666,7 @@ function bind() {
       if (!$('#ctx-menu').hidden && $('#ctx-menu').dataset.for === 'dm') return void closeMenus();
       if (conv && !conv.dm) {
         openCtxMenu(
-          conv.room.members.map((a) => ({ label: tr('私聊 {name}', { name: agentLabel(a) }), act: () => openConv(`d:${conv.roomId}:${a}`) })),
+          conv.room.members.map((a) => ({ label: tr('私聊 {name}', { name: agentLabel(a) }), icon: avatarHtml(a), act: () => openConv(`d:${conv.roomId}:${a}`) })),
           Math.round(r.right),
           Math.round(r.bottom + 6),
         );
