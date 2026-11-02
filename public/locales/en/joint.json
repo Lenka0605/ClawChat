@@ -37,7 +37,6 @@
   "想从你这里取一个文件": "wants to take a file from you",
   "证书 / 私钥": "Certificate / private key",
   "发送到": "Send to",
-  "经 Tailscale 加密直达，文件内容不经过任何 AI，只发这一个文件": "Encrypted directly over Tailscale; file contents never pass through any AI; only this one file",
   "取消": "Cancel",
   "确认发送": "Send",
   "确认发送（需要系统认证）": "Send (system authentication required)",
@@ -108,5 +107,6 @@
   "输入文件名确认发送": "Type the file name to confirm",
   "输入上面的文件名": "Type the file name shown above",
   "请到电脑上确认": "Confirm on your computer",
-  "文件名对不上，没有发出去": "The file name doesn't match, so it wasn't sent"
+  "文件名对不上，没有发出去": "The file name doesn't match, so it wasn't sent",
+  "经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件": "Encrypted in transit over Tailscale; file contents never pass through any AI; only this one file"
 }

@@ -6908,6 +6908,9 @@ function syncJointQuickMentions(room) {
     const btn = tools.querySelector(`.mention-chip[data-who="${id}"]:not([data-joint-chip])`);
     if (!btn) continue;
     const m = room?.joint ? jointMemberOf(room, id) : null;
+    // 联合群里成员必须能在 jointMembers 里找到；数据没齐时宁可不显示，也不要露出没带主人的名字
+    btn.hidden = room?.joint ? !m : !(room?.members || []).includes(id);
+    if (!m && room?.joint) continue;
     const label = m ? jointMemberDisplay(m) : plain;
     btn.dataset.mention = label;
     btn.title = `@${label}`;
@@ -7178,7 +7181,7 @@ function openJointFileRequest(req = {}) {
     ${danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
     ${danger && !onComputer ? `<p class="hint warn-text">${tr('请到电脑上确认')}</p>` : ''}
     ${danger && onComputer ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
-    <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || '')} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密直达，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
+    <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || '')} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
   const yes = $('#btn-joint-file-yes');
   yes.textContent = tr('确认发送');
   yes.hidden = danger && !onComputer;
