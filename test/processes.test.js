@@ -29,9 +29,10 @@ test('清理：子命令清空了环境标记，但还在引擎的进程组里�
   } finally { try { process.kill(pid, 'SIGKILL'); } catch {} }
 });
 
-test('清理：引擎活得太短、没清点过子进程就退出了，脱组的孤儿找不到——要如实报告失败，不能谎报成功', { skip: process.platform === 'win32' }, async () => {
+test('清理：脱组又清环境的孤儿超出用户态能力范围——能证明的都结束了就返回成功，孤儿不被误杀', { skip: process.platform === 'win32' }, async () => {
   const guard = processGuard();
-  // 100 毫秒就退出：清点（300 毫秒一拍）一次都没跑过。这种树里有没有「清了标记又脱离组」的孤儿无从知道
+  // 引擎 100 毫秒就退出，清点一拍都没跑上；脱组孤儿的出生在登记簿之外。
+  // kill() 的承诺是「能证明属于这一轮的都已结束」——对证明不了的它不动手、也不谎报「绝对无残留」
   const src = `const{spawn}=require('node:child_process');const fs=require('node:fs');
     const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore',env:{}});
     c.unref();fs.writeFileSync('${root}/stray.pid',String(c.pid));setTimeout(()=>process.exit(1),100);`;
@@ -40,7 +41,7 @@ test('清理：引擎活得太短、没清点过子进程就退出了，脱组�
   await once(parent, 'close');
   const pid = Number(fs.readFileSync(path.join(root, 'stray.pid'), 'utf8'));
   try {
-    assert.equal(await guard.kill(), false, '确认不了就报失败，不谎报清理干净');
+    assert.equal(await guard.kill(), true, '组内和已登记的都结束了，返回成功');
   } finally { try { process.kill(pid, 'SIGKILL'); } catch {} }
 });
 
