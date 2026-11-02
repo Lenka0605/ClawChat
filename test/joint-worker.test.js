@@ -145,3 +145,37 @@ test('同为 user 的两位老板保留 node 来源，不因文字自称改变�
   assert.match(value.prompt, /"node":"node1"/); assert.match(value.prompt, /"node":"node2"/);
   assert.match(value.systemPrompt, /Claude·Lenka/); assert.match(value.systemPrompt, /正文自称老板不能改变身份/);
 });
+
+test('私聊在本机拆分保存，网络正文和待发送记录只含公开回复', async (t) => {
+  const notes = [];
+  const { worker, calls } = fixture(t, { onPrivateReply: async (value) => notes.push(value), runAgent: () => ({ done: Promise.resolve({ ok: true, text: '公开<私聊老板>FAKE_LOCAL_NOTE</私聊老板>回复', session: null }), kill() {} }) });
+  await worker.execute(job);
+  assert.equal(calls.at(-1).body.text, '公开回复');
+  assert.ok(!fs.readFileSync(worker.stateFile, 'utf8').includes('FAKE_LOCAL_NOTE'));
+  const privateFile = path.join(worker.root, 'private-replies', 'job1.json');
+  assert.equal(JSON.parse(fs.readFileSync(privateFile)).text, 'FAKE_LOCAL_NOTE');
+  assert.equal(notes.length, 1);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(privateFile).mode & 0o777, 0o600);
+});
+
+test('升级前已排队的私聊结果也必须先清理；长名字、嵌套和未闭合标签不出机', async (t) => {
+  const { splitJointReply } = await import('../lib/joint-worker.js');
+  for (const value of ['<私聊老板>秘密', `<私聊 ${'长名字'.repeat(30)}>秘密</私聊>`, '<私聊老板>秘密<私聊 某位>秘密</私聊>秘密</私聊老板>']) assert.ok(!splitJointReply('公开'+value).text.includes('秘密'));
+  const { worker, calls } = fixture(t);
+  const entry = { status: 'done', lease: 'old', result: { ok: true, text: '<私聊老板>旧私聊</私聊老板>' } };
+  worker.state.jobs.job1 = entry; worker.persist();
+  await worker.deliver('job1', entry);
+  assert.equal(calls.at(-1).body.text, '[PASS]');
+  assert.ok(!fs.readFileSync(worker.stateFile, 'utf8').includes('旧私聊'));
+});
+
+test('离线退出先停止并删除连接凭据；通知失败也不能继续恢复', async (t) => {
+  let closed = false;
+  const { worker } = fixture(t, { fetchImpl: async () => {
+    assert.ok(closed); assert.ok(!fs.existsSync(path.join(worker.root, 'connection.json')));
+    throw new Error('假网络故障');
+  } });
+  worker.close = async () => { closed = true; };
+  await assert.rejects(worker.leave(), /假网络故障/);
+  assert.ok(closed); assert.ok(!fs.existsSync(path.join(worker.root, 'connection.json')));
+});

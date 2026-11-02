@@ -75,3 +75,9 @@ Claude Code 2.1.316 原认证入口对照：`auth status --json` 在默认目录
 另外用完全隔离的假认证目录保留旧 settings：预先允许 Write，设置 SessionStart hook，提供项目 MCP 配置、用户/项目 CLAUDE.md 和已写出项目目录里的 memory/MEMORY.md。真实 CLI + 本地假上游结果：tools=[]，Write 返回错误，假目标文件未创建，hook/MCP 标记均未创建，项目须知和自动记忆标记未进入请求。这个实验使用假 token，不借真实账号发送模型请求。证据 `/tmp/clawchat-joint-auth-probe/restricted-results.json`。
 
 官方资料也说明不同 CLAUDE_CONFIG_DIR 对应独立登录：https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts 。`auth status` 的语义见 https://code.claude.com/docs/en/cli-reference 。
+
+## worker 私聊出站与离线退出修复
+
+发送前使用 `splitJointReply` 拆分私聊标签，私聊保存于 `joint/<本地jointId>/private-replies/<jobId>.json`（600），不放在 workspace，也不放进公开结果队列。可用本机回调 `onPrivateReply({jobId,agentId,text})` 通知老板界面；回调只能接本机存储/显示，不能转成公开事件。只有私聊时公开结果为 [PASS]。升级前已排队的旧结果也会在重交前清理；未闭合、嵌套或长名字的私聊块均保守留在本机。
+
+leave 先删除 connection.json、关闭 worker，再尝试通知主持方；finally 再保证 close/删除。网络失败不保留本机执行权或自动恢复资格。退出通知可能报网络错误，但本机停止不依赖它成功。
