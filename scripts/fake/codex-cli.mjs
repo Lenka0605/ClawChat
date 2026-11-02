@@ -9,7 +9,16 @@ if (args[0] === '--version') console.log('codex-cli 0.0.0-fake');
 else if (args[0] === 'login') {
   if (process.env.FAKE_CODEX_LOGGED_OUT) { console.error('Not logged in'); process.exitCode = 1; }
   else console.log('Logged in using ChatGPT (fake)');
-} else if (args[0] === 'app-server') {
+} else if (args[0] === 'features' && args[1] === 'list') {
+  // 联合群讨论档启动前，lib/agents.js 会用 features list 确认这个 Codex 认识全部禁用开关
+  // （旧版会悄悄忽略未知 feature）。清单要和 lib/joint-discussion.js 的 JOINT_CODEX_CONFIG 保持同步。
+  const feats = ['shell_tool', 'view_image', 'multi_agent', 'apps', 'plugins', 'remote_plugin', 'memories',
+    'hooks', 'goals', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode', 'code_mode_host',
+    'code_mode_only', 'request_permissions_tool', 'skill_search'];
+  const missing = new Set((process.env.FAKE_CODEX_MISSING_FEATURES || '').split(',').filter(Boolean));
+  for (const f of feats.filter((f) => !missing.has(f))) console.log(`${f}  enabled`);
+}
+else if (args[0] === 'app-server') {
   if (process.env.FAKE_CODEX_RPC_SCENARIO === 'old-cli') { console.error("error: unrecognized subcommand 'app-server'"); process.exitCode = 2; }
   else if (args.includes('--help')) console.log('codex app-server: 后台协议服务（假的）');
   else await import('./codex-app-server.mjs');
