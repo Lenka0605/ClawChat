@@ -133,5 +133,6 @@
   "头像图片不对，换一张试试": "That image can't be used as an avatar. Try another one.",
   "还没填 {name} 的 API Key：在「设置 → 程序与模型」里填一下": "No {name} API key yet. Add one in Settings → Engines & Models.",
   "安卓 App 打包失败：{error}": "Couldn't build the Android app: {error}",
-  "这台电脑没装 Android SDK，打不了安卓 App": "Android SDK isn't installed on this computer, so the Android app can't be built"
+  "这台电脑没装 Android SDK，打不了安卓 App": "Android SDK isn't installed on this computer, so the Android app can't be built",
+  "Claude Code 版本太旧，只读和分身用不了。请到「设置 → 程序与模型」里点 Claude Code 的「更新」（需要 2.1.248 以上）": "Claude Code is too old for read-only and side sessions. Go to Settings → Engines & Models and click Update next to Claude Code (needs 2.1.248 or later)."
 }
