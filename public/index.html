@@ -99,6 +99,8 @@
           </button>
         </header>
 
+        <div id="joint-bar" class="joint-bar" hidden></div>
+
         <div id="find" class="find" hidden>
           <div class="find-bar">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="m10.5 10.5 3 3"/></svg>
@@ -197,7 +199,7 @@
       <header class="sheet-head"><h2 id="dlg-title">新建聊天</h2></header>
       <div class="sheet-body">
         <section class="form-section">
-          <h3>成员 <small>只选一位就是单聊</small></h3>
+          <h3>成员 <small id="member-sub">只选一位就是单聊</small></h3>
           <div class="members">
             <label class="member"><input type="checkbox" name="memberClaude" checked><span class="avatar av-claude"></span><span class="member-name">Claude<small>Anthropic</small></span><span class="check-mark"></span></label>
             <label class="member"><input type="checkbox" name="memberGpt" checked><span class="avatar av-gpt"></span><span class="member-name">ChatGPT<small>OpenAI Codex</small></span><span class="check-mark"></span></label>
@@ -211,20 +213,24 @@
             <div class="clone-picker" id="clone-picker" hidden></div>
           </div>
           <p id="member-hint" class="hint warn-text" hidden></p>
+          <div class="joint-entry-row" id="joint-entry-row">
+            <button type="button" class="secondary" id="btn-joint-create-open">新建联合群</button>
+            <button type="button" class="secondary" id="btn-joint-join-open">加入联合群</button>
+          </div>
         </section>
         <section class="form-section">
           <h3>基本信息</h3>
           <div class="group-box">
             <label class="form-row"><span>名字</span><input name="name" maxlength="40" placeholder="比如：今天争取不加班" autocomplete="off"></label>
-            <div class="form-row">
+            <div class="form-row" id="cwd-row">
               <span>项目文件夹</span>
               <span class="row"><input name="cwd" placeholder="留空就自动新建一个" autocomplete="off" spellcheck="false"><button type="button" id="btn-pick" class="secondary">选择…</button></span>
             </div>
             <label class="form-row" id="folder-field"><span>收纳组</span><select id="set-folder"></select></label>
           </div>
-          <p class="hint">它们会在这个文件夹里读写文件、运行命令。</p>
+          <p class="hint" id="cwd-hint">它们会在这个文件夹里读写文件、运行命令。</p>
         </section>
-        <section class="form-section">
+        <section class="form-section" id="perm-section">
           <h3>动手权限</h3>
           <div class="group-box">
             <label class="radio"><input type="radio" name="permission" value="project" checked>
@@ -236,6 +242,22 @@
           </div>
           <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。</p>
         </section>
+        <section class="form-section" id="joint-fields" hidden>
+          <h3>联合群 <small>讨论档</small></h3>
+          <div class="group-box">
+            <div class="form-row"><span>对方</span><span class="row-value" id="joint-peer">—</span></div>
+            <div class="form-row"><span>我的称呼</span><span class="row-value" id="joint-self-name">—</span></div>
+            <div class="form-row"><span>权限</span><span class="row-value">讨论档 · 只能看和说</span></div>
+          </div>
+          <p class="hint">讨论档下，对方 AI 只能讨论、不能读本机文件。项目文件夹、动手权限和共享文件夹在联合群里都不适用（共享文件夹留到第二期）。</p>
+          <div class="joint-actions">
+            <button type="button" id="btn-joint-invite" class="secondary">邀请同事…</button>
+            <button type="button" id="btn-joint-inbox" class="secondary">收件箱</button>
+            <button type="button" id="btn-joint-leave" class="danger-text">退出联合群</button>
+          </div>
+          <p class="hint" id="joint-hint">对方的 AI 看不到你的私聊、别的群和本机文件；停止按钮各管各的。</p>
+        </section>
+
         <section class="form-section" id="group-fields">
           <h3>协作</h3>
           <div class="group-box">
@@ -594,6 +616,102 @@
           <button type="button" id="btn-fresh-cancel" class="secondary">取消</button>
           <button type="submit" id="btn-fresh-ok" class="primary">换新会话</button>
         </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：新建 -->
+  <dialog id="dlg-joint-create" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>新建联合群</h2></header>
+      <div class="sheet-body">
+        <label class="form-row"><span>名字</span><input id="joint-create-name" maxlength="40" placeholder="比如：和小王一起对证书" autocomplete="off"></label>
+        <label class="form-row"><span>你的称呼</span><input id="joint-create-owner" maxlength="20" placeholder="同事怎么称呼你，比如：小李" autocomplete="off"></label>
+        <div class="form-section">
+          <h3>派哪几位 AI 进去</h3>
+          <div id="joint-create-members" class="joint-member-pick"></div>
+        </div>
+        <p class="hint">对方 AI 只能讨论、不能读本机文件。成员名字后面会带上你的称呼，方便两边分清是谁家的 AI。</p>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-create-cancel" class="secondary">取消</button><button type="button" id="btn-joint-create-ok" class="primary">创建并生成邀请码</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：邀请同事 -->
+  <dialog id="dlg-joint-invite" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>邀请同事加入联合群</h2></header>
+      <div class="sheet-body">
+        <p class="hint">把邀请码通过微信等发给同事。它只显示在这台电脑上，不会进群消息，也不会发给任何 AI。</p>
+        <div id="joint-invite-code" class="joint-code" tabindex="0">—</div>
+        <div class="joint-code-row">
+          <button type="button" id="btn-joint-copy" class="secondary">复制邀请码</button>
+          <span class="hint" id="joint-invite-exp"></span>
+        </div>
+        <p class="hint">10 分钟内有效，只能用一次。</p>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" class="secondary" id="btn-joint-invite-close">完成</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：加入 -->
+  <dialog id="dlg-joint-join" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>加入联合群</h2></header>
+      <div class="sheet-body">
+        <label class="form-row"><span>你在对方那里的称呼</span><input id="joint-join-owner" maxlength="20" placeholder="比如：小王" autocomplete="off"></label>
+        <label class="form-row block"><span>邀请码</span><textarea id="joint-join-code" rows="3" placeholder="粘贴同事发来的邀请码（clawchat-join:…）" spellcheck="false"></textarea></label>
+        <div class="form-section">
+          <h3>派哪几位 AI 进去</h3>
+          <div id="joint-join-members" class="joint-member-pick"></div>
+        </div>
+        <p class="hint" id="joint-join-status" hidden></p>
+        <div id="joint-join-verify" class="joint-verify" hidden>
+          <div class="joint-verify-code" id="joint-verify-code">—</div>
+          <p class="hint">和同事口头核对这个 6 位号码。对方点「同意」后就能进群。</p>
+          <p class="hint" id="joint-join-wait">正在等对方确认…</p>
+        </div>
+        <p class="hint">加入后可以和对方的 AI 一起讨论。第一版所有 AI 只能讨论，不能改文件、不能跑命令。</p>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-join-cancel" class="secondary">取消</button><button type="button" id="btn-joint-join-ok" class="primary">加入</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：主持方确认谁加入 -->
+  <dialog id="dlg-joint-approve" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>有人想加入联合群</h2></header>
+      <div class="sheet-body" id="joint-approve-body"></div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-approve-no" class="secondary">拒绝</button><button type="button" id="btn-joint-approve-yes" class="primary">同意</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：对方要文件，老板确认 -->
+  <dialog id="dlg-joint-file" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>对方想取一个文件</h2></header>
+      <div class="sheet-body" id="joint-file-body"></div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-file-no" class="secondary">取消</button><button type="button" id="btn-joint-file-yes" class="primary">确认发送</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：收件箱 -->
+  <dialog id="dlg-joint-inbox" class="sheet">
+    <form method="dialog">
+      <header class="sheet-head"><h2>联合群收件箱</h2></header>
+      <div class="sheet-body" id="joint-inbox-body"></div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" class="secondary" id="btn-joint-inbox-close">完成</button></div>
       </footer>
     </form>
   </dialog>

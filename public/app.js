@@ -56,6 +56,7 @@ const S = {
   loginLinks: {}, // 点过登录后官方命令打印出来的登录网址：engine -> { url, code }（浏览器没自动打开时用）
   usage: {}, // 订阅额度最近一次的用量（Claude、ChatGPT）
   agents: {},
+  jointMembers: {}, // 联合群里对方成员：key -> { name, owner, base, online }
   folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
   defaults: {},
   projectsDir: '',
@@ -393,12 +394,30 @@ function firstLine(s) {
   return String(s || '').split('\n')[0].slice(0, 200);
 }
 
+function jointMemberDisplay(m) {
+  const name = m?.name || '';
+  return m?.owner ? `${name}·${m.owner}` : name;
+}
+
+function jointMemberOf(room, id) {
+  return (room?.jointMembers || []).find((m) => m.key === id || (m.mine && m.agentId === id)) || null;
+}
+
+function jointDisplayFor(room, id) {
+  const m = jointMemberOf(room, id);
+  return m ? jointMemberDisplay(m) : agentName(id);
+}
+
 function agentLabel(id) {
+  const j = S.jointMembers?.[id];
+  if (j) return jointMemberDisplay(j);
   const c = !S.agents[id] && cloneInfo(id);
   return S.agents[id]?.label || (c ? `${agentLabel(c.base)}${c.n}` : id);
 }
 
 function agentName(id) {
+  const j = S.jointMembers?.[id];
+  if (j) return jointMemberDisplay(j);
   const c = !S.agents[id] && cloneInfo(id);
   return S.agents[id]?.name || (c ? `${agentName(c.base)}${c.n}` : id);
 }
@@ -554,6 +573,14 @@ function modelSelectHtml(agent, current, attrs = '', allowCustom = false) {
 
 function avatarHtml(who, extra = '') {
   if (who === 'user') return `<span class="avatar av-user">${tr('我')}</span>`;
+  const j = S.jointMembers?.[who]; // 联合群成员：对方成员右下角标对方老板
+  if (j) {
+    // 协议里给的是 agentId / engine，base 是旧字段；Codex 的 engine 叫 codex，头像用 gpt
+    const base = j.agentId || j.base || (j.engine === 'codex' ? 'gpt' : j.engine) || 'claude';
+    return j.mine
+      ? `<span class="avatar av-${esc(baseOf(base))}" ${extra}></span>`
+      : `<span class="avatar av-${esc(baseOf(base))} joint" data-owner="${esc(String(j.owner || '?').slice(0, 1))}" ${extra}></span>`;
+  }
   const n = cloneInfo(who)?.n; // 多开的：用本体的头像，右下角标上几号
   return n ? `<span class="avatar av-${esc(baseOf(who))} clone" data-n="${n}" ${extra}></span>` : `<span class="avatar av-${esc(who)}" ${extra}></span>`;
 }
@@ -2094,9 +2121,11 @@ function renderShell() {
   // 顶部只显示文件夹名，完整路径放在提示里
   $('#room-folder').innerHTML = `${FOLDER_SVG}<span>${esc(room.cwd.split(/[\\/]/).filter(Boolean).pop() || room.cwd)}</span>`;
   $('#room-folder').title = tr('{label}：{file}', { label: IS_WIN ? tr('在资源管理器中打开') : tr('在访达中打开'), file: room.cwd });
+  $('#room-folder').hidden = !!room.joint; // 联合群的项目文件夹只是跑 AI 的临时工作区，不给老板看
   const perm = $('#room-perm');
   perm.textContent = PERM_LABEL[room.permission] || room.permission;
   perm.className = `badge ${room.permission}`;
+  perm.hidden = !!room.joint; // 联合群只有讨论档，顶栏那条已经写着，不再重复普通群的三档
   // 顶部的模型按钮：群里显示所有成员，私聊只显示对方
   if (!$('#model-menu').hidden && !conv.room.members.includes($('#model-menu').dataset.agent)) closeModelMenu();
   $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
@@ -2133,6 +2162,10 @@ function renderShell() {
 
   renderInputMirror(); // 换了群、改了成员，@ 谁有头像跟着变
   syncToolsRow();
+  syncJointMembers();
+  buildMentionRes(); // 对方成员的名字要能认成 @
+  syncJointMentionChips(room);
+  renderJointBar(); // 联合群：对方成员、在线状态、讨论档
   renderVisionHint(); // 换了聊天、换了模型：图片提醒跟着更新
   fitHead();
   requestAnimationFrame(reportDragRegions);
@@ -2320,6 +2353,15 @@ function messageHtml(roomId, m, prev, conv) {
   const copyBtn = m.text ? act(`data-copy="${m.seq}"`, tr('复制'), COPY_ICON) : '';
   const replyBtn = act(`data-reply="${m.seq}"`, tr('回复这条'), REPLY_ICON);
   if (m.from === 'user') {
+    const jroom = roomById(roomId);
+    const remoteUser = jroom?.joint && m.node && m.node !== jroom.joint.selfNode;
+    if (remoteUser) {
+      // 对方老板发的消息：靠左、标上是谁说的，不给自己这边的编辑按钮
+      const text = m.text ? `<div class="bubble">${mdCached(m.text)}</div>` : '';
+      const quote = m.replyTo ? quoteHtml(m.replyTo) : '';
+      const actions = `<div class="msg-actions">${copyBtn}${replyBtn}${time}</div>`;
+      return `${sep}<div class="msg user peer-user" data-seq="${m.seq}">${jointPeerAvatar({ peerName: jroom.joint.peerName })}<div class="msg-body"><div class="msg-name">${esc(jroom.joint.peerName || '')}<span class="side-tag joint-tag">${tr('远程')}</span></div>${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
+    }
     if (S.editMsg?.roomId === roomId && S.editMsg.seq === m.seq) {
       return `${sep}<div class="msg user editing" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body"><div class="edit-box">
         <div class="edit-field"><div class="input-mirror edit-mirror" aria-hidden="true" hidden></div><textarea class="edit-input" rows="1" aria-label="${tr('修改这条消息')}">${esc(S.editMsg.text)}</textarea></div>
@@ -2333,7 +2375,9 @@ function messageHtml(roomId, m, prev, conv) {
       ? `<button class="quote edit-quote" data-jump="${m.editOf.seq}" title="${tr('跳到原消息')}"><b>${tr('修改了')}</b><span>${esc(String(m.editOf.text || '').replace(/\s+/g, ' '))}</span></button>`
       : '';
     const actions = `<div class="msg-actions">${time}${copyBtn}${act(`data-edit="${m.seq}"`, tr('编辑'), EDIT_ICON)}${replyBtn}</div>`;
-    return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${edited}${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
+    // 联合群里把自己发的标成「你」，和对方老板的消息区分开
+    const mineName = jroom?.joint ? `<div class="msg-name">${tr('你')}</div>` : '';
+    return `${sep}<div class="msg user" data-seq="${m.seq}">${avatarHtml('user')}<div class="msg-body">${mineName}${edited}${quote}${imagesHtml(roomId, m.images)}${text}${actions}</div></div>`;
   }
   const dur = m.durationMs ? tr('用时 {time}', { time: fmtDur(m.durationMs) }) : '';
   // 过程步骤展开时才画出来（长对话里攒了上千步，一直放在页面上会拖慢整个聊天记录）
@@ -2343,7 +2387,8 @@ function messageHtml(roomId, m, prev, conv) {
   const foot = stepCount
     ? `<details class="steps" data-steps="${m.seq}"${m.steps?.length ? '' : ' data-steps-lazy'}${stepsOpen ? ' open' : ''}><summary>${tr('过程 · {n} 步', { n: stepCount })}${dur ? ` · ${dur}` : ''}</summary>${stepsOpen ? (m.steps?.length ? stepsListHtml(m.steps) : loadingStepsHtml()) : ''}</details>`
     : dur;
-  const canDm = !conv.dm && conv.room.members.length > 1;
+  const remoteAgent = S.jointMembers?.[m.from] && !S.jointMembers[m.from].mine;
+  const canDm = !conv.dm && conv.room.members.length > 1 && !remoteAgent; // 第一期不能和对方的 AI 私聊
   const avatar = canDm ? `<button class="dm-btn" data-dm="${esc(m.from)}" title="${esc(tr('私聊 {name}', { name: agentLabel(m.from) }))}">${avatarHtml(m.from)}</button>` : avatarHtml(m.from);
   const modelText = [m.model ? modelLabel(m.model) : '', m.effort ? tr('思考 {level}', { level: EFFORT_LABEL[m.effort] || m.effort }) : ''].filter(Boolean).join(' · ');
   const model = modelText ? `<span class="msg-model">${esc(modelText)}</span>` : '';
@@ -2357,9 +2402,11 @@ function messageHtml(roomId, m, prev, conv) {
   const forwardBtn = m.dm && m.text && conv.room.members.length > 1 && !isForwarded(roomId, m.seq) ? act(`data-forward="${m.seq}"`, tr('发到群里'), FORWARD_ICON) : '';
   const actions = `<div class="msg-actions">${copyBtn}${speakBtn}${forwardBtn}${replyBtn}${time}</div>`;
   // AI 之间的私聊：标明谁私下发给谁、什么时候发的
+  const jr = roomById(roomId);
+  const shownFrom = jr?.joint ? m.fromName || jointDisplayFor(jr, m.from) : agentLabel(m.from);
   const who = m.pm
     ? `${esc(agentLabel(m.from))}<span class="pm-arrow">→</span>${esc(agentLabel(m.pm))}<span class="side-tag pm-tag" title="${tr('它们之间的私聊，群里其他成员看不到')}">${tr('AI 私聊')}</span><span class="pm-time">${esc(fmtPmTime(m.ts))}</span>`
-    : esc(agentLabel(m.from));
+    : `${esc(shownFrom)}${S.jointMembers?.[m.from] && !S.jointMembers[m.from].mine ? `<span class="side-tag joint-tag">${tr('远程')}</span>` : ''}`;
   return `${sep}<div class="msg agent from-${esc(baseOf(m.from))}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
   )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
@@ -3028,6 +3075,8 @@ function keepBottom(fn) {
 function applyState(st) {
   S.rooms = st.rooms || [];
   S.agents = st.agents || {};
+  S.jointMembers = {};
+  syncJointMembers(); // 先把对方成员的名字/头像备好，消息先画也能对上名字
   S.folders = st.folders || [];
   rebuildMembers();
   S.defaults = st.defaults || {};
@@ -3414,37 +3463,38 @@ function replyAgentOf(conv) {
   if (!conv || !S.replyTo) return null;
   const from = S.replyTo.from;
   if (!from || from === 'user' || from === conv.dm) return null; // 私聊里、回复自己的消息：不影响收件人
-  return conv.room.members.includes(from) ? from : null;
+  return conv.room.members.includes(from) || (conv.room.jointMembers || []).some((m) => m.key === from) ? from : null;
 }
 
 // 回复期间输入框里 @ 了谁：@所有人算 all，其余按成员列出来
 function replyMentions(conv) {
-  if (!conv || conv.dm || conv.room.members.length < 2) return { all: false, named: [] };
+  if (!conv || conv.dm || (conv.room.members.length < 2 && !conv.room.joint)) return { all: false, named: [] };
   const tokens = mentionTokens($('#input').value || '');
   return {
     all: tokens.some((t) => t.who === 'all'),
-    named: [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && conv.room.members.includes(a)))],
+    named: [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && (conv.room.members.includes(a) || (conv.room.jointMembers || []).some((m) => m.key === a))))],
   };
 }
 
 // 输入框的占位提示：回复某位时写成「回复 X，只有它会回答」；又 @ 了别人就按 @ 的写
 function placeholderFor(room, dm) {
   const narrow = isNarrow();
+  const dn = (a) => jointDisplayFor(room, a);
   if (dm) return tr('私聊 {name}', { name: agentName(dm) });
   const conv = currentConv();
   const reply = replyAgentOf(conv);
   if (reply) {
     const { all, named } = replyMentions(conv);
-    if (all) return narrow ? tr('发给所有人') : tr('发给所有人（回复 {name}）', { name: agentName(reply) });
+    if (all) return narrow ? tr('发给所有人') : tr('发给所有人（回复 {name}）', { name: dn(reply) });
     if (named.length) {
-      const names = named.map(agentName).join(LIST_SEP);
+      const names = named.map(dn).join(LIST_SEP);
       return narrow ? tr('发给 {names}', { names }) : tr('发给 {names}（@ 的才会回答）', { names });
     }
-    return narrow ? tr('回复 {name}', { name: agentName(reply) }) : tr('回复 {name}，只有它会回答', { name: agentName(reply) });
+    return narrow ? tr('回复 {name}', { name: dn(reply) }) : tr('回复 {name}，只有它会回答', { name: dn(reply) });
   }
   const last = lastSpeakerOf(room);
   if (room.members.length > 1 && room.defaultTarget === 'last' && last) {
-    return narrow ? tr('发给 {name}', { name: agentName(last) }) : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) });
+    return narrow ? tr('发给 {name}', { name: dn(last) }) : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: dn(last) });
   }
   return window.innerWidth <= 360 ? tr('说点什么…') : tr('发送给 {name}', { name: room.name }); // 320 这种窄屏放不下长群名
 }
@@ -3463,11 +3513,12 @@ function syncReplyTargets() {
     note.hidden = !reply;
     if (reply) {
       const { all, named } = replyMentions(conv);
+      const replyName = jointDisplayFor(room, reply);
       note.textContent = all
-        ? tr('发给所有人（回复 {name}）', { name: agentName(reply) })
+        ? tr('发给所有人（回复 {name}）', { name: replyName })
         : named.length
-          ? tr('发给 @ 的人（回复 {name}）', { name: agentName(reply) })
-          : tr('只发给 {name}（回复中）', { name: agentName(reply) });
+          ? tr('发给 @ 的人（回复 {name}）', { name: replyName })
+          : tr('只发给 {name}（回复中）', { name: replyName });
       note.title = tr('取消回复后恢复「不 @ 时发给」的设置');
     }
   }
@@ -3478,13 +3529,14 @@ function syncReplyTargets() {
 function renderTargets(room, dm) {
   const many = room.members.length > 2;
   const last = lastSpeakerOf(room);
+  const dn = (a) => jointDisplayFor(room, a);
   // 手机上下拉框是个小胶囊：「接着上一位」和电脑上一样带上是谁（括号里），其余选项写短一点
   const narrow = isNarrow();
   const targets = [
-    ['last', last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
+    ['last', last ? tr('接着上一位（{name}）', { name: dn(last) }) : tr('接着上一位')],
     ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
     ['sequential', many ? tr('大家依次回答') : tr('两位依次回答')],
-    ...room.members.map((a) => [a, narrow ? agentName(a) : tr('只发给 {name}', { name: agentName(a) })]),
+    ...room.members.map((a) => [a, narrow ? dn(a) : tr('只发给 {name}', { name: dn(a) })]),
   ];
   setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
@@ -3535,6 +3587,10 @@ function handleEvent(ev) {
     case 'message':
       onMessage(ev.roomId, ev.message);
       break;
+    case 'joint-pair':
+      // 有人拿邀请码来加入：弹给老板确认（对方在场，不能自动同意）
+      openJointApprove(ev);
+      break;
     case 'step': {
       const k = liveKey(ev);
       const arr = S.live.get(k) || [];
@@ -3563,6 +3619,10 @@ function handleEvent(ev) {
       break;
     case 'rooms':
       S.rooms = ev.rooms || [];
+      S.jointMembers = {};
+      syncJointMembers();
+      buildMentionRes();
+      buildMentionItems();
       if (S.current && !currentConv()) S.current = null;
       renderConvs();
       renderShell();
@@ -3695,12 +3755,13 @@ function renderAttachments() {
 function composeTargets(conv) {
   const room = conv.room;
   if (conv.dm) return [conv.dm];
-  if (room.members.length === 1) return [...room.members];
+  const remote = (room.jointMembers || []).filter((m) => !m.mine).map((m) => m.key);
+  if (room.members.length === 1 && !room.joint) return [...room.members];
   const tokens = mentionTokens($('#input').value || '');
-  if (tokens.some((t) => t.who === 'all')) return [...room.members];
-  const named = [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && room.members.includes(a)))];
+  if (tokens.some((t) => t.who === 'all')) return [...room.members, ...remote];
+  const named = [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && (room.members.includes(a) || remote.includes(a))))];
   if (named.length) return named;
-  if (S.replyTo && room.members.includes(S.replyTo.from)) return [S.replyTo.from];
+  if (S.replyTo && (room.members.includes(S.replyTo.from) || remote.includes(S.replyTo.from))) return [S.replyTo.from];
   if (room.defaultTarget === 'last') {
     const last = lastSpeakerOf(room); // 还没人说过话：服务端会发给所有人
     return last ? [last] : [...room.members];
@@ -3919,6 +3980,11 @@ let MENTION_SHOW_RE, MENTION_TAIL_RE, MENTION_MSG_RE, MENTION_TAG_RE;
 function buildMentionRes() {
   MENTION_WHO = {};
   for (const a of AGENT_IDS) for (const w of S.agents?.[a]?.aliases || BASE_ALIASES[a] || [a]) MENTION_WHO[w.toLowerCase()] = a;
+  // 联合群里对方的成员：@Claude·小王 这种写法认到成员 key
+  for (const room of S.rooms || []) for (const m of room.jointMembers || []) {
+    if (!m?.key || m.mine) continue;
+    MENTION_WHO[jointMemberDisplay(m).toLowerCase()] = m.key;
+  }
   const names = Object.keys(MENTION_WHO).sort((x, y) => y.length - x.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   MENTION_SHOW_RE = new RegExp(`@(\\s?)(${names}|${ALL_WORDS})`, 'gi');
   MENTION_TAIL_RE = new RegExp(`(?:^|[^A-Za-z0-9_.])(@[ \\u2002]?(?:${names}|${ALL_WORDS})[ \\u2003]?)$`, 'i');
@@ -3929,7 +3995,7 @@ buildMentionRes();
 // 输入框里会显示成标签的 @成员：[{ start, end, who, gap, name }]（画标签、管光标都用这一份，判断一致）
 function mentionTokens(text) {
   const conv = currentConv();
-  const members = conv && !conv.dm && conv.room.members.length > 1 ? conv.room.members : [];
+  const members = conv && !conv.dm && conv.room.members.length > 1 ? [...conv.room.members, ...(conv.room.jointMembers || []).map((m) => m.key)] : [];
   if (!members.length) return [];
   const out = [];
   for (const m of text.matchAll(MENTION_SHOW_RE)) {
@@ -3991,8 +4057,16 @@ async function sendMessage() {
   cancelReply();
   autoGrow();
   saveDraft(draftKey); // 发出去了，这个会话的草稿清掉
+  const mentionKeys = conv.room?.joint
+    ? [...new Set(mentionTokens(text).filter((t) => t.who !== 'all').map((t) => jointMemberOf(conv.room, t.who)?.key || t.who))]
+    : [];
+  // 回复某位 AI 时也把它的完整 key 带上（加入方以 mentions 为准；主持方目前从正文里解析）
+  if (reply && reply.from !== 'user' && conv.room?.joint) {
+    const k = jointMemberOf(conv.room, reply.from)?.key || reply.from;
+    if (!mentionKeys.includes(k)) mentionKeys.push(k);
+  }
   try {
-    await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined, replyTo: reply?.seq });
+    await api('POST', `/api/rooms/${conv.roomId}/messages`, { text, images: sent.map((a) => a.id), dm: conv.dm || undefined, replyTo: reply?.seq, ...(mentionKeys.length ? { mentions: mentionKeys } : {}) });
     for (const a of kept) URL.revokeObjectURL(a.url);
   } catch (err) {
     // 没发出去：字放回原来那个会话（这期间可能已经切到别的会话了）
@@ -4038,6 +4112,12 @@ function buildMentionItems() {
       out.push({ id: a, label: ag.name, sub: tr('{name} 的 {n} 号', { name: S.agents[it.id]?.name || it.label, n: ag.n }), insert: ag.name, keys: ag.aliases || [a] });
     }
   }
+  // 联合群里对方的成员：@Claude·小王
+  for (const room of S.rooms || []) for (const m of room.jointMembers || []) {
+    if (!m?.key || m.mine) continue;
+    const disp = jointMemberDisplay(m);
+    out.push({ id: m.key, label: disp, sub: `${m.name} · ${m.owner}`, insert: disp, keys: [disp.toLowerCase()] });
+  }
   MENTION_ITEMS = out;
 }
 
@@ -4066,13 +4146,14 @@ function updateMentionMenu(from) {
   const conv = currentConv();
   const mq = conv && !conv.dm && conv.room.members.length > 1 ? mentionQuery() : null;
   if (!mq) return hideMentionMenu();
+  const allowed = new Set([...conv.room.members, ...(conv.room.jointMembers || []).map((m) => m.key)]);
   const items = MENTION_ITEMS.filter(
-    (it) => (it.id === 'all' || conv.room.members.includes(it.id)) && (!mq.q || [it.label.toLowerCase(), ...it.keys].some((k) => k.startsWith(mq.q))),
+    (it) => (it.id === 'all' || allowed.has(it.id)) && (!mq.q || [it.label.toLowerCase(), ...it.keys].some((k) => k.startsWith(mq.q))),
   );
   if (!items.length) return hideMentionMenu();
   const keepIndex = S.mention && S.mention.q === mq.q ? S.mention.index : 0;
   S.mention = { ...mq, items, index: Math.min(keepIndex, items.length - 1) };
-  const all = conv.room.members;
+  const all = [...allowed];
   const icon = (it) => (it.id === 'all' ? `<span class="mention-all${all.length > 2 ? ' three' : ''}">${all.map((a) => avatarHtml(a)).join('')}</span>` : avatarHtml(it.id));
   $('#mention-menu').innerHTML = items
     .map(
@@ -4511,8 +4592,8 @@ function closeAtPanel() {
 function atPanelHtml() {
   const conv = currentConv();
   if (!conv) return '';
-  const people = conv.room.members
-    .map((a) => `<button type="button" class="at-person" data-at-insert="${esc(agentName(a))}">${avatarHtml(a)}<span>${esc(agentName(a))}</span></button>`)
+  const people = [...conv.room.members, ...(conv.room.jointMembers || []).filter((m) => !m.mine).map((m) => m.key)]
+    .map((a) => `<button type="button" class="at-person" data-at-insert="${esc(jointDisplayFor(conv.room, a))}">${avatarHtml(a)}<span>${esc(jointDisplayFor(conv.room, a))}</span></button>`)
     .join('');
   const allPerson = `<button type="button" class="at-person" data-at-all><span class="at-all-avatar">@</span><span>${tr('所有人')}</span></button>`;
   const sel = $('#default-target');
@@ -5790,8 +5871,10 @@ function fillModelRow(a) {
 function openDialog(room, preset = null) {
   S.editing = room ? room.id : null;
   const d = room || { ...S.defaults, name: '', cwd: '', members: preset || defaultMembers() };
-  const solo = d.members.length === 1;
-  $('#dlg-title').textContent = room ? (solo ? tr('聊天设置') : tr('群设置')) : tr('新建聊天');
+  // 联合群里的成员一般用「节点:成员」的 key 存，自己这边的 id 从 jointMembers 里取
+  const ownMembers = room?.joint && room.jointMembers?.length ? room.jointMembers.filter((m) => m.mine).map((m) => m.agentId) : d.members;
+  const solo = !room?.joint && d.members.length === 1;
+  $('#dlg-title').textContent = room?.joint ? tr('联合群设置') : room ? (solo ? tr('聊天设置') : tr('群设置')) : tr('新建聊天');
   $('#btn-save').textContent = room ? tr('保存') : tr('创建');
   const del = $('#btn-delete');
   del.hidden = !room;
@@ -5801,8 +5884,9 @@ function openDialog(room, preset = null) {
   PENDING_CLONES = new Set(); // 上一次没保存就关掉的话，别把那张卡带进来
   $('#clone-picker').hidden = true;
   rebuildMembers();
-  for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = d.members.includes(a);
+  for (const a of AGENT_IDS) formField(fieldName('member', a)).checked = ownMembers.includes(a);
   updateMemberStates();
+  syncJointFields(room);
   $('#perm-win-hint').hidden = !IS_WIN;
   $('#session-fields').hidden = !room;
   if (room) {
@@ -5862,6 +5946,11 @@ async function submitDialog(e) {
     fast: { gpt: !$('#speed-fields').hidden && formField('fastGpt').value === '1' },
   };
   body.folder = $('#set-folder').value || null; // 传 null 就是移出收纳组
+  if (S.editing && roomById(S.editing)?.joint) {
+    // 联合群没有项目文件夹和动手权限：别让服务端顺手建一个文件夹
+    delete body.cwd;
+    delete body.permission;
+  }
   const btn = $('#btn-save');
   // 保存前先记下原来有哪些成员：改个群名、换个设置不该反复问「要不要装 Claude Code」
   const before = S.editing ? roomById(S.editing)?.members || [] : [];
@@ -5955,6 +6044,39 @@ function closeLightbox() {
 
 function bind() {
   $('#btn-new').onclick = () => openDialog(null);
+  // 联合群（第一期）
+  $('#btn-joint-create-open').onclick = () => {
+    closeDialog($('#dlg-room'));
+    openJointCreate();
+  };
+  $('#btn-joint-create-cancel').onclick = () => closeDialog($('#dlg-joint-create'));
+  $('#btn-joint-create-ok').onclick = submitJointCreate;
+  $('#btn-joint-join-open').onclick = () => {
+    closeDialog($('#dlg-room'));
+    openJointJoin();
+  };
+  $('#btn-joint-join-cancel').onclick = () => closeDialog($('#dlg-joint-join'));
+  $('#btn-joint-join-ok').onclick = submitJointJoin;
+  $('#dlg-joint-join').addEventListener('close', () => {
+    clearTimeout(jointJoinPoll);
+    jointJoinPairId = '';
+  });
+  $('#btn-joint-copy').onclick = copyJointInvite;
+  $('#btn-joint-invite-close').onclick = () => closeDialog($('#dlg-joint-invite'));
+  $('#dlg-joint-invite').addEventListener('close', () => clearInterval(jointInviteTimer));
+  $('#btn-joint-invite').onclick = requestJointInvite;
+  $('#btn-joint-inbox').onclick = openJointInbox;
+  $('#btn-joint-leave').onclick = leaveJointRoom;
+  $('#btn-joint-approve-no').onclick = () => answerJointApprove(false);
+  $('#btn-joint-approve-yes').onclick = () => answerJointApprove(true);
+  $('#btn-joint-file-no').onclick = () => closeDialog($('#dlg-joint-file'));
+  $('#btn-joint-file-yes').onclick = approveJointFile;
+  $('#btn-joint-inbox-close').onclick = () => closeDialog($('#dlg-joint-inbox'));
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-joint-invite-bar')) requestJointInvite();
+    const rev = e.target.closest('[data-inbox-reveal]');
+    if (rev) api('POST', '/api/joint/inbox/reveal', { id: rev.dataset.inboxReveal }).catch((err) => toast(err.message));
+  });
   $('#btn-welcome-new').onclick = () => openDialog(null);
   document.querySelectorAll('[data-solo]').forEach((b) => (b.onclick = () => openDialog(null, [b.dataset.solo])));
   $('#btn-settings').onclick = () => currentConv() && openDialog(currentConv().room);
@@ -6730,6 +6852,414 @@ function hideBoot() {
 }
 setTimeout(hideBoot, 10000); // 兜底：十秒还没画好也不挡着
 
+
+// ---------------- 联合群（第一期界面） ----------------
+// 服务端数据形状（暂定，等主持方接口落地后对齐）：
+//   room.joint = { role:'host'|'guest', peerName, peerLogin, peerOnline, permission:'discuss' }
+//   room.jointMembers = [{ key, name, owner, base, online }]
+//   S.jointMembers[key] 由 state 里的 room.jointMembers 汇总而来，消息的 from 就是 key
+// 接口（约定）：POST /api/joint/join、GET /api/joint/join/:pairId、POST /api/rooms/:id/joint/invite、
+//   POST /api/joint/pair/:pairId/approve|reject、GET /api/joint/inbox、POST /api/joint/files/approve、POST /api/rooms/:id/joint/leave
+let jointInviteTimer = 0;
+let jointJoinPoll = 0;
+let jointJoinPairId = '';
+let jointFileReq = null;
+
+function jointRoom() {
+  const conv = currentConv();
+  return conv && !conv.dm ? conv.room : null;
+}
+
+function syncJointMembers() {
+  for (const room of S.rooms || []) for (const m of room.jointMembers || []) if (m?.key) S.jointMembers[m.key] = m;
+}
+
+// 群标题下面那一条：对方老板在线状态、对方成员、讨论档、邀请入口
+// 输入框上面那一排 @ 按钮：联合群里把对方的成员也补上（自己的成员本来就有）
+function syncJointMentionChips(room) {
+  const tools = $('#group-tools');
+  if (!tools) return;
+  const want = new Map((room?.jointMembers || []).filter((m) => !m.mine && m.key).map((m) => [m.key, m]));
+  tools.querySelectorAll('[data-joint-chip]').forEach((el) => { if (!want.has(el.dataset.jointChip)) el.remove(); });
+  const all = tools.querySelector('.mention-chip[data-mention="所有人"]');
+  for (const [key, m] of want) {
+    if (tools.querySelector(`[data-joint-chip="${CSS.escape(key)}"]`)) continue;
+    const name = jointMemberDisplay(m);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip mention-chip';
+    btn.dataset.jointChip = key;
+    btn.dataset.who = key;
+    btn.title = `@${name}`;
+    btn.innerHTML = `${avatarHtml(key)}<span class="chip-name">@${esc(name)}</span>`;
+    btn.onclick = () => insertMention(name);
+    tools.insertBefore(btn, all || null);
+  }
+}
+
+function renderJointBar() {
+  const bar = $('#joint-bar');
+  if (!bar) return;
+  const room = jointRoom();
+  const joint = room?.joint;
+  $('#chat').classList.toggle('joint', !!joint);
+  if (!joint) return void (bar.hidden = true);
+  const chip = (m) => `<span class="joint-chip${m.online === false ? ' off' : ''}" title="${esc(agentName(m.key))}">${avatarHtml(m.key)}<span class="joint-chip-name">${esc(agentName(m.key))}</span></span>`;
+  const list = room.jointMembers || [];
+  const mine = list.filter((m) => m.mine).map(chip).join('');
+  const theirs = list.filter((m) => !m.mine).map(chip).join('');
+  const line = (label, chips) => (chips ? `<span class="joint-line"><span class="joint-group">${label}</span>${chips}</span>` : '');
+  const peerText = joint.peerName ? `${esc(joint.peerName)}${joint.peerOnline === false ? ` · ${tr('离线')}` : ` · ${tr('在线')}`}` : tr('等对方加入…');
+  bar.innerHTML = `<span class="joint-badge">${tr('联合群')}</span><span class="joint-peer">${peerText}</span><span class="joint-perm">${tr('讨论档')}</span>${line(tr('我的'), mine)}${line(esc(joint.peerName || ''), theirs)}<span class="spacer"></span>${
+    joint.role === 'host' && !joint.peerNode ? `<button type="button" class="joint-link" id="btn-joint-invite-bar">${tr('邀请同事…')}</button>` : ''
+  }`;
+  bar.hidden = false;
+  document.documentElement.style.setProperty('--joint-bar-h', `${bar.offsetHeight}px`);
+}
+
+function openJointInvite({ code = '', expiresAt = 0, roomName = '' } = {}) {
+  const dlg = $('#dlg-joint-invite');
+  if (!dlg) return;
+  $('#joint-invite-code').textContent = code || '—';
+  $('#joint-invite-exp').textContent = '';
+  clearInterval(jointInviteTimer);
+  const tick = () => {
+    const left = Math.max(0, expiresAt - Date.now());
+    $('#joint-invite-exp').textContent = left ? tr('{n} 分钟后失效', { n: Math.max(1, Math.ceil(left / 60000)) }) : expiresAt ? tr('已失效，重新生成一个') : '';
+  };
+  tick();
+  if (expiresAt) jointInviteTimer = setInterval(tick, 30000);
+  dlg.dataset.room = roomName || '';
+  dlg.showModal();
+  reportDragRegions();
+}
+
+async function copyJointInvite() {
+  const text = $('#joint-invite-code').textContent.trim();
+  if (!text || text === '—') return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(tr('邀请码已复制'));
+  } catch {
+    const el = $('#joint-invite-code');
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast(tr('复制不了，已经选中，按 ⌘C 复制'));
+  }
+}
+
+async function requestJointInvite() {
+  const room = jointRoom();
+  if (!room) return;
+  try {
+    const res = await api('POST', `/api/rooms/${room.id}/joint/invite`);
+    openJointInvite({ code: res.code, expiresAt: res.expiresAt, roomName: room.name });
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function jointOwnerName() {
+  return storeGet('clawchat.jointOwner') || '';
+}
+
+function jointMemberPickHtml(selected = null, idPrefix = 'joint-member') {
+  const ready = selected || BASE_IDS.filter(memberReady);
+  return BASE_IDS.map((a) => `
+    <label class="joint-pick-row">
+      <input type="checkbox" name="${idPrefix}" value="${esc(a)}"${ready.includes(a) ? ' checked' : ''}>
+      ${avatarHtml(a)}<span>${esc(agentName(a))}</span>
+      <small>${esc(memberIssue(a) || (a === 'api' ? tr('OpenAI 兼容平台') : ''))}</small>
+    </label>`).join('');
+}
+
+function openJointCreate() {
+  const dlg = $('#dlg-joint-create');
+  if (!dlg) return;
+  $('#joint-create-name').value = '';
+  $('#joint-create-owner').value = jointOwnerName();
+  $('#joint-create-members').innerHTML = jointMemberPickHtml(null, 'joint-create-member');
+  $('#btn-joint-create-ok').disabled = false;
+  dlg.showModal();
+  reportDragRegions();
+  setTimeout(() => $('#joint-create-name').focus(), 60);
+}
+
+async function submitJointCreate() {
+  const name = $('#joint-create-name').value.trim();
+  const ownerName = $('#joint-create-owner').value.trim();
+  const members = [...document.querySelectorAll('input[name="joint-create-member"]:checked')].map((x) => x.value);
+  if (!name) return toast(tr('先给联合群起个名字'));
+  if (!ownerName) return toast(tr('先填一下同事怎么称呼你'));
+  if (!members.length) return toast(tr('至少选一位自己的 AI 进去'));
+  storeSet('clawchat.jointOwner', ownerName);
+  const btn = $('#btn-joint-create-ok');
+  btn.disabled = true;
+  try {
+    const res = await api('POST', '/api/joint/rooms', { name, members, ownerName });
+    const room = res.room || res;
+    if (!room?.id) throw new Error(tr('没有建成功，请再试一次'));
+    if (!roomById(room.id)) S.rooms.unshift(room);
+    closeDialog($('#dlg-joint-create'));
+    closeDialog($('#dlg-room'));
+    if (room) await openConv(`g:${room.id}`);
+    try {
+      const inv = await api('POST', `/api/rooms/${room.id}/joint/invite`);
+      openJointInvite({ code: inv.code, expiresAt: inv.expiresAt, roomName: room.name });
+    } catch (err) {
+      toast(err.message);
+    }
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openJointJoin() {
+  const dlg = $('#dlg-joint-join');
+  if (!dlg) return;
+  clearTimeout(jointJoinPoll);
+  jointJoinPairId = '';
+  $('#joint-join-code').value = '';
+  $('#joint-join-owner').value = jointOwnerName();
+  $('#joint-join-members').innerHTML = jointMemberPickHtml(null, 'joint-join-member');
+  $('#joint-join-status').hidden = true;
+  $('#joint-join-verify').hidden = true;
+  $('#btn-joint-join-ok').disabled = false;
+  dlg.showModal();
+  reportDragRegions();
+  setTimeout(() => $('#joint-join-code').focus(), 60);
+}
+
+function jointJoinStatus(text, bad = false) {
+  const el = $('#joint-join-status');
+  el.hidden = !text;
+  el.className = `hint${bad ? ' error' : ''}`;
+  el.textContent = text || '';
+}
+
+function showJointJoinVerify(code, pairId) {
+  jointJoinPairId = pairId || '';
+  const el = $('#joint-verify-code');
+  const s = String(code || '').replace(/\s+/g, '');
+  el.textContent = s.length === 6 ? `${s.slice(0, 3)} ${s.slice(3)}` : String(code || '—');
+  $('#joint-join-verify').hidden = false;
+  jointJoinStatus('');
+  clearTimeout(jointJoinPoll);
+  const poll = async () => {
+    if (!$('#dlg-joint-join').open || !jointJoinPairId) return;
+    try {
+      const res = await api('GET', `/api/joint/join/${encodeURIComponent(jointJoinPairId)}`);
+      if (res.status === 'approved' && res.roomId) {
+        closeDialog($('#dlg-joint-join'));
+        toast(tr('已经加入联合群'));
+        try {
+          applyState(await api('GET', '/api/state'));
+          if (roomById(res.roomId)) openConv(`g:${res.roomId}`);
+        } catch {}
+        return;
+      }
+      if (res.status === 'rejected') return jointJoinStatus(tr('对方拒绝了这个邀请'), true);
+      if (res.status === 'expired') return jointJoinStatus(tr('邀请码过期了，请对方重新生成一个'), true);
+    } catch (err) {
+      jointJoinStatus(err.message, true);
+      return;
+    }
+    jointJoinPoll = setTimeout(poll, 2000);
+  };
+  jointJoinPoll = setTimeout(poll, 1500);
+}
+
+async function submitJointJoin() {
+  const code = $('#joint-join-code').value.trim();
+  if (!/^clawchat-join:/.test(code)) return jointJoinStatus(tr('邀请码不对：应该是一串以 clawchat-join: 开头的文字'), true);
+  const ownerName = $('#joint-join-owner').value.trim();
+  const members = [...document.querySelectorAll('input[name="joint-join-member"]:checked')].map((x) => x.value);
+  if (!ownerName) return jointJoinStatus(tr('先填一下你在对方那里的称呼'), true);
+  if (!members.length) return jointJoinStatus(tr('至少选一位自己的 AI 进去'), true);
+  storeSet('clawchat.jointOwner', ownerName);
+  const btn = $('#btn-joint-join-ok');
+  btn.disabled = true;
+  jointJoinStatus(tr('正在联系对方…'));
+  try {
+    const res = await api('POST', '/api/joint/join', { code, ownerName, members });
+    showJointJoinVerify(res.check, res.pairId);
+  } catch (err) {
+    jointJoinStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function jointPeerAvatar(info = {}) {
+  if (info.avatar && S.jointMembers?.[info.avatar]) return avatarHtml(info.avatar);
+  const ch = String(info.peerName || info.ownerName || '?').trim().slice(0, 1) || '?';
+  return `<span class="avatar av-peer">${esc(ch)}</span>`;
+}
+
+function openJointApprove(info = {}) {
+  const dlg = $('#dlg-joint-approve');
+  if (!dlg) return;
+  const peer = info.peerName || info.ownerName || '';
+  const agents = (info.agents || []).map((a) => {
+    const name = a.name || agentName(a.id);
+    return `<span class="joint-agent">${avatarHtml(a.base || a.id)}${esc(name.includes('·') ? name : `${name}·${peer}`)}</span>`;
+  }).join('');
+  const roomName = info.roomName || roomById(info.roomId)?.name || '';
+  $('#joint-approve-body').innerHTML = `
+    <div class="joint-approve-head">${jointPeerAvatar(info)}<div><b>${esc(info.peerName || info.ownerName || '')} 想加入「${esc(roomName)}」</b><small>Tailscale 账号 ${esc(info.peerLogin || info.login || '')} · 设备 ${esc(info.device || info.nodeName || '')}</small></div></div>
+    <div class="joint-verify"><div class="joint-verify-code">${esc(String(info.code || '').replace(/(\d{3})(\d{3})/, '$1 $2') || '—')}</div><p class="hint">和对方口头核对这个号码，确认是本人再同意。</p></div>
+    <div class="joint-agent-list">${agents}</div>
+    <p class="hint">第一期所有 AI 只能讨论、不能改文件；对方的 AI 在对方电脑上跑，记忆和额度不出本机。</p>`;
+  dlg.dataset.pairId = info.pairId || '';
+  dlg.showModal();
+  reportDragRegions();
+}
+
+async function answerJointApprove(ok) {
+  const id = $('#dlg-joint-approve').dataset.pairId;
+  try {
+    if (id) await api('POST', `/api/joint/pair/${encodeURIComponent(id)}/${ok ? 'approve' : 'reject'}`);
+    closeDialog($('#dlg-joint-approve'));
+    toast(ok ? tr('已同意对方加入') : tr('已拒绝'));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function b64urlBytes(s) {
+  const t = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  const pad = t + '='.repeat((4 - (t.length % 4)) % 4);
+  const bin = atob(pad);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+// 私钥类文件：让系统认证一次（Mac 是 Touch ID，Windows 是 Windows Hello）
+// 注册设备的接口还没定（等 API 写好后接），这里先留认证的调用位置
+async function jointSystemAuth(req) {
+  if (!window.PublicKeyCredential || !navigator.credentials?.get) throw new Error(tr('这台设备不支持系统认证，不能发私钥类文件'));
+  if (!req.challenge) throw new Error(tr('缺少认证挑战值，请重新发起'));
+  const cred = await navigator.credentials.get({
+    publicKey: { challenge: b64urlBytes(req.challenge), rpId: req.rpId || location.hostname, userVerification: 'required', timeout: 60000 },
+  });
+  if (!cred) throw new Error(tr('没有完成系统认证，文件没有发出去'));
+  return cred;
+}
+
+function openJointFileRequest(req = {}) {
+  const dlg = $('#dlg-joint-file');
+  if (!dlg) return;
+  jointFileReq = req;
+  const f = req.file || {};
+  const danger = !!f.danger;
+  const size = f.size ? `${(f.size / 1024).toFixed(f.size > 1024 * 1024 ? 0 : 1)} ${f.size > 1024 * 1024 ? 'MB' : 'KB'}` : '';
+  $('#joint-file-body').innerHTML = `
+    <div class="joint-approve-head">${jointPeerAvatar(req)}<div><b>${esc(req.peerName || '')} 想从你这里取一个文件</b><small>由 ${esc(req.requester || '')} 在群里提出</small></div></div>
+    ${req.quote ? `<div class="joint-quote">“${esc(req.quote)}”<br><b>—— ${esc(req.requester || '')}，${esc(req.time || '')}</b></div>` : ''}
+    <div class="joint-file${danger ? ' danger' : ''}">
+      <span class="joint-file-icon">${esc((f.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span>
+      <span class="joint-file-meta"><b>${esc(f.name || '')}</b><small>${esc(f.path || '')}${size ? ` · ${size}` : ''}</small></span>
+      ${danger ? `<span class="joint-file-tag">${esc(f.kind || tr('证书 / 私钥'))}</span>` : ''}
+    </div>
+    ${danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
+    <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || '')} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密直达，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
+  $('#btn-joint-file-yes').textContent = danger ? tr('确认发送（需要系统认证）') : tr('确认发送');
+  dlg.showModal();
+  reportDragRegions();
+}
+
+async function approveJointFile() {
+  if (!jointFileReq) return;
+  const btn = $('#btn-joint-file-yes');
+  btn.disabled = true;
+  const was = btn.textContent;
+  try {
+    if (jointFileReq.file?.danger) {
+      btn.textContent = tr('正在确认…');
+      await jointSystemAuth(jointFileReq);
+    }
+    await api('POST', '/api/joint/files/approve', { id: jointFileReq.id });
+    closeDialog($('#dlg-joint-file'));
+    toast(tr('文件已经发出去'));
+  } catch (err) {
+    toast(err.message || tr('文件没有发出去'), 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = was;
+  }
+}
+
+function renderJointInbox(items = []) {
+  const box = $('#joint-inbox-body');
+  if (!box) return;
+  if (!items.length) return void (box.innerHTML = `<p class="hint">${tr('还没有收到文件。对方发来的文件会放在这里，默认不给任何 AI 看。')}</p>`);
+  box.innerHTML = items
+    .map((it) => `<div class="joint-inbox-row"><span class="joint-file-icon">${esc((it.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(it.name || '')}</b><small>${esc(it.from || '')} · ${esc(it.time || '')}</small></span><button type="button" class="secondary" data-inbox-reveal="${esc(it.id || '')}">${tr('在访达里显示')}</button></div>`)
+    .join('');
+}
+
+async function openJointInbox() {
+  const dlg = $('#dlg-joint-inbox');
+  if (!dlg) return;
+  $('#joint-inbox-body').innerHTML = `<p class="hint">${tr('正在读取…')}</p>`;
+  dlg.showModal();
+  reportDragRegions();
+  try {
+    const res = await api('GET', '/api/joint/inbox');
+    renderJointInbox(res.files || []);
+  } catch (err) {
+    $('#joint-inbox-body').innerHTML = `<p class="hint error">${esc(err.message)}</p>`;
+  }
+}
+
+async function leaveJointRoom() {
+  const room = jointRoom();
+  if (!room) return;
+  const host = room.joint?.role === 'host';
+  const ok = await askConfirm({
+    title: host ? tr('解散联合群？') : tr('退出联合群？'),
+    text: host ? tr('解散以后对方就进不来了，这个群会恢复成只有你自己成员的普通群；本地的聊天记录不会被删。') : tr('退出以后这个群里就看不到对方的成员和消息了；本地的聊天记录不会被删。'),
+    ok: host ? tr('解散联合群') : tr('退出联合群'),
+  });
+  if (!ok) return;
+  try {
+    await api('POST', `/api/rooms/${room.id}/joint/leave`);
+    toast(tr('已经退出联合群'));
+    closeDialog($('#dlg-room'));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// 群设置里的联合群一节：只有联合群才显示；第一期只有「讨论档」
+function syncJointFields(room) {
+  const sec = $('#joint-fields');
+  if (!sec) return;
+  const joint = room?.joint || null;
+  sec.hidden = !joint;
+  // 「新建联合群 / 加入联合群」只放在新建聊天里；改已有群时不再露出（普通群不能变成联合群）
+  const entry = $('#joint-entry-row');
+  if (entry) entry.hidden = !!room;
+  // 联合群不适用项目文件夹和普通群那三档动手权限
+  $('#perm-section').hidden = !!joint;
+  $('#cwd-row').hidden = !!joint;
+  $('#cwd-hint').hidden = !!joint;
+  $('#btn-clone-add').hidden = !!joint; // 第一期联合群里不开放分身；普通群照常
+  if (!joint) return void ($('#member-sub').textContent = tr('只选一位就是单聊'));
+  $('#joint-peer').textContent = joint.peerName || tr('等对方加入…');
+  $('#joint-self-name').textContent = joint.selfName || tr('我');
+  $('#member-sub').textContent = tr('自己这边派谁进去');
+  $('#btn-joint-invite').hidden = joint.role === 'guest' || !!joint.peerNode;
+  $('#btn-joint-inbox').hidden = false;
+  $('#btn-joint-leave').hidden = false;
+  $('#btn-joint-leave').textContent = joint.role === 'host' ? tr('解散联合群') : tr('退出联合群');
+  $('#joint-hint').textContent = tr('对方的 AI 看不到你的私聊、别的群和本机文件；停止按钮各管各的。');
+}
+
 async function init() {
   S.drafts = loadDrafts();
   loadAttachDrafts();
@@ -6767,8 +7297,17 @@ async function init() {
   } else if (first) openConv(first, { stayList: true });
   else renderShell();
   bindMobileViewport();
+  window.addEventListener('resize', () => renderJointBar());
   hideBoot();
   connect();
+  // 启动时如果已有等确认的加入申请（页面关着时发来的），补弹一次
+  setTimeout(async () => {
+    try {
+      const res = await api('GET', '/api/joint/pairs');
+      const p = res.pairs?.[0];
+      if (p && !document.querySelector('dialog[open]')) openJointApprove(p);
+    } catch {}
+  }, 1200);
   // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);
   setInterval(() => checkForUpdate(false), 60 * 60 * 1000);

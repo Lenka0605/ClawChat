@@ -760,7 +760,7 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
   font-size: 12px; color: var(--muted); display: inline-flex; gap: 2px; align-items: center; margin-left: 4px; height: 24px; padding: 0 4px 0 10px;
   border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
 }
-.target select { color: var(--text); min-width: 96px; }
+.target select { color: var(--text); min-width: 96px; max-width: 200px; } /* 联合群里名字带主人，别截断 */
 /* 手机横过来时窗口变宽、走桌面布局：那一排按钮多，别把下拉框挤成竖排字 */
 .target { flex: none; }
 /* 回复某位 AI 时，「不 @ 时」那个下拉换成这句说明；取消回复就换回来（不改群设置） */
@@ -1683,7 +1683,7 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   /* 不 @ 时怎么接：收成一个短下拉，不占两行，也不会被右边的「停止」挤没 */
   .target { flex: none; height: 44px; margin-left: 0; padding: 0 8px; border-radius: 22px; font-size: 13px; max-width: 184px; }
   .target-label { display: none; }
-  .target select { min-width: 0; max-width: 168px; font-size: 13px; }
+  .target select { min-width: 0; max-width: 184px; font-size: 13px; }
   #stop-controls { flex: none; margin-left: auto; justify-content: flex-end; min-width: 0; }
   .stop-controls { gap: 0; }
   .stop-controls .chip { height: 44px; padding: 0 12px; max-width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1815,3 +1815,126 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 @media (max-width: 360px) {
   .composer-tools.has-stop .target { display: none; }
 }
+
+/* ---------- 联合群（第一期） ---------- */
+/* 对方成员头像右下角标对方老板的第一个字 */
+.avatar.joint { position: relative; }
+.avatar.joint::after {
+  content: attr(data-owner); position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 8px; line-height: 14px; text-align: center; font-weight: 600;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+.side-tag.joint-tag { margin-left: 5px; color: var(--warn); background: rgba(255, 159, 10, 0.14); }
+/* 顶栏下面那一条：对方老板在线状态、对方成员、讨论档 */
+.joint-bar {
+  position: absolute; top: var(--head-h, 52px); left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; gap: 8px; padding: 7px 16px; min-height: 38px;
+  background: var(--glass-strong); border-bottom: 0.5px solid var(--line);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  font-size: 12px; color: var(--muted); overflow-x: auto; scrollbar-width: none;
+}
+.joint-bar::-webkit-scrollbar { display: none; }
+#chat.joint #scroller { padding-top: calc(var(--head-h, 52px) + var(--joint-bar-h, 44px) + 12px); }
+.joint-badge { flex: none; font-size: 10px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 6px; }
+.joint-peer { flex: none; white-space: nowrap; }
+.joint-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px 0 3px; border-radius: 7px; background: var(--fill); white-space: nowrap; flex: none; }
+.joint-chip .avatar { width: 18px; height: 18px; border-radius: 5px; }
+.joint-chip.off { opacity: 0.45; }
+.joint-perm { flex: none; font-size: 10px; color: var(--muted); background: var(--fill); padding: 1px 7px; border-radius: 6px; }
+.joint-link { flex: none; border: 0; background: none; color: var(--accent); font-size: 12px; padding: 0 4px; margin-left: auto; }
+.joint-link:hover { text-decoration: underline; }
+.joint-bar .spacer { flex: 1; }
+
+/* 邀请码 */
+.joint-code {
+  font: 12px/1.5 var(--mono); background: var(--fill); border-radius: 10px; padding: 10px 12px; word-break: break-all;
+  user-select: all; cursor: text; max-height: 128px; overflow-y: auto; color: var(--text);
+}
+.joint-code-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.joint-verify { display: grid; justify-items: center; gap: 4px; padding: 14px 0 4px; }
+.joint-verify-code {
+  font: 600 26px/1.2 var(--mono); letter-spacing: 0.16em; color: var(--text); background: var(--fill);
+  border-radius: 12px; padding: 10px 18px;
+}
+/* 有人想加入：核对码、成员 */
+.joint-approve-head { display: flex; align-items: center; gap: 12px; }
+.joint-approve-head .avatar { width: 38px; height: 38px; border-radius: 10px; flex: none; }
+.joint-approve-head b { display: block; font-size: 13.5px; }
+.joint-approve-head small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+.joint-agent-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.joint-agent { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); background: var(--fill); border-radius: 7px; padding: 3px 8px 3px 4px; }
+.joint-agent .avatar { width: 18px; height: 18px; border-radius: 5px; }
+/* 文件请求 */
+.joint-quote { font-size: 12px; color: var(--muted); background: var(--fill); border-left: 2px solid var(--line); padding: 7px 10px; border-radius: 0 8px 8px 0; line-height: 1.55; }
+.joint-quote b { color: var(--text); font-weight: 500; }
+.joint-file { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--fill); border: 1px solid var(--line); min-width: 0; }
+.joint-file.danger { border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 9%, var(--fill)); }
+.joint-file-icon {
+  width: 42px; height: 42px; flex: none; border-radius: 10px; display: grid; place-items: center; font: 700 10px/1 var(--mono);
+  color: var(--muted); background: var(--card, var(--bg)); box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.joint-file.danger .joint-file-icon { color: var(--danger); }
+.joint-file-meta { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.joint-file-meta b { font-size: 13px; }
+.joint-file-meta small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.joint-file-tag { flex: none; font-size: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); padding: 2px 7px; border-radius: 6px; }
+.joint-warn { font-size: 12px; line-height: 1.55; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); border-radius: 10px; padding: 9px 11px; }
+.joint-warn b { color: var(--danger); }
+.joint-dest { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
+.joint-dest b { font-size: 12.5px; color: var(--text); }
+.joint-dest small { color: var(--faint); }
+/* 收件箱 */
+.joint-inbox-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; min-width: 0; }
+.joint-inbox-row + .joint-inbox-row { border-top: 0.5px solid var(--line); }
+.joint-inbox-row .joint-file-meta { flex: 1; }
+.joint-inbox-row .secondary { flex: none; }
+/* 群设置里的联合群一节 */
+.joint-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.joint-actions .danger-text { margin-left: auto; }
+.form-row.block { display: grid; gap: 6px; align-items: start; }
+.form-row.block > span { color: var(--muted); }
+.form-row.block textarea {
+  width: 100%; border: 0; border-radius: 8px; padding: 8px 10px; background: var(--control); color: var(--text);
+  font: 12px/1.5 var(--mono); box-shadow: var(--control-shadow); resize: vertical; outline: none;
+}
+@media (max-width: 600px) {
+  .joint-bar { top: var(--head-h, 52px); padding: 6px 12px; min-height: 36px; flex-wrap: wrap; row-gap: 4px; overflow-x: hidden; }
+  #chat.joint #scroller { padding-top: calc(var(--head-h, 52px) + var(--joint-bar-h, 70px) + 10px); }
+  .joint-line { flex: 1 1 100%; min-width: 0; overflow: hidden; }
+  .joint-line .joint-chip { padding: 0 3px; }
+  .joint-line .joint-chip-name { display: none; } /* 手机上名字藏起来，只留头像，角标区分是谁家的 */
+  /* 联合群弹窗的按钮靠右，和电脑上一致（手机上 spacer 被隐藏了） */
+  #dlg-joint-create .dlg-actions, #dlg-joint-join .dlg-actions, #dlg-joint-invite .dlg-actions,
+  #dlg-joint-approve .dlg-actions, #dlg-joint-file .dlg-actions, #dlg-joint-inbox .dlg-actions { justify-content: flex-end; }
+  .joint-actions { gap: 10px; }
+  .joint-actions .danger-text { margin-left: 0; flex: 1 1 100%; text-align: left; }
+  .joint-file { padding: 10px; gap: 10px; }
+  .joint-file-icon { width: 38px; height: 38px; }
+}
+/* 对方老板的头像：中性的字头，不用「我」 */
+.av-peer { background: linear-gradient(135deg, #8a94a6, #5b6472); border-radius: 10px; font-size: 15px; }
+#dlg-joint-join .form-row.block { display: block; }
+#joint-join-code { width: 100%; margin-top: 6px; }
+
+/* 新建聊天里的两个入口：安静地并排，别抢成员和名字的位置 */
+.joint-entry-row { display: flex; gap: 8px; margin-top: 10px; }
+.joint-entry-row .secondary { flex: 1; justify-content: center; }
+/* 新建 / 加入联合群时挑自己的成员 */
+.joint-member-pick { display: grid; gap: 2px; }
+.joint-pick-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.joint-pick-row:hover { background: var(--fill); }
+.joint-pick-row input { margin: 0; accent-color: var(--accent); }
+.joint-pick-row .avatar { width: 24px; height: 24px; border-radius: 7px; }
+.joint-pick-row > span { font-size: 13px; color: var(--text); }
+.joint-pick-row small { margin-left: auto; font-size: 11px; color: var(--muted); }
+/* 顶栏里「我的 / 小王」两个小标题 */
+.joint-line { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.joint-group { flex: none; font-size: 10.5px; color: var(--faint); margin-left: 4px; }
+.joint-group + .joint-chip { margin-left: 1px; }
+/* 对方老板发的消息：靠左，用和 AI 一样的浅底气泡 */
+.msg.user.peer-user { justify-content: flex-start; }
+.msg.user.peer-user > .avatar { display: flex; }
+.msg.user.peer-user .msg-body { align-items: flex-start; }
+.msg.user.peer-user .bubble { background: var(--bubble-agent); color: var(--bubble-agent-text); }
+.msg.user.peer-user .msg-actions { justify-content: flex-start; }
+.msg.user.peer-user .msg-images { justify-content: flex-start; }
