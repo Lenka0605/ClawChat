@@ -68,14 +68,14 @@
 
 ## 传文件（API 的 `lib/joint-files.js`，路由由 API 写在 `lib/joint-files-routes.js`，Claude 在 joint-server 里挂上）
 
-原则照 ChatGPT 安全方案第 4 节：授权永远在**发送方本机**生成（快照 → 危险判定 → 确认框 → 私钥类加 WebAuthn → 一次性授权 → transferId）；主持方只做中转存储（存的是发送方老板确认过的那份快照，24 小时过期清理）；接收方拉回后落自己的收件箱（700/600、随机存储名），默认不给 AI、不自动打开。文件字节不进 AI 对话、不进日志、不进事件流（事件里只有文件名、大小、用途、谁提的）。
+原则照 ChatGPT 安全方案第 4 节：授权永远在**发送方本机**生成（快照 → 危险判定 → 确认框 → 私钥类再输一遍文件名 → 一次性授权 → transferId）；主持方只做中转存储（存的是发送方老板确认过的那份快照，24 小时过期清理）；接收方拉回后落自己的收件箱（700/600、随机存储名），默认不给 AI、不自动打开。文件字节不进 AI 对话、不进日志、不进事件流（事件里只有文件名、大小、用途、谁提的）。
 
 **peer 接口**（`/joint/v1/rooms/:id/files/...`，三道认证；读正文/分块之后、动手之前必须再核对一次授权 `host.still(room, peer)`）：
 
 | 接口 | 谁调 | 说明 |
 |---|---|---|
 | `POST files/request` `{ name, size, purpose }` | 加入方 | 想要一个文件：主持方界面出确认框 |
-| `POST files/uploads` `{ transferId, hash, size, name, toNode, risk, auth? }` | 加入方（它是发送方时） | 私钥类主持方验 WebAuthn 断言才收；之后 `PUT files/:transferId/chunks`（按序）+ `POST files/:transferId/finish`（校验哈希进待取区） |
+| `POST files/uploads` `{ transferId, hash, size, name, toNode, risk }` | 加入方（它是发送方时） | 发送方本机已经确认过；之后 `PUT files/:transferId/chunks`（按序）+ `POST files/:transferId/finish`（校验哈希进待取区） |
 | `GET files/:transferId/manifest` | 接收方 | 元数据（名称、大小、哈希、来源、风险级） |
 | `GET files/:transferId/content` | 接收方 | 文件字节；transferId 绑定接收节点，别的节点 404；`no-store` |
 
@@ -84,13 +84,11 @@
 | 接口 | 说明 |
 |---|---|
 | `POST snapshot` `{ path, roomId }` | 本机快照 + 危险判定 → `{ hash, size, name, risk, reason? }`；路径只在本机 |
-| `GET webauthn/register-challenge` / `POST webauthn/register` | 一次性注册本机认证器（凭据记下注册时的 rpId） |
-| `POST challenge` `{ hash, toNode }` | 私钥类确认前出挑战（绑 hash + toNode + rpId，5 分钟、一次性） |
-| `POST approve` `{ hash, size, name, toNode, auth? }` → `{ transferId }` | 确认发送；私钥类验断言（UP + UV） |
+| `POST approve` `{ hash, size, name, toNode, confirmName? }` → `{ transferId }` | 确认发送；私钥类必须来自本机电脑窗口、`confirmName` 和文件名一致 |
 | `POST :transferId/chunks` / `POST :transferId/finish` | 主持方老板自己发送时推进待取区 |
 | `GET inbox` / `POST inbox/reveal` `{ transferId }` | 收件箱 / 在访达里显示 |
 
-**第一期私钥类文件只能在电脑上确认**：确认接口只认本机电脑窗口（`127.0.0.1` / `localhost`），手机上碰到私钥类提示「请到电脑上确认」。WebAuthn 只验断言、不验 attestation 签名（凭据在本机生成、没离开过本机，attestation 只证明生成那一刻）。授权在内存里：主持方重启就失效，要重新走确认框。
+**第一期私钥类文件只能在电脑上确认，还要再输一遍文件名**（老板 2026-11-02 定）：请求必须来自本机电脑窗口（`host` 是 `127.0.0.1` / `localhost`、不带任何 `x-forwarded-*` 头），`confirmName` 和快照的文件名一致；手机上碰到私钥类提示「请到电脑上确认」。这一步防误点、发错文件；电脑上有完全权限的 AI 本来就能直接读文件，拦不住它（普通群一直就有的风险）。原生 Touch ID / Windows Hello 放第二期；WebAuthn 代码留在库里、不接路由。授权在内存里：主持方重启就失效，要重新走确认框。
 
 ## 版本
 
