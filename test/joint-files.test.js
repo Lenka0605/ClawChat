@@ -81,6 +81,17 @@ describe('危险文件判定', () => {
     // 后缀无害但内容是私钥：内容兜底
     assert.equal((await risk('notes.txt', '-----BEGIN EC PRIVATE KEY-----\nabc')).risk, 'secret');
   });
+  test('私钥改名成公开后缀也拦得住；快照读不了拒收（复核负向）', async () => {
+    const pem = '-----BEGIN PRIVATE KEY-----\nabc';
+    assert.equal((await risk('cert.crt', pem)).risk, 'secret');
+    assert.equal((await risk('host.pub', pem)).risk, 'secret');
+    assert.equal((await risk('backup.der', pem)).risk, 'secret');
+    // 快照读不了内容：拒绝，不当普通文件
+    const dir = tmp();
+    const missing = path.join(dir, 'nope.txt');
+    await assert.rejects(() => classifyRisk(missing, 'nope.txt'));
+  });
+
   test('公开证书、公钥、普通文件：normal（.crt 不标红）', async () => {
     assert.equal((await risk('cert.crt', '-----BEGIN CERTIFICATE-----')).risk, 'normal');
     assert.equal((await risk('host.pub', 'ssh-ed25519 AAAA')).risk, 'normal');
@@ -150,6 +161,27 @@ describe('分块接收', () => {
     assert.equal(fs.existsSync(path.join(r.root, 'room1', tid)), false);
     await assert.rejects(() => r.begin('room1', '../escape', { name: 'f', size: 1, hash: 'a', fromNode: 'b' }), /不合法/);
   });
+  test('roomId 越出收件箱：拒绝（复核负向）', async () => {
+    const r = recv();
+    const root = path.join(tmp(), 'joint-inbox');
+    const r2 = new Receiver(root);
+    await assert.rejects(() => r2.begin('../outside', 'x'.repeat(22), { name: 'f', size: 1, hash: 'a', fromNode: 'b' }), /不合法/);
+    await assert.rejects(() => r2.begin('a/b', 'y'.repeat(22), { name: 'f', size: 1, hash: 'a', fromNode: 'b' }), /不合法/);
+  });
+
+  test('finish 之后 chunk 被拒；校验基准取本机状态而非自报值（复核负向）', async () => {
+    const r = recv();
+    const data = crypto.randomBytes(300);
+    const hash = crypto.createHash('sha256').update(data).digest('hex');
+    const tid = 'z'.repeat(22);
+    const h = await r.begin('room1', tid, { name: 'f', size: data.length, hash, fromNode: 'b' });
+    await r.chunk('room1', tid, h, data);
+    const done = await r.finish('room1', tid); // 不传校验参数：基准来自 begin 时的本机状态
+    assert.equal(fs.readFileSync(done.stored).toString('hex'), data.toString('hex'));
+    await assert.rejects(() => r.chunk('room1', tid, h, Buffer.from('more')), /收尾/);
+    await assert.rejects(() => r.finish('room1', tid), /收尾/);
+  });
+
   test('同一 transferId 不能收两次', async () => {
     const r = recv();
     const tid = 'w'.repeat(22);
