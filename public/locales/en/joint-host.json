@@ -25,5 +25,6 @@
   "这个联合群已经删掉了": "This joint chat has been deleted",
   "这个联合群已经有同事加入了": "A colleague has already joined this joint chat",
   "邀请码已失效，请让对方重新生成": "The invite code has expired. Ask for a new one.",
-  "联合群里不能这样操作": "This can't be done in a joint chat"
+  "联合群里不能这样操作": "This can't be done in a joint chat",
+  "联合群里暂时不能私聊": "Private chats aren't available in joint chats yet"
 }
