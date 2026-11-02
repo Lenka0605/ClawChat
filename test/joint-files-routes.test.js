@@ -161,16 +161,23 @@ describe('传文件路由：peer 接口', () => {
 
   test('manifest 声明超限：拉取直接拒绝，不进收件箱（复核反例）', async () => {
     const connRoom2 = 'mirror9';
+    const mirror9 = { id: connRoom2, joint: { role: 'guest' } };
     const bigManifest = { name: 'big.bin', size: 200 * 1024 * 1024, hash: 'x', risk: 'normal', fromNode: 'node-a' };
-    let contentAsked = false;
+    let manifestAsked = false, contentAsked = false;
+    const oldGetRoom = store.getRoom;
+    store.getRoom = (id) => (id === connRoom2 ? mirror9 : oldGetRoom(id));
     globalThis.fetch = async (url) => {
-      if (String(url).endsWith('/manifest')) return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(bigManifest)) };
+      if (String(url).endsWith('/manifest')) { manifestAsked = true; return { ok: true, body: (async function* () { yield Buffer.from(JSON.stringify(bigManifest)); })() }; }
       contentAsked = true;
       return { ok: true, body: (async function* () { yield Buffer.alloc(10); })() };
     };
-    await files.onGuestEvent(connRoom2, { type: 'file.ready', transferId: 'B'.repeat(22), name: 'big.bin' });
+    try {
+      await files.onGuestEvent(connRoom2, { type: 'file.ready', transferId: 'B'.repeat(22), name: 'big.bin' });
+    } catch { /* 超限错误往外抛（retryable 语义）也算对 */ }
+    assert.equal(manifestAsked, true); // 确实请求过 manifest，不是空过
     assert.equal(contentAsked, false); // 大小不对连内容都不拉
     assert.equal(fs.existsSync(path.join(HOME, 'joint-inbox', connRoom2)), false);
+    store.getRoom = oldGetRoom;
     delete globalThis.fetch;
   });
 
@@ -200,14 +207,14 @@ describe('传文件路由：加入方拉取', () => {
     const calls = [];
     globalThis.fetch = async (url, opts) => {
       calls.push(String(url));
-      if (String(url).endsWith('/manifest')) return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(manifest)) };
+      if (String(url).endsWith('/manifest')) return { ok: true, body: (async function* () { yield Buffer.from(JSON.stringify(manifest)); })() };
       if (String(url).endsWith('/content')) return { ok: true, body: (async function* () { yield fileData; })() };
       throw new Error('意外请求');
     };
     const connRoom = 'mirror1';
     const files2 = setupJointFiles({
       host, store, hub,
-      guestConnection: (id) => (id === connRoom ? { host: 'https://host.ts.net', roomId: 'room1', nodeId: 'node-b', token: 'tok' } : null),
+      guestConnection: (id) => ({ host: 'https://host.ts.net', roomId: 'room1', nodeId: 'node-b', token: 'tok' }),
       self: 'node-b',
     });
     await files2.onGuestEvent(connRoom, { type: 'file.ready', transferId: 'P'.repeat(22), name: '收到.txt' });
