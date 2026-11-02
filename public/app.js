@@ -2165,6 +2165,7 @@ function renderShell() {
   syncJointMembers();
   buildMentionRes(); // 对方成员的名字要能认成 @
   syncJointMentionChips(room);
+  syncJointQuickMentions(room); // 联合群里自己的 @ 快捷按钮也写全名
   renderJointBar(); // 联合群：对方成员、在线状态、讨论档
   renderVisionHint(); // 换了聊天、换了模型：图片提醒跟着更新
   fitHead();
@@ -5912,6 +5913,7 @@ function openDialog(room, preset = null) {
   $('#form-error').hidden = true;
   roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
+  if (room?.joint) checkPendingJointPairs(); // 设置打开时补查一下有没有等你同意的加入申请
   $('#dlg-room .sheet-body').scrollTop = 0; // 上次滚到底下关掉的：再打开（尤其是新建）从头显示成员和名字
   reportDragRegions();
   // 手机上不自动聚焦名字：一打开群设置就弹键盘，挡住大半个窗口；窗口自己拿焦点（showModal 会把焦点给第一个输入框）
@@ -6075,7 +6077,7 @@ function bind() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('#btn-joint-invite-bar')) requestJointInvite();
     const rev = e.target.closest('[data-inbox-reveal]');
-    if (rev) api('POST', '/api/joint/inbox/reveal', { id: rev.dataset.inboxReveal }).catch((err) => toast(err.message));
+    if (rev) api('POST', '/api/joint/files/inbox/reveal', { transferId: rev.dataset.inboxReveal }).catch((err) => toast(err.message));
   });
   $('#btn-welcome-new').onclick = () => openDialog(null);
   document.querySelectorAll('[data-solo]').forEach((b) => (b.onclick = () => openDialog(null, [b.dataset.solo])));
@@ -6859,7 +6861,7 @@ setTimeout(hideBoot, 10000); // 兜底：十秒还没画好也不挡着
 //   room.jointMembers = [{ key, name, owner, base, online }]
 //   S.jointMembers[key] 由 state 里的 room.jointMembers 汇总而来，消息的 from 就是 key
 // 接口（约定）：POST /api/joint/join、GET /api/joint/join/:pairId、POST /api/rooms/:id/joint/invite、
-//   POST /api/joint/pair/:pairId/approve|reject、GET /api/joint/inbox、POST /api/joint/files/approve、POST /api/rooms/:id/joint/leave
+//   POST /api/joint/pair/:pairId/approve|reject、GET /api/joint/files/inbox、POST /api/joint/files/approve、POST /api/rooms/:id/joint/leave
 let jointInviteTimer = 0;
 let jointJoinPoll = 0;
 let jointJoinPairId = '';
@@ -6894,6 +6896,23 @@ function syncJointMentionChips(room) {
     btn.innerHTML = `${avatarHtml(key)}<span class="chip-name">@${esc(name)}</span>`;
     btn.onclick = () => insertMention(name);
     tools.insertBefore(btn, all || null);
+  }
+}
+
+// 联合群里，底部 @ 快捷按钮也要写全名（@Claude·Lenka），否则对方会以为叫的是自己家的 Claude
+const QUICK_MENTION_IDS = { claude: 'Claude', gpt: 'ChatGPT', deepseek: 'DeepSeek', glm: 'GLM', gemini: 'Gemini', grok: 'Grok', cursor: 'Cursor', api: 'API' };
+function syncJointQuickMentions(room) {
+  const tools = $('#group-tools');
+  if (!tools) return;
+  for (const [id, plain] of Object.entries(QUICK_MENTION_IDS)) {
+    const btn = tools.querySelector(`.mention-chip[data-who="${id}"]:not([data-joint-chip])`);
+    if (!btn) continue;
+    const m = room?.joint ? jointMemberOf(room, id) : null;
+    const label = m ? jointMemberDisplay(m) : plain;
+    btn.dataset.mention = label;
+    btn.title = `@${label}`;
+    const name = btn.querySelector('.chip-name');
+    if (name) name.textContent = `@${label}`;
   }
 }
 
@@ -7095,6 +7114,15 @@ async function submitJointJoin() {
   }
 }
 
+async function checkPendingJointPairs() {
+  if ($('#dlg-joint-approve')?.open) return;
+  try {
+    const res = await api('GET', '/api/joint/pairs');
+    const p = (res.pairs || [])[0];
+    if (p) openJointApprove(p);
+  } catch {}
+}
+
 function jointPeerAvatar(info = {}) {
   if (info.avatar && S.jointMembers?.[info.avatar]) return avatarHtml(info.avatar);
   const ch = String(info.peerName || info.ownerName || '?').trim().slice(0, 1) || '?';
@@ -7112,7 +7140,7 @@ function openJointApprove(info = {}) {
   const roomName = info.roomName || roomById(info.roomId)?.name || '';
   $('#joint-approve-body').innerHTML = `
     <div class="joint-approve-head">${jointPeerAvatar(info)}<div><b>${esc(info.peerName || info.ownerName || '')} 想加入「${esc(roomName)}」</b><small>Tailscale 账号 ${esc(info.peerLogin || info.login || '')} · 设备 ${esc(info.device || info.nodeName || '')}</small></div></div>
-    <div class="joint-verify"><div class="joint-verify-code">${esc(String(info.code || '').replace(/(\d{3})(\d{3})/, '$1 $2') || '—')}</div><p class="hint">和对方口头核对这个号码，确认是本人再同意。</p></div>
+    <div class="joint-verify"><div class="joint-verify-code">${esc(String(info.check || info.code || '').replace(/(\d{3})(\d{3})/, '$1 $2') || '—')}</div><p class="hint">和对方口头核对这个号码，确认是本人再同意。</p></div>
     <div class="joint-agent-list">${agents}</div>
     <p class="hint">第一期所有 AI 只能讨论、不能改文件；对方的 AI 在对方电脑上跑，记忆和额度不出本机。</p>`;
   dlg.dataset.pairId = info.pairId || '';
@@ -7198,7 +7226,7 @@ function renderJointInbox(items = []) {
   if (!box) return;
   if (!items.length) return void (box.innerHTML = `<p class="hint">${tr('还没有收到文件。对方发来的文件会放在这里，默认不给任何 AI 看。')}</p>`);
   box.innerHTML = items
-    .map((it) => `<div class="joint-inbox-row"><span class="joint-file-icon">${esc((it.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(it.name || '')}</b><small>${esc(it.from || '')} · ${esc(it.time || '')}</small></span><button type="button" class="secondary" data-inbox-reveal="${esc(it.id || '')}">${tr('在访达里显示')}</button></div>`)
+    .map((it) => `<div class="joint-inbox-row"><span class="joint-file-icon">${esc((it.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(it.name || '')}</b><small>${esc(it.from || '')} · ${esc(it.time || '')}</small></span><button type="button" class="secondary" data-inbox-reveal="${esc(it.transferId || it.id || '')}">${tr('在访达里显示')}</button></div>`)
     .join('');
 }
 
@@ -7209,7 +7237,7 @@ async function openJointInbox() {
   dlg.showModal();
   reportDragRegions();
   try {
-    const res = await api('GET', '/api/joint/inbox');
+    const res = await api('GET', '/api/joint/files/inbox');
     renderJointInbox(res.files || []);
   } catch (err) {
     $('#joint-inbox-body').innerHTML = `<p class="hint error">${esc(err.message)}</p>`;
@@ -7301,12 +7329,8 @@ async function init() {
   hideBoot();
   connect();
   // 启动时如果已有等确认的加入申请（页面关着时发来的），补弹一次
-  setTimeout(async () => {
-    try {
-      const res = await api('GET', '/api/joint/pairs');
-      const p = res.pairs?.[0];
-      if (p && !document.querySelector('dialog[open]')) openJointApprove(p);
-    } catch {}
+  setTimeout(() => {
+    if (!document.querySelector('dialog[open]')) checkPendingJointPairs();
   }, 1200);
   // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);
