@@ -137,3 +137,18 @@ test('嵌套的私聊标签：外层私聊的尾巴不能漏进公开记录（�
   assert.ok(pub.some((m) => m.text.includes('公开A') && m.text.includes('公开B')));
   for (const m of pub) assert.ok(!JSON.stringify(host.publicMessage(store.getRoom(room.id), m)).includes('FAKE_TAIL'));
 });
+
+test('联合群没有私聊接力：私聊里 @ 同事不会私下叫它；被私下找来的回合，回复也不会公开到群里', () => {
+  const store = new Store();
+  const hub = new Hub(store, { run: () => ({ done: new Promise(() => {}), kill: async () => true }) });
+  const host = new JointHost(store, hub);
+  const room = host.createRoom({ name: '私聊', members: ['claude', 'gpt'], ownerName: 'Lenka', cwd: home });
+  hub.deliver(room.id, 'claude', '@ChatGPT 帮我看看 FAKE_DM_RELAY', true, {});
+  let msgs = store.getMessages(room.id);
+  assert.ok(!msgs.some((m) => m.pm), '不生成 AI 之间的私聊');
+  assert.ok(msgs.filter((m) => !m.dm).every((m) => !m.text.includes('FAKE_DM_RELAY')), '私聊回复不进公开记录');
+  // 以前排进来的「被同事私下找来」的回合（peer）：dmMode=false 也不能公开
+  hub.deliver(room.id, 'gpt', '这是私下回 Claude 的 FAKE_PEER_REPLY', false, {}, 'claude');
+  msgs = store.getMessages(room.id);
+  assert.ok(msgs.filter((m) => !m.dm).every((m) => !m.text.includes('FAKE_PEER_REPLY')), '私下回合的回复不能公开');
+});
