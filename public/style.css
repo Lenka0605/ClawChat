@@ -620,6 +620,9 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 .bubble {
   background: var(--bubble-agent); color: var(--bubble-agent-text); border-radius: 18px; padding: 7px 12px;
   word-wrap: break-word; overflow-wrap: anywhere; font-size: 14px; line-height: 1.45; position: relative;
+  /* 气泡是纵向 flex 的子项，默认 min-width:auto 会被长代码行撑到内容宽度；
+     放开以后气泡不会超出消息区，代码块自己在里面横向滚动 */
+  min-width: 0; max-width: 100%;
 }
 .msg.user .bubble { background: var(--bubble-user); color: var(--bubble-user-text); white-space: pre-wrap; }
 /* 气泡的质感：上亮下暗的渐变 + 顶上一道细高光 + 半像素的品牌色描边 + 同色的柔和光晕 */
@@ -757,7 +760,9 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
   font-size: 12px; color: var(--muted); display: inline-flex; gap: 2px; align-items: center; margin-left: 4px; height: 24px; padding: 0 4px 0 10px;
   border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
 }
-.target select { color: var(--text); }
+.target select { color: var(--text); min-width: 96px; }
+/* 手机横过来时窗口变宽、走桌面布局：那一排按钮多，别把下拉框挤成竖排字 */
+.target { flex: none; }
 /* 回复某位 AI 时，「不 @ 时」那个下拉换成这句说明；取消回复就换回来（不改群设置） */
 .reply-target-note { font-size: 12px; color: var(--muted); padding: 0 6px; white-space: nowrap; }
 .attachments { display: flex; gap: 8px; margin: 0 0 8px 40px; flex-wrap: wrap; }
@@ -1027,6 +1032,7 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 .group-fields { display: grid; }
 .error { color: var(--danger); font-size: 12px; margin: 0; }
 .dlg-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.danger-actions { display: flex; gap: 12px; align-items: center; }
 
 #chat > #drop-overlay {
   position: absolute; inset: 8px; background: var(--accent-soft); border: 2px dashed var(--accent); border-radius: 14px;
@@ -1084,6 +1090,7 @@ dialog.prefs { width: min(640px, calc(100vw - 32px)); border-radius: 12px; }
   background: #ff5f57; color: transparent; display: grid; place-items: center; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
 }
 .prefs-close:hover { color: rgba(80, 0, 0, 0.75); }
+.prefs-close-label { display: none; } /* 手机上才把红点换成「完成」文字 */
 .prefs-tabs { display: flex; gap: 2px; }
 .prefs-tabs button {
   border: 0; background: transparent; border-radius: 7px; min-width: 76px; padding: 5px 8px 4px; display: grid; justify-items: center;
@@ -1718,8 +1725,19 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .sheet-body { padding: 4px 14px 14px; }
   .sheet-foot { padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); }
 
-  /* 设置窗口：手机上三张外观预览图放不下，行里的输入框、下拉框换到下一行 */
-  dialog.prefs { width: calc(100vw - 12px); }
+  /* 群设置的删除 / 清空单独占一行、和「取消 / 保存」隔开，手机上不容易误点 */
+  .dlg-actions { flex-wrap: wrap; row-gap: 12px; }
+  .danger-actions { flex: 1 1 100%; gap: 18px; padding-bottom: 10px; border-bottom: 0.5px solid var(--line); }
+  .danger-actions:not(:has(button:not([hidden]))) { display: none; }
+  .danger-actions .danger-text { min-height: 40px; padding: 0 4px; font-size: 14px; }
+  .dlg-actions .spacer { display: none; }
+  .dlg-actions #btn-cancel { margin-left: auto; }
+
+  /* 设置窗口：手机上靠顶部显示，左上角的红点换成「完成」 */
+  dialog.prefs { width: calc(100vw - 12px); margin: 12px auto auto; }
+  .prefs-close { left: auto; right: 10px; top: 7px; width: auto; height: 32px; padding: 0 10px; border-radius: 8px; background: none; box-shadow: none; color: var(--accent); font-size: 14px; font-weight: 500; }
+  .prefs-close svg { display: none; }
+  .prefs-close-label { display: inline; }
   .prefs-window { max-height: calc(100dvh - 24px); }
   .prefs-body { padding: 14px 14px calc(18px + env(safe-area-inset-bottom)); }
   .prefs-tabs button { min-width: 64px; padding: 5px 4px 4px; font-size: 10px; }

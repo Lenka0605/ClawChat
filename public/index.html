@@ -281,8 +281,10 @@
       <footer class="sheet-foot">
         <p id="form-error" class="error" hidden></p>
         <div class="dlg-actions">
-          <button type="button" id="btn-delete" class="danger-text" hidden>删除聊天</button>
-          <button type="button" id="btn-clear" class="danger-text" hidden>清空聊天记录</button>
+          <div class="danger-actions">
+            <button type="button" id="btn-delete" class="danger-text" hidden>删除聊天</button>
+            <button type="button" id="btn-clear" class="danger-text" hidden>清空聊天记录</button>
+          </div>
           <span class="spacer"></span>
           <button type="button" id="btn-cancel" class="secondary">取消</button>
           <button type="submit" id="btn-save" class="primary">创建</button>
@@ -297,6 +299,7 @@
       <header class="prefs-toolbar">
         <button class="prefs-close" id="btn-settings-close" title="关闭（Esc）" aria-label="关闭">
           <svg viewBox="0 0 12 12" width="8" height="8"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span class="prefs-close-label">完成</span>
         </button>
         <h2 id="prefs-title">通用</h2>
         <nav class="prefs-tabs" id="settings-tabs" role="tablist">
