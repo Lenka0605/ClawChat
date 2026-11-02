@@ -21,5 +21,7 @@
   "额外点数不限": "Unlimited extra credits",
   "额外点数余额 {n}": "Extra credits: {n}",
   "还有额外点数": "Extra credits available",
-  "额外点数已用完": "No extra credits left"
+  "额外点数已用完": "No extra credits left",
+  "本周（含超额）": "This week (incl. overage)",
+  "其他额度": "Other quota"
 }

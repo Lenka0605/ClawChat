@@ -1186,8 +1186,12 @@ function usageWindowName(w) {
   if (w.key === 'seven_day') return tr('本周');
   if (w.key === 'seven_day_opus') return tr('本周 Opus');
   if (w.key === 'seven_day_sonnet') return tr('本周 Sonnet');
+  // Anthropic 后来加的「本周额度（含另外买的超额部分）」
+  if (w.key === 'seven_day_overage_included') return tr('本周（含超额）');
   const minutes = Number(w.windowMinutes) || (/^\d+m$/.test(w.key) ? Number(w.key.slice(0, -1)) : 0);
-  return minutes ? tr('{n} 分钟', { n: minutes }) : String(w.key || '');
+  if (minutes) return tr('{n} 分钟', { n: minutes });
+  // 以后官方再加不认识的窗口：别把英文原名直接摆给老板看
+  return tr('其他额度');
 }
 
 function usagePercentText(pct) {
