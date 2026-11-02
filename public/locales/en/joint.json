@@ -108,5 +108,14 @@
   "输入上面的文件名": "Type the file name shown above",
   "请到电脑上确认": "Confirm on your computer",
   "文件名对不上，没有发出去": "The file name doesn't match, so it wasn't sent",
-  "经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件": "Encrypted in transit over Tailscale; file contents never pass through any AI; only this one file"
+  "经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件": "Encrypted in transit over Tailscale; file contents never pass through any AI; only this one file",
+  "对方想要的文件": "The file the other side wants",
+  "选择文件…": "Choose a file…",
+  "重新选择文件…": "Choose another file…",
+  "确认后只发这一个文件": "Only this one file will be sent after you confirm",
+  "传文件请在电脑上操作": "File transfer must be done on the computer",
+  "先选择要发送的文件": "Choose a file to send first",
+  "文件已收到：{name}，在联合群收件箱里": "File received: {name}. It's in the joint group inbox",
+  "文件没收到：{name}": "Couldn't receive the file: {name}",
+  "文件": "file"
 }

@@ -26,5 +26,7 @@
   "这个联合群已经有同事加入了": "A colleague has already joined this joint chat",
   "邀请码已失效，请让对方重新生成": "The invite code has expired. Ask for a new one.",
   "联合群里不能这样操作": "This can't be done in a joint chat",
-  "联合群里暂时不能私聊": "Private chats aren't available in joint chats yet"
+  "联合群里暂时不能私聊": "Private chats aren't available in joint chats yet",
+  "对方已经解散了这个联合群，或者撤销了你的加入。聊天记录留在本机": "The other side closed this joint chat or removed you. The chat history stays on this computer.",
+  "对方的 ClawChat 不让你连进来：请确认对方已经在 Tailscale 里把电脑共享给你": "The other ClawChat won't let you in. Make sure they've shared their computer with you in Tailscale."
 }
