@@ -211,7 +211,7 @@ describe('WebAuthn（系统认证）', () => {
     const cose = coseFor(key.publicKey);
     const authData = makeAuthData(key, cose);
     const reg = parseRegistration({ authenticatorData: authData, rpId });
-    const ch = makeChallenge({ fileHash: 'ff'.repeat(32), toNode: 'node-b' });
+    const ch = makeChallenge({ fileHash: 'ff'.repeat(32), toNode: 'node-b', rpId });
     const a = assertFor(key.privateKey, {
       authData: makeAuthData(key, cose), // 断言的 authData 不含凭据
       client: { type: 'webauthn.get', challenge: ch.challenge, origin },
@@ -223,7 +223,7 @@ describe('WebAuthn（系统认证）', () => {
     const key = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
     const cose = coseFor(key.publicKey);
     const reg = parseRegistration({ authenticatorData: makeAuthData(key, cose), rpId });
-    const ch = makeChallenge({ fileHash: 'ee'.repeat(32), toNode: 'node-b' });
+    const ch = makeChallenge({ fileHash: 'ee'.repeat(32), toNode: 'node-b', rpId });
     const a = assertFor(key.privateKey, {
       authData: Buffer.concat([makeAuthData(key, cose).subarray(0, 37)]),
       client: { type: 'webauthn.get', challenge: ch.challenge, origin },
@@ -235,7 +235,7 @@ describe('WebAuthn（系统认证）', () => {
     const key = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
     const cose = coseFor(key.publicKey);
     const reg = parseRegistration({ authenticatorData: makeAuthData(key, cose), rpId });
-    const ch = makeChallenge({ fileHash: 'dd'.repeat(32), toNode: 'node-b' });
+    const ch = makeChallenge({ fileHash: 'dd'.repeat(32), toNode: 'node-b', rpId });
     const good = { authData: makeAuthData(key, Buffer.alloc(0)).subarray(0, 37), client: { type: 'webauthn.get', challenge: ch.challenge, origin } };
     // 没过 UV
     const authDataNoUV = makeAuthData(key, Buffer.alloc(0), { uv: false }).subarray(0, 37);
@@ -292,10 +292,10 @@ describe('WebAuthn（系统认证）', () => {
   });
 
   test('挑战 5 分钟内有效', () => {
-    const ch = makeChallenge({ fileHash: 'cc'.repeat(32), toNode: 'b' });
+    const ch = makeChallenge({ fileHash: 'cc'.repeat(32), toNode: 'b', rpId: 'host.ts.net' });
     assert.ok(challengeValid(ch));
     const clock = { t: Date.now() };
-    const ch2 = makeChallenge({ fileHash: 'cc'.repeat(32), toNode: 'b' });
+    const ch2 = makeChallenge({ fileHash: 'cc'.repeat(32), toNode: 'b', rpId: 'host.ts.net' });
     clock.t += 6 * 60 * 1000;
     assert.equal(challengeValid(ch2, { now: () => clock.t }), false);
   });
