@@ -7159,31 +7159,13 @@ async function answerJointApprove(ok) {
   }
 }
 
-function b64urlBytes(s) {
-  const t = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
-  const pad = t + '='.repeat((4 - (t.length % 4)) % 4);
-  const bin = atob(pad);
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-
-// 私钥类文件：让系统认证一次（Mac 是 Touch ID，Windows 是 Windows Hello）
-// 注册设备的接口还没定（等 API 写好后接），这里先留认证的调用位置
-async function jointSystemAuth(req) {
-  if (!window.PublicKeyCredential || !navigator.credentials?.get) throw new Error(tr('这台设备不支持系统认证，不能发私钥类文件'));
-  if (!req.challenge) throw new Error(tr('缺少认证挑战值，请重新发起'));
-  const cred = await navigator.credentials.get({
-    publicKey: { challenge: b64urlBytes(req.challenge), rpId: req.rpId || location.hostname, userVerification: 'required', timeout: 60000 },
-  });
-  if (!cred) throw new Error(tr('没有完成系统认证，文件没有发出去'));
-  return cred;
-}
-
 function openJointFileRequest(req = {}) {
   const dlg = $('#dlg-joint-file');
   if (!dlg) return;
   jointFileReq = req;
   const f = req.file || {};
-  const danger = !!f.danger;
+  const danger = !!(f.danger || f.risk === 'secret');
+  const onComputer = isLocalHost(); // 和 API 的规则一致：只认本机电脑窗口
   const size = f.size ? `${(f.size / 1024).toFixed(f.size > 1024 * 1024 ? 0 : 1)} ${f.size > 1024 * 1024 ? 'MB' : 'KB'}` : '';
   $('#joint-file-body').innerHTML = `
     <div class="joint-approve-head">${jointPeerAvatar(req)}<div><b>${esc(req.peerName || '')} 想从你这里取一个文件</b><small>由 ${esc(req.requester || '')} 在群里提出</small></div></div>
@@ -7194,30 +7176,47 @@ function openJointFileRequest(req = {}) {
       ${danger ? `<span class="joint-file-tag">${esc(f.kind || tr('证书 / 私钥'))}</span>` : ''}
     </div>
     ${danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
+    ${danger && !onComputer ? `<p class="hint warn-text">${tr('请到电脑上确认')}</p>` : ''}
+    ${danger && onComputer ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
     <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || '')} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密直达，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
-  $('#btn-joint-file-yes').textContent = danger ? tr('确认发送（需要系统认证）') : tr('确认发送');
+  const yes = $('#btn-joint-file-yes');
+  yes.textContent = tr('确认发送');
+  yes.hidden = danger && !onComputer;
+  yes.disabled = danger;
+  if (danger && onComputer) {
+    const input = $('#joint-file-confirm');
+    const sync = () => (yes.disabled = input.value !== (f.name || ''));
+    input.addEventListener('input', sync);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+  }
   dlg.showModal();
   reportDragRegions();
 }
 
 async function approveJointFile() {
   if (!jointFileReq) return;
+  const f = jointFileReq.file || {};
+  const danger = !!(f.danger || f.risk === 'secret');
+  const confirmName = $('#joint-file-confirm')?.value || '';
+  if (danger && !isLocalHost()) return toast(tr('请到电脑上确认'), 5000);
+  if (danger && confirmName !== (f.name || '')) return toast(tr('文件名对不上，没有发出去'), 5000);
   const btn = $('#btn-joint-file-yes');
   btn.disabled = true;
-  const was = btn.textContent;
   try {
-    if (jointFileReq.file?.danger) {
-      btn.textContent = tr('正在确认…');
-      await jointSystemAuth(jointFileReq);
-    }
-    await api('POST', '/api/joint/files/approve', { id: jointFileReq.id });
+    const body = {
+      hash: f.hash,
+      size: f.size,
+      name: f.name,
+      toNode: jointFileReq.toNode || jointFileReq.node,
+    };
+    if (danger) body.confirmName = confirmName;
+    await api('POST', '/api/joint/files/approve', body);
     closeDialog($('#dlg-joint-file'));
     toast(tr('文件已经发出去'));
   } catch (err) {
     toast(err.message || tr('文件没有发出去'), 5000);
   } finally {
-    btn.disabled = false;
-    btn.textContent = was;
+    btn.disabled = danger;
   }
 }
 

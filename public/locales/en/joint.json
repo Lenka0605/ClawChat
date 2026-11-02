@@ -104,5 +104,9 @@
   "同事怎么称呼你，比如：小李": "What should colleagues call you? e.g. Xiao Li",
   "先填一下同事怎么称呼你": "Fill in what colleagues should call you",
   "讨论档下，对方 AI 只能讨论、不能读本机文件。项目文件夹、动手权限和共享文件夹在联合群里都不适用（共享文件夹留到第二期）。": "In discussion mode the other side's AIs can only talk and can't read local files. Project folders, action permissions, and shared folders don't apply to joint groups (shared folders come in phase 2).",
-  "对方 AI 只能讨论、不能读本机文件。成员名字后面会带上你的称呼，方便两边分清是谁家的 AI。": "The other side's AIs can only talk and can't read local files. Your name is shown after your AIs' names so both sides can tell whose AI is whose."
+  "对方 AI 只能讨论、不能读本机文件。成员名字后面会带上你的称呼，方便两边分清是谁家的 AI。": "The other side's AIs can only talk and can't read local files. Your name is shown after your AIs' names so both sides can tell whose AI is whose.",
+  "输入文件名确认发送": "Type the file name to confirm",
+  "输入上面的文件名": "Type the file name shown above",
+  "请到电脑上确认": "Confirm on your computer",
+  "文件名对不上，没有发出去": "The file name doesn't match, so it wasn't sent"
 }
