@@ -1034,7 +1034,9 @@ async function api(req, res, url, access = 'local') {
         if (!target || target.from !== 'user' || !sameConv) return send(res, 400, { error: tr('要修改的消息找不到了') });
         editOf = { seq: target.seq, text: (target.text || (target.images?.length ? tr('[图片]') : '')).slice(0, 140) };
       }
-      hub.postUserMessage(room.id, text, images, dm, replyTo, editOf);
+      // 联合群（主持方）：界面传来的完整成员 key 换成本机的成员 id（自己这边的是简单 id，对方的就是完整 key）
+      const mentions = room.joint && Array.isArray(body.mentions) ? body.mentions.map((k) => joint.localMember(room, k)).filter(Boolean) : null;
+      hub.postUserMessage(room.id, text, images, dm, replyTo, editOf, mentions);
       return send(res, 200, { ok: true });
     }
     if (sub === 'uploads' && !parts[3] && method === 'POST') return send(res, 201, await saveUpload(room, req));
