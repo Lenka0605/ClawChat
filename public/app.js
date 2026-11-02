@@ -3592,6 +3592,17 @@ function handleEvent(ev) {
       // 有人拿邀请码来加入：弹给老板确认（对方在场，不能自动同意）
       openJointApprove(ev);
       break;
+    case 'joint-file-request':
+      // 对方想要一个文件：先让本机老板选文件，选完再显示确认框
+      openJointFileRequest(ev);
+      break;
+    case 'joint-file-arrived':
+      toast(tr('文件已收到：{name}，在联合群收件箱里', { name: ev.name || tr('文件') }), 6000);
+      if ($('#dlg-joint-inbox')?.open) openJointInbox();
+      break;
+    case 'joint-file-failed':
+      toast(tr('文件没收到：{name}', { name: ev.name || tr('文件') }), 6000);
+      break;
     case 'step': {
       const k = liveKey(ev);
       const arr = S.live.get(k) || [];
@@ -4660,6 +4671,19 @@ async function pickFolder() {
     });
   }
   const { path } = await api('POST', '/api/pick-folder');
+  return path;
+}
+
+// 选一个要发给对方的文件：Mac 外壳用原生面板，浏览器里让本机服务弹系统对话框
+async function pickFile() {
+  if (hasNative()) {
+    return new Promise((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      pickResolvers.set(id, resolve);
+      native({ type: 'pickFile', id });
+    });
+  }
+  const { path } = await api('POST', '/api/pick-file');
   return path;
 }
 
@@ -6077,7 +6101,10 @@ function bind() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('#btn-joint-invite-bar')) requestJointInvite();
     const rev = e.target.closest('[data-inbox-reveal]');
-    if (rev) api('POST', '/api/joint/files/inbox/reveal', { transferId: rev.dataset.inboxReveal }).catch((err) => toast(err.message));
+    if (rev) {
+      const room = jointRoom();
+      if (room) api('POST', '/api/joint/files/inbox/reveal', { roomId: room.id, transferId: rev.dataset.inboxReveal }).catch((err) => toast(err.message));
+    }
   });
   $('#btn-welcome-new').onclick = () => openDialog(null);
   document.querySelectorAll('[data-solo]').forEach((b) => (b.onclick = () => openDialog(null, [b.dataset.solo])));
@@ -7162,44 +7189,112 @@ async function answerJointApprove(ok) {
   }
 }
 
+function jointFileSize(n) {
+  const size = Number(n) || 0;
+  if (!size) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// snapshot 返回的 risk 是 { risk:'secret', reason }；老数据可能直接给字符串
+function jointFileDanger(f) {
+  const r = f?.risk;
+  return !!(f?.danger || r === 'secret' || r?.risk === 'secret');
+}
+
 function openJointFileRequest(req = {}) {
   const dlg = $('#dlg-joint-file');
   if (!dlg) return;
-  jointFileReq = req;
-  const f = req.file || {};
-  const danger = !!(f.danger || f.risk === 'secret');
-  const onComputer = isLocalHost(); // 和 API 的规则一致：只认本机电脑窗口
-  const size = f.size ? `${(f.size / 1024).toFixed(f.size > 1024 * 1024 ? 0 : 1)} ${f.size > 1024 * 1024 ? 'MB' : 'KB'}` : '';
-  $('#joint-file-body').innerHTML = `
-    <div class="joint-approve-head">${jointPeerAvatar(req)}<div><b>${esc(req.peerName || '')} 想从你这里取一个文件</b><small>由 ${esc(req.requester || '')} 在群里提出</small></div></div>
-    ${req.quote ? `<div class="joint-quote">“${esc(req.quote)}”<br><b>—— ${esc(req.requester || '')}，${esc(req.time || '')}</b></div>` : ''}
-    <div class="joint-file${danger ? ' danger' : ''}">
+  const room = roomById(req.roomId);
+  jointFileReq = {
+    ...req,
+    peerName: req.peerName || req.from || room?.joint?.peerName || '',
+    requester: req.requester || req.from || '',
+    toName: req.toName || room?.joint?.peerName || '',
+    toNode: req.toNode || req.node || room?.joint?.peerNode || '',
+    reqName: req.reqName || req.name || '',
+    reqSize: req.reqSize ?? req.size ?? 0,
+    purpose: req.purpose || '',
+    snap: req.snap || (req.file && req.file.staging ? req.file : null),
+  };
+  drawJointFileRequest();
+  if (!dlg.open) dlg.showModal();
+  reportDragRegions();
+}
+
+// 确认框里的内容：还没选文件时显示对方想要什么和「选择文件…」；选好以后显示快照、危险提示和确认按钮
+function drawJointFileRequest() {
+  const req = jointFileReq;
+  if (!req) return;
+  const f = req.snap;
+  const danger = !!f && jointFileDanger(f);
+  const onComputer = isLocalHost();
+  const wanted = req.reqName || '';
+  const size = jointFileSize(f ? f.size : req.reqSize);
+  const peer = req.peerName || '';
+  const body = $('#joint-file-body');
+  body.innerHTML = `
+    <div class="joint-approve-head">${jointPeerAvatar(req)}<div><b>${esc(peer)} 想从你这里取一个文件</b><small>由 ${esc(req.requester || peer)} 在群里提出</small></div></div>
+    ${req.purpose || req.quote ? `<div class="joint-quote">“${esc(req.purpose || req.quote)}”<br><b>—— ${esc(req.requester || peer)}${req.time ? `，${esc(req.time)}` : ''}</b></div>` : ''}
+    ${
+      f
+        ? `<div class="joint-file${danger ? ' danger' : ''}">
       <span class="joint-file-icon">${esc((f.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span>
-      <span class="joint-file-meta"><b>${esc(f.name || '')}</b><small>${esc(f.path || '')}${size ? ` · ${size}` : ''}</small></span>
+      <span class="joint-file-meta"><b>${esc(f.name || '')}</b><small>${[f.path, size].filter(Boolean).map((x) => esc(String(x))).join(' · ')}</small></span>
       ${danger ? `<span class="joint-file-tag">${esc(f.kind || tr('证书 / 私钥'))}</span>` : ''}
+    </div>`
+        : wanted
+          ? `<div class="joint-file"><span class="joint-file-icon">${esc(wanted.split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(wanted)}</b><small>${tr('对方想要的文件')}${size ? ` · ${size}` : ''}</small></span></div>`
+          : ''
+    }
+    ${f && danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
+    ${f && danger && !onComputer ? `<p class="hint warn-text">${tr('请到电脑上确认')}</p>` : ''}
+    ${f && danger && onComputer ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
+    <div class="joint-file-pick">
+      ${!f && !onComputer ? `<span class="hint">${tr('传文件请在电脑上操作')}</span>` : ''}
+      ${onComputer ? `<button type="button" class="secondary" id="btn-joint-file-pick">${f ? tr('重新选择文件…') : tr('选择文件…')}</button>` : ''}
+      ${f && (onComputer || !danger) ? `<span class="hint">${tr('确认后只发这一个文件')}</span>` : ''}
     </div>
-    ${danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
-    ${danger && !onComputer ? `<p class="hint warn-text">${tr('请到电脑上确认')}</p>` : ''}
-    ${danger && onComputer ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
-    <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || '')} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
+    <div class="joint-dest"><span>${tr('发送到')}</span><b>${esc(req.toName || peer)} 的电脑 · ClawChat 收件箱</b><small>${tr('经 Tailscale 加密传输，文件内容不经过任何 AI，只发这一个文件')}</small></div>`;
+  const pick = $('#btn-joint-file-pick');
+  if (pick) pick.onclick = chooseJointFile;
   const yes = $('#btn-joint-file-yes');
   yes.textContent = tr('确认发送');
-  yes.hidden = danger && !onComputer;
-  yes.disabled = danger;
-  if (danger && onComputer) {
+  yes.hidden = !f || (danger && !onComputer);
+  yes.disabled = !f || danger;
+  if (f && danger && onComputer) {
     const input = $('#joint-file-confirm');
     const sync = () => (yes.disabled = input.value !== (f.name || ''));
     input.addEventListener('input', sync);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
   }
-  dlg.showModal();
-  reportDragRegions();
+}
+
+async function chooseJointFile() {
+  const req = jointFileReq;
+  if (!req) return;
+  const btn = $('#btn-joint-file-pick');
+  if (btn) btn.disabled = true;
+  try {
+    const path = await pickFile();
+    if (!path) return;
+    const snap = await api('POST', '/api/joint/files/snapshot', { path, roomId: req.roomId });
+    req.snap = snap;
+    drawJointFileRequest();
+  } catch (err) {
+    toast(err.message, 6000);
+  } finally {
+    const again = $('#btn-joint-file-pick');
+    if (again) again.disabled = false;
+  }
 }
 
 async function approveJointFile() {
-  if (!jointFileReq) return;
-  const f = jointFileReq.file || {};
-  const danger = !!(f.danger || f.risk === 'secret');
+  const req = jointFileReq;
+  const f = req?.snap;
+  if (!req || !f) return toast(tr('先选择要发送的文件'), 5000);
+  const danger = jointFileDanger(f);
   const confirmName = $('#joint-file-confirm')?.value || '';
   if (danger && !isLocalHost()) return toast(tr('请到电脑上确认'), 5000);
   if (danger && confirmName !== (f.name || '')) return toast(tr('文件名对不上，没有发出去'), 5000);
@@ -7207,10 +7302,12 @@ async function approveJointFile() {
   btn.disabled = true;
   try {
     const body = {
+      roomId: req.roomId,
+      staging: f.staging,
       hash: f.hash,
       size: f.size,
       name: f.name,
-      toNode: jointFileReq.toNode || jointFileReq.node,
+      toNode: req.toNode,
     };
     if (danger) body.confirmName = confirmName;
     await api('POST', '/api/joint/files/approve', body);
@@ -7219,28 +7316,41 @@ async function approveJointFile() {
   } catch (err) {
     toast(err.message || tr('文件没有发出去'), 5000);
   } finally {
-    btn.disabled = danger;
+    btn.disabled = danger && confirmName !== (f.name || '');
   }
+}
+
+function jointNodeOwner(node) {
+  const room = jointRoom();
+  const m = (room?.jointMembers || []).find((x) => x.node === node);
+  return m?.owner || node || '';
 }
 
 function renderJointInbox(items = []) {
   const box = $('#joint-inbox-body');
   if (!box) return;
   if (!items.length) return void (box.innerHTML = `<p class="hint">${tr('还没有收到文件。对方发来的文件会放在这里，默认不给任何 AI 看。')}</p>`);
-  box.innerHTML = items
-    .map((it) => `<div class="joint-inbox-row"><span class="joint-file-icon">${esc((it.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(it.name || '')}</b><small>${esc(it.from || '')} · ${esc(it.time || '')}</small></span><button type="button" class="secondary" data-inbox-reveal="${esc(it.transferId || it.id || '')}">${tr('在访达里显示')}</button></div>`)
+  box.innerHTML = [...items]
+    .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))
+    .map((it) => {
+      const size = jointFileSize(it.size);
+      const from = jointNodeOwner(it.fromNode);
+      const when = it.at ? fmtShort(it.at) : '';
+      return `<div class="joint-inbox-row"><span class="joint-file-icon">${esc((it.name || '').split('.').pop()?.toUpperCase().slice(0, 3) || 'FILE')}</span><span class="joint-file-meta"><b>${esc(it.name || '')}</b><small>${[from, when, size].filter(Boolean).map(esc).join(' · ')}</small></span><button type="button" class="secondary" data-inbox-reveal="${esc(it.transferId || '')}">${tr('在访达里显示')}</button></div>`;
+    })
     .join('');
 }
 
 async function openJointInbox() {
+  const room = jointRoom();
   const dlg = $('#dlg-joint-inbox');
-  if (!dlg) return;
+  if (!dlg || !room) return;
   $('#joint-inbox-body').innerHTML = `<p class="hint">${tr('正在读取…')}</p>`;
-  dlg.showModal();
+  if (!dlg.open) dlg.showModal();
   reportDragRegions();
   try {
-    const res = await api('GET', '/api/joint/files/inbox');
-    renderJointInbox(res.files || []);
+    const res = await api('GET', `/api/joint/files/inbox?roomId=${encodeURIComponent(room.id)}`);
+    renderJointInbox(res.items || []);
   } catch (err) {
     $('#joint-inbox-body').innerHTML = `<p class="hint error">${esc(err.message)}</p>`;
   }

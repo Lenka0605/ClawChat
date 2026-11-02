@@ -350,6 +350,36 @@ if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [C
 $owner.Close()
 `;
 
+// Windows 选文件：和选文件夹同样的办法，只是换成系统的 OpenFileDialog
+const pickFilePs = (prompt) => `
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0; StartPosition = 'CenterScreen'; Size = New-Object System.Drawing.Size(1, 1) }
+$owner.Show(); $owner.Activate()
+$dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Title = '${prompt.replace(/'/g, "''")}'; CheckFileExists = $true; Multiselect = $false }
+if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName)) }
+$owner.Close()
+`;
+
+function pickFile() {
+  if (IS_WIN) {
+    const encoded = Buffer.from(pickFilePs(tr('选择要发送的文件')), 'utf16le').toString('base64');
+    return new Promise((resolve) =>
+      execFile('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], { timeout: 10 * 60 * 1000 }, (err, stdout) => {
+        const b64 = String(stdout || '').trim();
+        resolve(err || !b64 ? null : Buffer.from(b64, 'base64').toString('utf8') || null);
+      }),
+    );
+  }
+  return new Promise((resolve) => {
+    execFile(
+      'osascript',
+      ['-e', 'activate', '-e', `POSIX path of (choose file with prompt "${tr('选择要发送的文件').replace(/[\\"]/g, '\\$&')}")`],
+      { timeout: 10 * 60 * 1000 },
+      (err, stdout) => resolve(err ? null : stdout.trim() || null),
+    );
+  });
+}
+
 function pickFolder() {
   if (IS_WIN) {
     const encoded = Buffer.from(pickFolderPs(tr('选择项目文件夹')), 'utf16le').toString('base64');
@@ -624,6 +654,11 @@ async function api(req, res, url, access = 'local') {
   if (method === 'POST' && parts[0] === 'pick-folder') {
     if (access !== 'local') return send(res, 400, { error: tr('手机上选不了文件夹，请直接填路径，或者回到电脑上操作') });
     return send(res, 200, { path: await pickFolder() });
+  }
+  // 选要发给对方的文件：同样只在电脑上弹系统对话框
+  if (method === 'POST' && parts[0] === 'pick-file') {
+    if (access !== 'local') return send(res, 400, { error: tr('手机上选不了文件，请回到电脑上操作') });
+    return send(res, 200, { path: await pickFile() });
   }
   // 安卓 App：GET /api/android 看能不能打包、打好的是哪个版本；GET /api/android/apk 下载（没打过或版本旧了就先现打一个）
   if (parts[0] === 'android' && method === 'GET' && !parts[2]) {
