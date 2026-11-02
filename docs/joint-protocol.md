@@ -1,0 +1,74 @@
+# 联合群（第一期）协议约定
+
+老板 2026-11-02 定：做第一期，Mac 和 Windows 都要能用；界面按液态玻璃（草图 A）。
+调研材料：`~/.clawchat/local-notes/联合群调研-2026-11-02/`（总设计、ChatGPT 的安全方案、DeepSeek 的草图）。
+这份是**各分支之间的接口约定**，改动先在群里说，由 Claude 更新这里。
+
+## 第一期做什么、不做什么
+
+- 做：配对、联合群里一起聊天（两边各自的 AI 都能被叫醒回话）、逐文件批准的传文件、收件箱。
+- **第一期所有 AI 在联合群里一律「讨论档」**：不管谁叫醒、不管哪边的 AI，都用联合群专用的受限配置跑——不能写文件、不能跑命令、不能调 MCP。
+  能不能读本机文件，按引擎验收结果：读边界验收过的引擎只能读本机老板指定的「共享文件夹」；没验收过的一律不给文件工具。
+- 不做（第二、三期）：对方叫醒后在本机动手；「和自己人一样」档。
+
+## 角色和名词
+
+- **主持方（host）**：建联合群的那台。公开聊天记录、轮到谁、自动接力上限都在主持方算。
+- **加入方（guest）**：用邀请码加入的那台。它的 AI 在它自己电脑上跑，记忆、额度、Key 都不出本机。
+- **节点（node）**：一台 ClawChat。`nodeId` 随机生成，存在 `~/.clawchat/joint/node.json`。
+- **远程成员**：在主持方眼里，加入方的 AI。成员 key 写成 `<nodeId>:<agentId>`，显示名「Claude·小王」（小王 = 加入方老板自己填的称呼）。
+- 只有主持方需要开 `tailscale serve`。加入方**主动**来主持方领任务、拉消息（加入方零暴露）。所以 Windows 当加入方不需要 Tailscale serve，只需要能连上主持方。
+
+## 认证（三道，缺一不可）
+
+1. **Tailscale 身份**：请求必须经 `tailscale serve` 进来，`Tailscale-User-Login` 等于配对时记下的登录名（`lib/remote.js` 的 `requestAccess` 新增返回值 `'peer'`）。
+2. **设备令牌**：配对成功时主持方发给加入方一个 256 位随机令牌，请求头 `Authorization: Bearer <令牌>`。主持方只存哈希。撤销 = 删掉记录。
+3. **群范围**：令牌只绑定一个联合群；访问别的群一律 404。
+
+`'peer'` 只能访问 `/joint/v1/` 下列出的接口，其余（`/api/` 全部、静态上传、预览、打开文件等）一律 403。peer 接口不用 `X-ClawChat` 头（它不是浏览器），但必须有上面三道。
+
+## 配对
+
+1. 主持方老板在联合群里点「邀请」→ 生成邀请码（只在本机界面显示，不进群消息、不进 AI 上下文、不写日志）：
+   `clawchat-join:` + base64url(JSON `{ v:1, host:"https://xxx.ts.net", room:"<roomId>", secret:"<256 位随机>", exp:<毫秒时间戳> }`)，10 分钟内有效、只能用一次。
+2. 老板把邀请码通过微信等发给同事。同事在自己的 ClawChat 里点「加入联合群」粘贴。
+3. 加入方 `POST /joint/v1/pair`：`{ secret, nodeId, nodeName, ownerName, agents:[{ id, name, engine }], protocol:1, appVersion }`
+   → `202 { pairId, code }`（`code` 是 6 位核对码，两边界面都显示，老板们口头对一下）。
+4. 主持方界面弹「xx（Tailscale 账号 a@b.com，设备 yy）想加入「群名」，核对码 123456」→ 老板点同意或拒绝。
+5. 加入方轮询 `GET /joint/v1/pair/:pairId` → 同意后 `200 { token, room:{ id, name, members } }`，令牌只发这一次。
+
+## 主持方提供的 peer 接口（`/joint/v1/rooms/:roomId/...`）
+
+| 接口 | 作用 |
+| --- | --- |
+| `GET events?after=<seq>&wait=25` | 长轮询拉公开事件（消息、成员在线状态、文件请求状态）。只含这个联合群的公开内容，没有私聊、配置、过程细节 |
+| `POST messages` `{ clientId, text, mentions:[成员 key], replyTo? }` | 加入方老板发言。`clientId` 去重 |
+| `GET jobs?wait=25` | 长轮询领本节点 AI 的任务。返回 `{ jobId, agentId, lease, context }` |
+| `POST jobs/:jobId/heartbeat` | 续租（30 秒一次，租约 90 秒）。可带一句进度 |
+| `POST jobs/:jobId/result` `{ ok, text, error? }` | 交结果。主持方把回复记成该远程成员的消息，照常按 @ 接力 |
+| `POST stop` `{ agents:[成员 key] }` | 请求停止（各自只能停自己节点的 AI；主持方老板停远程成员 = 取消任务，加入方收到取消就结束那一轮） |
+| `POST presence` | 心跳：在线、各 AI 是否就绪 |
+| `POST leave` | 加入方退出联合群 |
+| 文件相关 | 见下面「传文件」 |
+
+任务 `context` 里只放：这位成员上次之后的公开消息（含图片引用）、群规模板需要的字段（ownerName、本机老板名、自动接力剩余次数）。**不放**任何一方的私聊、其他群、本机路径。
+
+同一个 `jobId` 只能交一次结果；租约过期没续上的，主持方标成「对方没回应」，不自动重发（防止重复执行）。
+
+## 加入方本地
+
+- 本地有一个「联合群镜像」：界面照常显示，消息来自主持方的事件流。加入方老板在镜像里发言 = 调 `POST messages`。
+- worker 领到任务 → 用联合群专用会话（`~/.clawchat/joint/<jointId>/sessions`，按 agent 分开，绝不接本地群/私聊的会话）、讨论档配置跑本机 AI → 交结果。
+- 停止：加入方老板按停止 → 本地结束那一轮 + 告诉主持方。
+
+## 传文件
+
+接口、确认框字段、收件箱细节见 API 的分支（`lib/joint-files.js`），原则照 ChatGPT 安全方案第 4 节：
+- 只传本机老板在可信界面里确认过的**精确文件快照**（按哈希绑定），一次授权只对应一次传输、一个收件节点。
+- 私钥类文件确认时加一次**系统认证**：浏览器 WebAuthn（Mac 上是 Touch ID，Windows 上是 Windows Hello），`userVerification: 'required'`，挑战值绑定这次的文件哈希和收件节点。
+- 收到的文件放 `~/.clawchat/joint-inbox/<jointId>/<transferId>/`，默认不给 AI 看、不自动打开。
+- 文件字节不进任何 AI 的对话、不进日志。
+
+## 版本
+
+`protocol:1`。两边不一致时，界面提示「对方的 ClawChat 版本不同，请双方都升级到最新版」。
