@@ -1232,7 +1232,7 @@ function usageResetText(ms) {
 
 function usageAgo(ms) {
   if (!ms) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  const minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
   if (minutes < 1) return tr('刚刚更新');
   if (minutes < 60) return tr('{n} 分钟前更新', { n: minutes });
   return minutes < 24 * 60 ? tr('{h} 小时 {m} 分钟前更新', hourMin(minutes)) : tr('{n} 天前更新', { n: Math.round(minutes / 60 / 24) });
@@ -5212,7 +5212,7 @@ function splitChange(subject) {
 function agoText(iso) {
   const t = Date.parse(iso);
   if (!t) return '';
-  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  const min = Math.max(0, Math.floor((Date.now() - t) / 60000));
   if (min < 1) return tr('刚刚');
   if (min < 60) return tr('{n} 分钟前', { n: min });
   if (min < 24 * 60) return tr('{h} 小时 {m} 分钟前', hourMin(min));
