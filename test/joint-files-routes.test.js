@@ -171,8 +171,12 @@ describe('传文件路由：peer 接口', () => {
       contentAsked = true;
       return { ok: true, body: (async function* () { yield Buffer.alloc(10); })() };
     };
+    const files2 = setupJointFiles({
+      host: { still() {}, pushEvent() {}, on() {}, data: { peers: {} } }, store, hub,
+      guestConnection: () => ({ host: 'https://host.ts.net', roomId: 'room1', nodeId: 'node-b', token: 'tok' }), self: 'node-b',
+    });
     try {
-      await files.onGuestEvent(connRoom2, { type: 'file.ready', transferId: 'B'.repeat(22), name: 'big.bin' });
+      await files2.onGuestEvent(connRoom2, { type: 'file.ready', transferId: 'B'.repeat(22), name: 'big.bin' });
     } catch { /* 超限错误往外抛（retryable 语义）也算对 */ }
     assert.equal(manifestAsked, true); // 确实请求过 manifest，不是空过
     assert.equal(contentAsked, false); // 大小不对连内容都不拉
