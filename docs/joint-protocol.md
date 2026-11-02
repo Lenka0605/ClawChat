@@ -16,7 +16,7 @@
 - **主持方（host）**：建联合群的那台。公开聊天记录、轮到谁、自动接力上限都在主持方算。
 - **加入方（guest）**：用邀请码加入的那台。它的 AI 在它自己电脑上跑，记忆、额度、Key 都不出本机。
 - **节点（node）**：一台 ClawChat。`nodeId` 随机生成，存在 `~/.clawchat/joint/node.json`。
-- **远程成员**：在主持方眼里，加入方的 AI。成员 key 写成 `<nodeId>:<agentId>`，显示名「Claude·小王」（小王 = 加入方老板自己填的称呼）。
+- **远程成员**：在主持方眼里，加入方的 AI。成员 key 写成 `<nodeId>_<agentId>`（Windows 文件名不能有冒号）。联合群里**两边所有 AI 的名字都带主人**：「Claude·Lenka」「Claude·小王」，两边老板和 AI 看到的是同一套名字；@ 时写全名。
 - 只有主持方需要开 `tailscale serve`。加入方**主动**来主持方领任务、拉消息（加入方零暴露）。所以 Windows 当加入方不需要 Tailscale serve，只需要能连上主持方。
 
 ## 认证（三道，缺一不可）
@@ -95,8 +95,9 @@
 ## 数据形状（界面用）
 
 - `room.joint = { role:'host'|'guest', selfNode, peerNode, peerName, peerLogin, peerOnline, permission:'discuss', protocol:1 }`
-- 联合群里**所有成员**（两边的）都用成员 key `<nodeId>:<agentId>`：`room.jointMembers = [{ key, agentId, name:'Claude', owner:'小王', base:'claude', mine:true|false, online }]`。
-  自己这边的成员 `mine:true`，显示「Claude」；对方的显示「Claude·小王」+ 角标 +「远程」。
-- 消息：AI 发的 `from` = 成员 key；老板发的 `from:'user'` 加 `node`：`node === selfNode` 显示「你」，否则显示对方老板称呼。
-- @：可以 @ 两边任何一位，写法 `@Claude·小王`（自己这边的照旧 `@Claude`）。发送时 `mentions` 传成员 key。
+- `room.members` 发给界面时只有自己这边的简单 id（勾成员、配模型用）。显示和 @ 用 `room.jointMembers = [{ key:'<nodeId>_<agentId>', agentId, name:'Claude', owner:'小王', node, engine, mine:true|false }]`。
+  所有成员都显示「名字·主人」；「我的 / 远程」靠角标和小标签区分。
+- 消息：自己这边 AI 发的 `from` 是简单 id，对方 AI 发的是完整 key（镜像群的消息还带 `fromName`）；老板发的 `from:'user'` 加 `node`：`node === selfNode` 显示「你」，否则显示对方老板称呼。
+- @：可以 @ 两边任何一位，写全名 `@Claude·小王`、`@Claude·Lenka`。发送时 `mentions` 传完整成员 key（加入方的发言，主持方以 `mentions` 为准）。
+- 测试模式：`CLAWCHAT_JOINT_TEST=1` + `CLAWCHAT_JOINT_TEST_LOGIN=<假账号>`，邀请码写本机 http 地址、本机请求带 `x-clawchat-test-login` 当 Tailscale 账号。不开就一律不认。
 - 第一期不支持：和对方 AI 私聊、改对方 AI 的模型/思考档（模型菜单只列自己这边的）、联合群里的分身。
