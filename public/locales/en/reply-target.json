@@ -1,0 +1,12 @@
+{
+  "回复 {name}，只有它会回答": "Replying to {name}; only it will answer",
+  "发给 {names}": "Send to {names}",
+  "发给 {names}（@ 的才会回答）": "Send to {names} (only those @-mentioned answer)",
+  "发给所有人": "Send to everyone",
+  "发给所有人（回复 {name}）": "Send to everyone (replying to {name})",
+  "只发给 {name}（回复中）": "Only to {name} (replying)",
+  "发给 @ 的人（回复 {name}）": "To the @-mentioned (replying to {name})",
+  "取消回复后恢复「不 @ 时发给」的设置": "The “When not @-mentioned” setting comes back when you cancel the reply",
+  "正在回复 {name}：这条只发给它，要叫别人就 @ 他们": "Replying to {name}: this message goes only to it. @ someone else to bring them in",
+  "这条会发给 @ 的人：{names}": "This message goes to the @-mentioned: {names}"
+}

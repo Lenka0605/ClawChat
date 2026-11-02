@@ -3397,12 +3397,78 @@ function lastSpeakerOf(room) {
 }
 
 // 「不 @ 时」下拉框和输入框里的提示：接着上一位时写明现在是谁，打字前、打字时都看得到这条会发给谁
+// 回复某位 AI 时，这条实际只发给它（又 @ 了别人就按 @ 的来）：
+// 输入框提示和「不 @ 时」那一处都得跟着变，别让人以为还会发给「接着上一位」那位
+function replyAgentOf(conv) {
+  if (!conv || !S.replyTo) return null;
+  const from = S.replyTo.from;
+  if (!from || from === 'user' || from === conv.dm) return null; // 私聊里、回复自己的消息：不影响收件人
+  return conv.room.members.includes(from) ? from : null;
+}
+
+// 回复期间输入框里 @ 了谁：@所有人算 all，其余按成员列出来
+function replyMentions(conv) {
+  if (!conv || conv.dm || conv.room.members.length < 2) return { all: false, named: [] };
+  const tokens = mentionTokens($('#input').value || '');
+  return {
+    all: tokens.some((t) => t.who === 'all'),
+    named: [...new Set(tokens.map((t) => t.who).filter((a) => a !== 'all' && conv.room.members.includes(a)))],
+  };
+}
+
+// 输入框的占位提示：回复某位时写成「回复 X，只有它会回答」；又 @ 了别人就按 @ 的写
+function placeholderFor(room, dm) {
+  const narrow = isNarrow();
+  if (dm) return tr('私聊 {name}', { name: agentName(dm) });
+  const conv = currentConv();
+  const reply = replyAgentOf(conv);
+  if (reply) {
+    const { all, named } = replyMentions(conv);
+    if (all) return narrow ? tr('发给所有人') : tr('发给所有人（回复 {name}）', { name: agentName(reply) });
+    if (named.length) {
+      const names = named.map(agentName).join(LIST_SEP);
+      return narrow ? tr('发给 {names}', { names }) : tr('发给 {names}（@ 的才会回答）', { names });
+    }
+    return narrow ? tr('回复 {name}', { name: agentName(reply) }) : tr('回复 {name}，只有它会回答', { name: agentName(reply) });
+  }
+  const last = lastSpeakerOf(room);
+  if (room.members.length > 1 && room.defaultTarget === 'last' && last) {
+    return narrow ? tr('发给 {name}', { name: agentName(last) }) : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) });
+  }
+  return window.innerWidth <= 360 ? tr('说点什么…') : tr('发送给 {name}', { name: room.name }); // 320 这种窄屏放不下长群名
+}
+
+// 回复期间：电脑上把「不 @ 时」下拉换成一句说明（不改群设置）；手机 @ 面板开着的话一起重画
+function syncReplyTargets() {
+  const conv = currentConv();
+  if (!conv) return;
+  const { room, dm } = conv;
+  $('#input').placeholder = placeholderFor(room, dm);
+  const reply = replyAgentOf(conv);
+  const target = document.querySelector('.composer-tools .target');
+  const note = $('#reply-target-note');
+  if (target) target.style.display = reply ? 'none' : ''; // .target 是 display:flex，用 hidden 盖不住
+  if (note) {
+    note.hidden = !reply;
+    if (reply) {
+      const { all, named } = replyMentions(conv);
+      note.textContent = all
+        ? tr('发给所有人（回复 {name}）', { name: agentName(reply) })
+        : named.length
+          ? tr('发给 @ 的人（回复 {name}）', { name: agentName(reply) })
+          : tr('只发给 {name}（回复中）', { name: agentName(reply) });
+      note.title = tr('取消回复后恢复「不 @ 时发给」的设置');
+    }
+  }
+  const panel = $('#at-panel');
+  if (panel && !panel.hidden) panel.innerHTML = atPanelHtml(); // 面板里的「不 @ 时发给」也要跟着变
+}
+
 function renderTargets(room, dm) {
   const many = room.members.length > 2;
   const last = lastSpeakerOf(room);
   // 手机上下拉框是个小胶囊：「接着上一位」和电脑上一样带上是谁（括号里），其余选项写短一点
   const narrow = isNarrow();
-  const tiny = window.innerWidth <= 360; // 再窄一点（比如 320）：长群名会折成两行
   const targets = [
     ['last', last ? tr('接着上一位（{name}）', { name: agentName(last) }) : tr('接着上一位')],
     ['all', many ? tr('大家同时开工') : tr('两位同时开工')],
@@ -3411,16 +3477,7 @@ function renderTargets(room, dm) {
   ];
   setHtml($('#default-target'), targets.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''));
   $('#default-target').value = room.defaultTarget;
-  // 手机输入框窄，提示写短一点
-  $('#input').placeholder = dm
-    ? tr('私聊 {name}', { name: agentName(dm) })
-    : room.members.length > 1 && room.defaultTarget === 'last' && last
-      ? isNarrow()
-        ? tr('发给 {name}', { name: agentName(last) })
-        : tr('发给 {name}（接着上一位），要找别人就 @ 它', { name: agentName(last) })
-      : tiny
-        ? tr('说点什么…') // 320 这种窄屏放不下长群名，用短提示，别在输入框里折成两行
-        : tr('发送给 {name}', { name: room.name });
+  syncReplyTargets(); // 占位提示、回复期间的说明都按当前状态重算
 }
 
 function onMessage(roomId, m) {
@@ -4194,12 +4251,14 @@ function startReply(seq) {
   $('#reply-hint').textContent = m.from !== 'user' && !solo ? tr('只有 {name} 会回复', { name: agentName(m.from) }) : '';
   $('#reply-bar').hidden = false;
   $('#input').focus();
+  syncReplyTargets(); // 回复某一位时，输入框提示和「不 @ 时」那一处跟着变
   renderVisionHint(); // 回复某一位时，这条只会发给它：图片提醒跟着换
 }
 
 function cancelReply() {
   S.replyTo = null;
   $('#reply-bar').hidden = true;
+  syncReplyTargets();
   renderVisionHint();
 }
 
@@ -4444,7 +4503,7 @@ function atPanelHtml() {
   const people = conv.room.members
     .map((a) => `<button type="button" class="at-person" data-at-insert="${esc(agentName(a))}">${avatarHtml(a)}<span>${esc(agentName(a))}</span></button>`)
     .join('');
-  const all = `<button type="button" class="at-person" data-at-all><span class="at-all-avatar">@</span><span>${tr('所有人')}</span></button>`;
+  const allPerson = `<button type="button" class="at-person" data-at-all><span class="at-all-avatar">@</span><span>${tr('所有人')}</span></button>`;
   const sel = $('#default-target');
   const options = sel
     ? [...sel.options]
@@ -4454,7 +4513,21 @@ function atPanelHtml() {
         )
         .join('')
     : '';
-  return `<div class="at-title">${tr('提到谁')}</div><div class="at-people">${people}${all}</div><div class="at-sep"></div><div class="at-title">${tr('不 @ 时发给')}</div><div class="at-targets">${options}</div>`;
+  // 回复某位 AI 时，「不 @ 时发给」不起作用：这一段换成一句说明，别让人以为会发给「接着上一位」
+  const reply = replyAgentOf(conv);
+  let targetSection;
+  if (reply) {
+    const { all, named } = replyMentions(conv);
+    const names = (all ? [tr('所有人')] : named.map(agentName)).join(LIST_SEP);
+    targetSection = `<div class="at-sep"></div><div class="at-reply-note">${
+      all || named.length
+        ? esc(tr('这条会发给 @ 的人：{names}', { names }))
+        : esc(tr('正在回复 {name}：这条只发给它，要叫别人就 @ 他们', { name: agentName(reply) }))
+    }</div>`;
+  } else {
+    targetSection = `<div class="at-sep"></div><div class="at-title">${tr('不 @ 时发给')}</div><div class="at-targets">${options}</div>`;
+  }
+  return `<div class="at-title">${tr('提到谁')}</div><div class="at-people">${people}${allPerson}</div>${targetSection}`;
 }
 
 function fitAtPanel() {
@@ -6546,6 +6619,7 @@ function bind() {
 
   input.addEventListener('input', autoGrow);
   input.addEventListener('input', renderVisionHint); // @ 了谁会让这条消息换了收件人
+  input.addEventListener('input', syncReplyTargets); // 回复期间又 @ 了别人：提示跟着换成 @ 的那几位
   input.addEventListener('input', () => {
     clearTimeout(saveDraft.timer);
     saveDraft.timer = setTimeout(() => saveDraft(S.current), 400);

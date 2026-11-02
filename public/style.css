@@ -758,6 +758,8 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
   border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
 }
 .target select { color: var(--text); }
+/* 回复某位 AI 时，「不 @ 时」那个下拉换成这句说明；取消回复就换回来（不改群设置） */
+.reply-target-note { font-size: 12px; color: var(--muted); padding: 0 6px; white-space: nowrap; }
 .attachments { display: flex; gap: 8px; margin: 0 0 8px 40px; flex-wrap: wrap; }
 .att { position: relative; width: 64px; height: 64px; border-radius: 12px; overflow: hidden; background: var(--fill); }
 .att img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
@@ -841,6 +843,7 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 .at-all-avatar { width: 24px; height: 24px; border-radius: 7px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 15px; font-weight: 600; }
 .at-sep { height: 0.5px; background: var(--line); margin: 4px 6px; }
 .at-targets { display: grid; gap: 2px; }
+.at-reply-note { padding: 8px 8px 6px; font-size: 12px; line-height: 1.55; color: var(--muted); }
 .at-target {
   border: 0; background: none; border-radius: 8px; min-height: 44px; padding: 0 8px;
   display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; text-align: left;
