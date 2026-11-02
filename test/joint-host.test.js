@@ -123,3 +123,17 @@ test('对方慢慢传正文、这边中途撤了权：正文补齐以后照样�
     j.close();
   }
 });
+
+test('嵌套的私聊标签：外层私聊的尾巴不能漏进公开记录（主持方 Hub 和公开出口都按层数拆）', () => {
+  const nested = '公开A<私聊老板>私1<私聊 Claude>私2</私聊>FAKE_TAIL</私聊老板>公开B';
+  assert.equal(publicPart(nested), '公开A公开B');
+  const store = new Store();
+  const hub = new Hub(store, { run: () => ({ done: new Promise(() => {}), kill: async () => true }) });
+  const host = new JointHost(store, hub);
+  const room = host.createRoom({ name: '嵌套', members: ['claude'], ownerName: 'Lenka', cwd: home });
+  hub.deliver(room.id, 'claude', nested, false, {});
+  const pub = store.getMessages(room.id).filter((m) => !m.dm);
+  assert.ok(!pub.some((m) => /FAKE_TAIL|私1|私2/.test(m.text)), '公开消息里不能有私聊内容');
+  assert.ok(pub.some((m) => m.text.includes('公开A') && m.text.includes('公开B')));
+  for (const m of pub) assert.ok(!JSON.stringify(host.publicMessage(store.getRoom(room.id), m)).includes('FAKE_TAIL'));
+});
