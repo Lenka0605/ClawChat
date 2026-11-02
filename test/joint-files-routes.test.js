@@ -185,6 +185,45 @@ describe('传文件路由：peer 接口', () => {
     delete globalThis.fetch;
   });
 
+  test('断流重试两条路径（复核反例）：manifest 中途断开、content 提前结束都标 retryable；等长哈希错不标', async () => {
+    const connRoom3 = 'mirror3';
+    const room3 = { id: connRoom3, joint: { role: 'guest' } };
+    const oldGetRoom = store.getRoom;
+    store.getRoom = (id) => (id === connRoom3 ? room3 : oldGetRoom(id));
+    const files3 = setupJointFiles({
+      host: { still() {}, pushEvent() {}, on() {}, data: { peers: {} } }, store, hub,
+      guestConnection: () => ({ host: 'https://host.ts.net', roomId: 'room1', nodeId: 'node-b', token: 'tok' }), self: 'node-b',
+    });
+    const goodManifest = (size) => ({ name: 'f.bin', size, hash: 'x', risk: 'normal', fromNode: 'node-a' });
+    // 1) manifest 传到一半断开 → retryable
+    globalThis.fetch = async () => ({ ok: true, body: (async function* () { yield Buffer.from('{'); throw new Error('连接断了'); })() });
+    let err1 = null;
+    try { await files3.onGuestEvent(connRoom3, { type: 'file.ready', transferId: 'M'.repeat(22), name: 'f.bin' }); } catch (e) { err1 = e; }
+    assert.ok(err1?.retryable, 'manifest 断流应标 retryable');
+    assert.equal(fs.existsSync(path.join(HOME, 'joint-inbox', connRoom3)), false);
+    // 2) content 声明 10 字节只到 2 字节就 EOF → 清掉半份、标 retryable
+    const short = Buffer.from('ab');
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith('/manifest')) return { ok: true, body: (async function* () { yield Buffer.from(JSON.stringify(goodManifest(10))); })() };
+      return { ok: true, body: (async function* () { yield short; })() };
+    };
+    let err2 = null;
+    try { await files3.onGuestEvent(connRoom3, { type: 'file.ready', transferId: 'N'.repeat(22), name: 'f.bin' }); } catch (e) { err2 = e; }
+    assert.ok(err2?.retryable, 'content 提前结束应标 retryable');
+    assert.equal(fs.existsSync(path.join(HOME, 'joint-inbox', connRoom3, 'N'.repeat(22))), false);
+    // 3) 字节数够但哈希对不上 → 终止错误（不标 retryable）
+    const wrong = Buffer.from('0123456789');
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith('/manifest')) return { ok: true, body: (async function* () { yield Buffer.from(JSON.stringify({ ...goodManifest(10), hash: 'zz' })); })() };
+      return { ok: true, body: (async function* () { yield wrong; })() };
+    };
+    let err3 = null;
+    try { await files3.onGuestEvent(connRoom3, { type: 'file.ready', transferId: 'O'.repeat(22), name: 'f.bin' }); } catch (e) { err3 = e; }
+    assert.ok(err3 && !err3.retryable, '等长但哈希错是终止错误');
+    store.getRoom = oldGetRoom;
+    delete globalThis.fetch;
+  });
+
   test('对方拉文件：只给 meta.toNode 指的节点；别人的节点 404', async () => {
     // 主持方发一份出去
     const src = makeFile('给小王的文件');
