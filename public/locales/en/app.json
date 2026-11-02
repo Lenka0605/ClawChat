@@ -306,5 +306,6 @@
   "正在私下回同事，这边排着队，那一轮做完就来": "Busy replying to a teammate privately — this is queued and it'll be here once that's done",
   "本体在私聊里忙，分身先来群里回话（只能看，不能改）": "Busy in a private chat, so a copy is replying in the group first (read-only, can't make changes)",
   "本体在私聊里忙，分身先来回一句": "Busy in a private chat — a copy is replying first",
-  "{h} 小时 {m} 分钟前": "{h} hr {m} min ago"
+  "{h} 小时 {m} 分钟前": "{h} hr {m} min ago",
+  "{n} 天前": "{n} days ago"
 }

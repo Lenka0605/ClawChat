@@ -389,6 +389,15 @@ function fmtDur(ms) {
   return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: pad(m % 60) });
 }
 
+// 消息底部右边的「多久前」：一小时以上写成「1 小时 01 分钟前」，超过一天写天数；页面上每 30 秒刷新一次
+function msgAgo(ts) {
+  const min = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+  if (min < 1) return tr('刚刚');
+  if (min < 60) return tr('{n} 分钟前', { n: min });
+  if (min < 24 * 60) return tr('{h} 小时 {m} 分钟前', hourMin(min));
+  return tr('{n} 天前', { n: Math.floor(min / 60 / 24) });
+}
+
 // 一小时以上的「多久前 / 多久后」：写成「1 小时 01 分钟」，不再四舍五入成整小时（老板定的：61 分钟就是 1 小时 01 分钟）
 function hourMin(min) {
   return { h: Math.floor(min / 60), m: pad(min % 60) };
@@ -2365,7 +2374,7 @@ function messageHtml(roomId, m, prev, conv) {
     : esc(agentLabel(m.from));
   return `${sep}<div class="msg agent from-${esc(baseOf(m.from))}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
-  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
+  )}</div><div class="msg-foot">${foot}<span class="msg-ago" data-ts="${m.ts}" title="${full}">${esc(msgAgo(m.ts))}</span></div>${actions}</div></div>`;
 }
 
 function convMessages(conv) {
@@ -6715,6 +6724,12 @@ function bind() {
     document.querySelectorAll('.elapsed').forEach((el) => (el.textContent = fmtDur(Date.now() - Number(el.dataset.start))));
     updateIdle();
   }, 1000);
+  setInterval(() => {
+    document.querySelectorAll('.msg-ago').forEach((el) => {
+      const t = msgAgo(Number(el.dataset.ts));
+      if (el.textContent !== t) el.textContent = t;
+    });
+  }, 30 * 1000);
 }
 
 // Windows：快捷键和「访达」这些说法换成 Windows 的
