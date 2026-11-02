@@ -391,7 +391,21 @@ function fmtDur(ms) {
   if (s < 60) return tr('{s}秒', { s });
   const m = Math.floor(s / 60);
   if (m < 60) return tr('{m}分{s}秒', { m, s: pad(s % 60) });
-  return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: m % 60 });
+  return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: pad(m % 60) });
+}
+
+// 消息底部右边的「多久前」：一小时以上写成「1 小时 01 分钟前」，超过一天写天数；页面上每 30 秒刷新一次
+function msgAgo(ts) {
+  const min = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+  if (min < 1) return tr('刚刚');
+  if (min < 60) return tr('{n} 分钟前', { n: min });
+  if (min < 24 * 60) return tr('{h} 小时 {m} 分钟前', hourMin(min));
+  return tr('{n} 天前', { n: Math.floor(min / 60 / 24) });
+}
+
+// 一小时以上的「多久前 / 多久后」：写成「1 小时 01 分钟」，不再四舍五入成整小时（老板定的：61 分钟就是 1 小时 01 分钟）
+function hourMin(min) {
+  return { h: Math.floor(min / 60), m: pad(min % 60) };
 }
 
 function firstLine(s) {
@@ -1243,18 +1257,16 @@ function usageResetText(ms) {
   if (left <= 0) return tr('即将重置');
   const minutes = Math.ceil(left / 60000);
   if (minutes < 60) return tr('{n} 分钟后重置', { n: minutes });
-  const hours = Math.ceil(left / 3600000);
-  if (hours < 24) return tr('{n} 小时后重置', { n: hours });
+  if (minutes < 24 * 60) return tr('{h} 小时 {m} 分钟后重置', hourMin(minutes));
   return tr('{n} 天后重置', { n: Math.ceil(left / 86400000) });
 }
 
 function usageAgo(ms) {
   if (!ms) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  const minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
   if (minutes < 1) return tr('刚刚更新');
   if (minutes < 60) return tr('{n} 分钟前更新', { n: minutes });
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? tr('{n} 小时前更新', { n: hours }) : tr('{n} 天前更新', { n: Math.round(hours / 24) });
+  return minutes < 24 * 60 ? tr('{h} 小时 {m} 分钟前更新', hourMin(minutes)) : tr('{n} 天前更新', { n: Math.round(minutes / 60 / 24) });
 }
 
 function usageRowHtml(agent, key) {
@@ -2414,7 +2426,7 @@ function messageHtml(roomId, m, prev, conv) {
     : `${esc(shownFrom)}${S.jointMembers?.[m.from] && !S.jointMembers[m.from].mine ? `<span class="side-tag joint-tag">${tr('远程')}</span>` : ''}`;
   return `${sep}<div class="msg agent from-${esc(baseOf(m.from))}${m.pm ? ' pm' : ''}" data-seq="${m.seq}">${avatar}<div class="msg-body"><div class="msg-name">${who}${sideTag}${model}</div>${imagesHtml(roomId, m.images)}<div class="bubble">${mdCached(
     m.text,
-  )}</div>${foot ? `<div class="msg-foot">${foot}</div>` : ''}${actions}</div></div>`;
+  )}</div><div class="msg-foot">${foot}<span class="msg-ago" data-ts="${m.ts}" title="${full}">${esc(msgAgo(m.ts))}</span></div>${actions}</div></div>`;
 }
 
 function convMessages(conv) {
@@ -5310,10 +5322,10 @@ function splitChange(subject) {
 function agoText(iso) {
   const t = Date.parse(iso);
   if (!t) return '';
-  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  const min = Math.max(0, Math.floor((Date.now() - t) / 60000));
   if (min < 1) return tr('刚刚');
   if (min < 60) return tr('{n} 分钟前', { n: min });
-  if (min < 24 * 60) return tr('{n} 小时前', { n: Math.round(min / 60) });
+  if (min < 24 * 60) return tr('{h} 小时 {m} 分钟前', hourMin(min));
   return fmtTime(t);
 }
 
@@ -6867,6 +6879,12 @@ function bind() {
     document.querySelectorAll('.elapsed').forEach((el) => (el.textContent = fmtDur(Date.now() - Number(el.dataset.start))));
     updateIdle();
   }, 1000);
+  setInterval(() => {
+    document.querySelectorAll('.msg-ago').forEach((el) => {
+      const t = msgAgo(Number(el.dataset.ts));
+      if (el.textContent !== t) el.textContent = t;
+    });
+  }, 30 * 1000);
 }
 
 // Windows：快捷键和「访达」这些说法换成 Windows 的
