@@ -23,5 +23,7 @@
   "还有额外点数": "Extra credits available",
   "额外点数已用完": "No extra credits left",
   "本周（含超额）": "This week (incl. overage)",
-  "其他额度": "Other quota"
+  "其他额度": "Other quota",
+  "{h} 小时 {m} 分钟后重置": "Resets in {h} hr {m} min",
+  "{h} 小时 {m} 分钟前更新": "Updated {h} hr {m} min ago"
 }

@@ -386,7 +386,12 @@ function fmtDur(ms) {
   if (s < 60) return tr('{s}秒', { s });
   const m = Math.floor(s / 60);
   if (m < 60) return tr('{m}分{s}秒', { m, s: pad(s % 60) });
-  return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: m % 60 });
+  return tr('{h}小时{m}分', { h: Math.floor(m / 60), m: pad(m % 60) });
+}
+
+// 一小时以上的「多久前 / 多久后」：写成「1 小时 01 分钟」，不再四舍五入成整小时（老板定的：61 分钟就是 1 小时 01 分钟）
+function hourMin(min) {
+  return { h: Math.floor(min / 60), m: pad(min % 60) };
 }
 
 function firstLine(s) {
@@ -1212,8 +1217,7 @@ function usageResetText(ms) {
   if (left <= 0) return tr('即将重置');
   const minutes = Math.ceil(left / 60000);
   if (minutes < 60) return tr('{n} 分钟后重置', { n: minutes });
-  const hours = Math.ceil(left / 3600000);
-  if (hours < 24) return tr('{n} 小时后重置', { n: hours });
+  if (minutes < 24 * 60) return tr('{h} 小时 {m} 分钟后重置', hourMin(minutes));
   return tr('{n} 天后重置', { n: Math.ceil(left / 86400000) });
 }
 
@@ -1222,8 +1226,7 @@ function usageAgo(ms) {
   const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
   if (minutes < 1) return tr('刚刚更新');
   if (minutes < 60) return tr('{n} 分钟前更新', { n: minutes });
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? tr('{n} 小时前更新', { n: hours }) : tr('{n} 天前更新', { n: Math.round(hours / 24) });
+  return minutes < 24 * 60 ? tr('{h} 小时 {m} 分钟前更新', hourMin(minutes)) : tr('{n} 天前更新', { n: Math.round(minutes / 60 / 24) });
 }
 
 function usageRowHtml(agent, key) {
@@ -5203,7 +5206,7 @@ function agoText(iso) {
   const min = Math.max(0, Math.round((Date.now() - t) / 60000));
   if (min < 1) return tr('刚刚');
   if (min < 60) return tr('{n} 分钟前', { n: min });
-  if (min < 24 * 60) return tr('{n} 小时前', { n: Math.round(min / 60) });
+  if (min < 24 * 60) return tr('{h} 小时 {m} 分钟前', hourMin(min));
   return fmtTime(t);
 }
 
