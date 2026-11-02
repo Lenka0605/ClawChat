@@ -95,6 +95,10 @@ function native(msg) {
   } catch {}
 }
 const hasNative = () => !!window.webkit?.messageHandlers?.clawchat;
+// 原生外壳会什么：旧版 Mac 外壳没有 pickFile，不能直接发消息等它（会一直没反应），
+// 新外壳收到 capabilities 会回一句，前端据此决定用原生面板还是走 /api/pick-file
+const nativeCaps = {};
+window.__clawchatCapabilities = (caps) => Object.assign(nativeCaps, caps || {});
 
 // 界面语言告诉服务端（群里的提示、AI 回复用的语言跟着它）和原生外壳（菜单栏）
 // manual：老板在设置里亲手换的语言；页面打开时自动报的不带它（手机上自动报的服务端不认，免得把电脑的语言改掉）
@@ -4676,7 +4680,7 @@ async function pickFolder() {
 
 // 选一个要发给对方的文件：Mac 外壳用原生面板，浏览器里让本机服务弹系统对话框
 async function pickFile() {
-  if (hasNative()) {
+  if (hasNative() && nativeCaps.pickFile) {
     return new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
       pickResolvers.set(id, resolve);
@@ -7404,6 +7408,7 @@ async function init() {
   S.drafts = loadDrafts();
   loadAttachDrafts();
   syncLang(I18N.lang).catch(() => {});
+  if (hasNative()) native({ type: 'capabilities' });
   bind();
   applyPlatformText();
   applyTheme(currentTheme());

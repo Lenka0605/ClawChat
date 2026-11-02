@@ -279,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     self.webView.evaluateJavaScript("window.__clawchatPicked(...\(json))")
                 }
             }
+        case "capabilities":
+            self.webView.evaluateJavaScript("window.__clawchatCapabilities({pickFile:true})")
         case "pickFile":
             let id = body["id"] as? String ?? ""
             let panel = NSOpenPanel()
