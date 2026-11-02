@@ -20,9 +20,9 @@
 
 worker 不信任任务里的 cwd、env、systemPrompt、session 或 uploadsDir，只读取公开消息的 id/from/text。当前不会把图片引用解析成本机路径，也不会读收件箱给模型；图片在镜像中显示由事件接入方处理，向模型提供明确批准的公开图片附件需等文件/图片协议对齐，不能自行取任意 URL。
 
-## 三项线协议细节，请组长确认后补进协议
+## 三项线协议细节（组长已采纳于 ea3ec1e）
 
-当前分支按下面形状实现，尚不能算主持方联调通过：
+当前分支与以下协议约定对齐，尚不能算主持方联调通过：
 
 1. `GET /joint/v1/pair/:pairId` 用 `Authorization: Bearer <邀请秘密>` 证明持有邀请，不能仅凭 pairId/六位核对码领取设备令牌。主持方还须验证发起配对的 Tailscale login；pending/批准回应都应 no-store，不记录秘密。
 2. 事件响应 `{ events:[{seq,type,...}] }`；取消事件 `{seq,type:'job.cancelled',jobId}`。领任务响应可为 `{job:{jobId,agentId,lease,context}}`，也支持协议原文的顶层 job；lease 当前按不可猜测字符串处理。心跳/结果正文带同一个 lease；续租回应 `{cancelled:true}` 可终止任务。
@@ -43,7 +43,7 @@ worker 不信任任务里的 cwd、env、systemPrompt、session 或 uploadsDir�
 - Gemini API：管理员层 deny-all，不开放只读工具例外；独立 CLI 用户目录，不附加项目目录。
 - Antigravity：拒绝 read/write/command/MCP/unsandboxed/URL 工具，不开放 allow 例外或项目附加目录。
 
-Claude/Codex 的新 CLI home 只导入认证文件，不复制全局配置、插件、会话和自动记忆。没有可导入认证文件而实际登录保存在系统凭据库时，需要验证官方 CLI 在这个独立 home 下的登录行为；不能复制整个用户配置兜底。认证刷新、重新登录/登出以及 Antigravity 全局 hooks/插件自动发现，还需要原生验收，未判为全面通过。
+Claude 系保留原认证目录：Mac 的 Claude Code 登录绑定配置目录对应的钥匙串条目，换空目录会显示未登录。由 restricted、空 setting-sources、空 tools、禁 hooks/MCP 负责隔离，cwd 和 session 编号仍由联合群专用记录管理。Codex 的新 home 只导入认证文件，不复制配置、插件、会话和自动记忆。认证刷新、重新登录/登出以及 Antigravity 全局 hooks/插件自动发现仍待原生验收，未判为全面通过。
 
 ## 已验证与待验证
 
@@ -57,3 +57,21 @@ Claude/Codex 的新 CLI home 只导入认证文件，不复制全局配置、插
 还需 API 与组长联调：完整配对/镜像/领任务/取消/重启恢复；更新假 Codex 支持 `features list` 的能力清单；其他四种 CLI 的恶意工具请求和启动配置负向测试；Windows 实机路径/.cmd/登录/停止；公开图片附件的显式模型输入。单元测试和 Mac 的两项 CLI 实验不能替代这些验收。
 
 所有分支的安全复核是后续工作：主持方、文件传输、WebAuthn、界面提交固定版本后再逐项复核；本分支通过不表示联合群已经可以发版。
+
+## 2026-11-02 19:25 对齐
+
+线上完整成员 key 改为 `<nodeId>_<agentId>`，本机 agentId 保持不变；停止请求已同步。双方公开名字均带主人称呼，worker 的群规使用 `agentNames`（本机成员名映射）和 ownerName 形成 `ChatGPT·小王` 等名字。UI 发消息的 mentions 应直接传完整 key，主持方按结构化 mentions 调度，不依赖正文解析。
+
+Claude Code 2.1.316 原认证入口对照：`auth status --json` 在默认目录为已登录、空配置目录为未登录、默认目录 + restricted + 空 setting-sources 仍已登录。只收集 loggedIn/authMethod/退出码，未输出或保存账号、组织和凭据；未发模型请求。脱敏证据 `/tmp/clawchat-joint-auth-probe/status-results.json`。
+
+本机 2.1.316 脱敏结果：
+
+| 条件 | loggedIn | authMethod | 退出码 |
+| --- | --- | --- | --- |
+| 原认证目录 | true | claude.ai | 0 |
+| 新的空配置目录 | false | none | 1 |
+| 原目录 + restricted + 空 setting-sources | true | claude.ai | 0 |
+
+另外用完全隔离的假认证目录保留旧 settings：预先允许 Write，设置 SessionStart hook，提供项目 MCP 配置、用户/项目 CLAUDE.md 和已写出项目目录里的 memory/MEMORY.md。真实 CLI + 本地假上游结果：tools=[]，Write 返回错误，假目标文件未创建，hook/MCP 标记均未创建，项目须知和自动记忆标记未进入请求。这个实验使用假 token，不借真实账号发送模型请求。证据 `/tmp/clawchat-joint-auth-probe/restricted-results.json`。
+
+官方资料也说明不同 CLAUDE_CONFIG_DIR 对应独立登录：https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts 。`auth status` 的语义见 https://code.claude.com/docs/en/cli-reference 。

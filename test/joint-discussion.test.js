@@ -10,7 +10,7 @@ const { grokArgs } = await import('../lib/grok.js');
 const { cursorDeny } = await import('../lib/cursor.js');
 const { geminiArgs } = await import('../lib/gemini.js');
 const { antigravityArgs } = await import('../lib/antigravity.js');
-const { prepareJointRoom, JOINT_CODEX_CONFIG, codexDiscussionFeaturesSupported } = await import('../lib/joint-discussion.js');
+const { prepareJointRoom, JOINT_CODEX_CONFIG, codexDiscussionFeaturesSupported, jointAuthEnv } = await import('../lib/joint-discussion.js');
 const room = { id: 'joint-test', jointDiscussion: true, cwd: '/untrusted', permission: 'full' };
 const value = (args, flag) => args[args.indexOf(flag) + 1];
 test.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -62,4 +62,11 @@ test('旧 Codex 缺少禁用开关时拒绝讨论档，不能静默忽略安全�
   assert.equal(codexDiscussionFeaturesSupported(supported), true);
   assert.equal(codexDiscussionFeaturesSupported(supported.replace('shell_tool stable true', '')), false);
   assert.equal(codexDiscussionFeaturesSupported(''), false);
+});
+
+test('Claude 讨论档保留原认证目录，不复制凭据或改换钥匙串入口', () => {
+  const prepared = prepareJointRoom({ ...room, id: 'joint-auth' }, 'claude');
+  const source = { HOME: '/fake/user', CLAUDE_CONFIG_DIR: '/fake/account-home', ANTHROPIC_AUTH_TOKEN: 'fake-only' };
+  assert.strictEqual(jointAuthEnv(prepared, 'claude', source), source);
+  assert.ok(!fs.existsSync(path.join(prepared.jointSessionDir, 'cli', 'claude')));
 });
