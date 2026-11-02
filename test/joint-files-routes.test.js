@@ -15,7 +15,7 @@ const { createSnapshot } = await import('../lib/joint-files.js');
 
 const STAGING = path.join(HOME, 'joint-staging');
 const room = { id: 'room1', joint: { role: 'host', selfName: 'Lenka' } };
-const peer = { node: 'node-b', ownerName: '小王' };
+const peer = { nodeId: 'node-b', ownerName: '小王' };
 const host = { still() {}, pushEvent(evType, ev) { host.pushed ||= []; host.pushed.push(ev); } };
 const hubEvents = [];
 const hub = { emit(_, ev) { hubEvents.push(ev); } };
@@ -24,7 +24,7 @@ const store = { getRoom: (id) => (id === 'room1' ? room : id === 'mirror1' ? mir
 const files = setupJointFiles({ host, store, hub, guestConnection: () => null, self: 'node-a' });
 
 const api = (parts, body, method = 'POST') => new Promise((resolve) => {
-  files.api({ url: 'http://local/x', method }, {}, { parts, method, send: (res, status, obj) => resolve({ status, obj }), readBody: async () => body })
+  files.api({ url: 'http://local/x', method, headers: { host: '127.0.0.1:7451' } }, {}, { parts, method, send: (res, status, obj) => resolve({ status, obj }), readBody: async () => body })
     .catch((e) => resolve({ status: e.status || 500, obj: { error: e.message } }));
 });
 
@@ -61,13 +61,25 @@ describe('传文件路由：本机界面', () => {
     assert.equal(host.pushed.at(-1).type, 'file.ready');
   });
 
-  test('secret 类文件 approve 一律拒绝（第一期不支持传送）', async () => {
-    const src = makeFile('-----BEGIN PRIVATE KEY-----\nabc');
+  test('secret 类：手机来源拒绝；电脑上文件名没对上拒绝；对上了才放行（老板拍板的第一期方案）', async () => {
+    const src = makeFile('-----BEGIN PRIVATE KEY-----\nabc', 'server.key');
     const r1 = await api(['snapshot'], { path: src });
     assert.equal(r1.obj.risk.risk, 'secret');
-    const r2 = await api(['approve'], { roomId: 'room1', staging: r1.obj.staging, hash: r1.obj.hash, size: r1.obj.size, name: 'x.key', toNode: 'node-b' });
-    assert.equal(r2.status, 415);
-    assert.match(r2.obj.error, /第一期不支持/);
+    // 电脑窗口、但文件名没输对
+    const bad = await api(['approve'], { roomId: 'room1', staging: r1.obj.staging, hash: r1.obj.hash, size: r1.obj.size, name: 'server.key', confirmName: '输错了.key', toNode: 'node-b' });
+    assert.equal(bad.status, 400);
+    // 名字对上了：放行
+    const ok = await api(['approve'], { roomId: 'room1', staging: r1.obj.staging, hash: r1.obj.hash, size: r1.obj.size, name: 'server.key', confirmName: 'server.key', toNode: 'node-b' });
+    assert.equal(ok.status, 200);
+    // 手机来源（x-forwarded-*）：即便名字对也拒绝
+    const src2 = makeFile('-----BEGIN PRIVATE KEY-----\nabc', 'phone.key');
+    const s2 = await api(['snapshot'], { path: src2 });
+    const fromPhone = await new Promise((resolve) => {
+      files.api({ url: 'http://local/x', method: 'POST', headers: { 'x-forwarded-for': '10.0.0.1', host: 'host.ts.net' } }, {}, { parts: ['approve'], method: 'POST', send: (r, status, obj) => resolve({ status, obj }), readBody: async () => ({ roomId: 'room1', staging: s2.obj.staging, hash: s2.obj.hash, size: s2.obj.size, name: 'phone.key', confirmName: 'phone.key', toNode: 'node-b' }) })
+        .catch((e) => resolve({ status: e.status || 500, obj: { error: e.message } }));
+    });
+    assert.equal(fromPhone.status, 403);
+    assert.match(fromPhone.obj.error, /电脑/);
   });
 
   test('staging 编号不合法或哈希对不上：拒绝', async () => {
@@ -130,14 +142,14 @@ describe('传文件路由：peer 接口', () => {
     const s = await api(['snapshot'], { path: src });
     const a = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: s.obj.size, name: '给小王.txt', toNode: 'node-b' });
     const tid = a.obj.transferId;
-    const m = await peerReq(['manifest', tid], { method: 'GET', peer });
+    const m = await peerReq([tid, 'manifest'], { method: 'GET', peer });
     assert.equal(m.status, 200);
     assert.equal(m.obj.name, '给小王.txt');
     assert.equal(m.obj.risk, 'normal');
-    const c = await peerReq(['content', tid], { method: 'GET', peer });
+    const c = await peerReq([tid, 'content'], { method: 'GET', peer });
     assert.equal(c.status, 200);
     assert.equal(c.raw ? c.raw.toString() : '', '给小王的文件');
-    const other = await peerReq(['manifest', tid], { method: 'GET', peer: { node: 'node-x', ownerName: '别人' } });
+    const other = await peerReq([tid, 'manifest'], { method: 'GET', peer: { nodeId: 'node-x', ownerName: '别人' } });
     assert.equal(other.status, 404);
   });
 });

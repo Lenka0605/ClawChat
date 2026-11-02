@@ -16,7 +16,7 @@ B_HOME="${CLAWCHAT_PAIR_B_HOME:-/tmp/clawchat-pair-b}"
 A_PID="/tmp/clawchat-pair-a.pid"
 B_PID="/tmp/clawchat-pair-b.pid"
 
-start_one() { # $1=端口 $2=数据目录 $3=pid 文件 $4=名字
+start_one() { # $1=端口 $2=数据目录 $3=pid 文件 $4=名字 $5=测试登录名（联调时冒充的 Tailscale 账号）
   if [ -f "$3" ] && kill -0 "$(cat "$3")" 2>/dev/null; then
     echo "$4 已在跑（端口 $1，pid $(cat "$3")）"
     return
@@ -25,7 +25,7 @@ start_one() { # $1=端口 $2=数据目录 $3=pid 文件 $4=名字
   # setupPath 会把登录 shell 的 PATH 排在最前，所以 SHELL 也要换成假的，假程序才会被找到
   env PATH="$FAKE:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin" SHELL="$FAKE/fakeshell" \
     CLAWCHAT_PORT="$1" CLAWCHAT_HOME="$2" GEMINI_CLI_HOME="$2/gemini-cli" \
-    FAKE_COMPACT="$2/compact.on" FAKE_SECS="${FAKE_SECS:-6}" \
+    FAKE_COMPACT="$2/compact.on" FAKE_SECS="${FAKE_SECS:-6}" CLAWCHAT_JOINT_TEST=1 CLAWCHAT_JOINT_TEST_LOGIN="${5:-$4@pair.test}" \
     CODEX_HOME="$2/codex" \
     CLAWCHAT_DEEPSEEK_API="${CLAWCHAT_FAKE_DEEPSEEK_API:-http://127.0.0.1:9}" \
     CLAWCHAT_GLM_API="${CLAWCHAT_FAKE_GLM_API:-http://127.0.0.1:9}" \
@@ -49,8 +49,8 @@ stop_one() { # $1=pid 文件 $2=名字
 
 case "${1:-start}" in
   start)
-    start_one "$A_PORT" "$A_HOME" "$A_PID" "老板A"
-    start_one "$B_PORT" "$B_HOME" "$B_PID" "老板B"
+    start_one "$A_PORT" "$A_HOME" "$A_PID" "老板A" "${CLAWCHAT_PAIR_A_LOGIN:-a@pair.test}"
+    start_one "$B_PORT" "$B_HOME" "$B_PID" "老板B" "${CLAWCHAT_PAIR_B_LOGIN:-b@pair.test}"
     sleep 2
     ;;
   stop)
