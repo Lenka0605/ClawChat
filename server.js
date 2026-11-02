@@ -7,12 +7,13 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits } from './lib/agents.js';
+import { AGENTS, runAgent, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits } from './lib/agents.js';
 import { PROVIDERS, providerKey, validApiBase, ensureApiBridge } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
-import { requestAccess, remoteInfo, setRemote, initRemote } from './lib/remote.js';
+import { requestAccess, remoteInfo, setRemote, initRemote, publicHost, decodeLogin } from './lib/remote.js';
 import { squareIcon } from './lib/icon-fix.js';
+import { setupJoint } from './lib/joint-server.js';
 import { getUsage, onUsageChange, seedCodexUsage } from './lib/usage.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -23,9 +24,17 @@ const PROJECTS_DIR = path.join(os.homedir(), 'ClawChatProjects');
 
 setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群里的提示也用它）
 const store = new Store();
-const hub = new Hub(store);
+// 联合群里对方的成员（remote）不在本机跑：交给联合群的任务队列，由对方的 ClawChat 来领
+const hub = new Hub(store, { run: (id, opts) => (AGENTS[id]?.remote ? joint.host.run(id, opts) : runAgent(id, opts)) });
 const clients = new Set();
 const remoteClients = new Set(); // 其中从手机（经 Tailscale）连进来的：关掉手机访问时马上断开
+const joint = setupJoint({ store, hub, runAgent, port: PORT, appVersion: JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version, publicHost });
+// 联合群用不着项目文件夹（第一期只能讨论）：给一个空的专用目录
+function jointCwd() {
+  const dir = path.join(DATA_DIR, 'joint', 'workspace');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
 let engines = {}; // 启动后异步检测，检测完之前界面显示「检测中」
 
 hub.on('event', (ev) => {
@@ -207,7 +216,7 @@ function pruneExtraMembers(before = null) {
     removeExtraMember(id);
   }
   // 成员表变了（开出了新的、清掉了旧的）就告诉界面
-  if (gone.length || (before !== null && before !== Object.keys(AGENTS).join())) hub.emit('event', { type: 'agents', agents: AGENTS });
+  if (gone.length || (before !== null && before !== Object.keys(AGENTS).join())) hub.emit('event', { type: 'agents', agents: joint.agentsView() });
 }
 
 function normalizeRoom(body, creating, room = null) {
@@ -583,13 +592,13 @@ async function api(req, res, url, access = 'local') {
   if (method === 'GET' && parts[0] === 'events') return events(req, res, access);
   if (method === 'GET' && parts[0] === 'state') {
     return send(res, 200, {
-      rooms: store.listRooms(),
+      rooms: store.listRooms().map(joint.roomView),
       folders: store.listFolders(),
       runs: hub.status(true),
       usage: getUsage(),
       queued: hub.queued(),
       engines,
-      agents: AGENTS,
+      agents: joint.agentsView(),
       defaults: ROOM_DEFAULTS,
       projectsDir: PROJECTS_DIR,
       platform: process.platform,
@@ -772,7 +781,7 @@ async function api(req, res, url, access = 'local') {
       } catch (err) {
         return send(res, 400, { error: err.message });
       }
-      hub.emit('event', { type: 'agents', agents: AGENTS });
+      hub.emit('event', { type: 'agents', agents: joint.agentsView() });
       return send(res, 200, { member });
     }
     if (method === 'DELETE' && AGENTS[parts[2]]?.base) {
@@ -782,7 +791,7 @@ async function api(req, res, url, access = 'local') {
       if (solo) return send(res, 400, { error: tr('还有和 {name} 的单聊「{room}」，先把那个单聊删掉再删 {name}', { name: AGENTS[id].name, room: solo.name }) });
       hub.forgetMember(id); // 从所有群里请出去，记忆和进度清掉，聊天记录留着
       removeExtraMember(id);
-      hub.emit('event', { type: 'agents', agents: AGENTS });
+      hub.emit('event', { type: 'agents', agents: joint.agentsView() });
       hub.emitRooms();
       return send(res, 200, { ok: true });
     }
@@ -852,6 +861,7 @@ async function api(req, res, url, access = 'local') {
       return send(res, 200, { ok: true });
     }
   }
+  if (parts[0] === 'joint') return joint.api(req, res, parts, method, { send, readBody, defaultCwd: jointCwd });
   if (parts[0] === 'rooms') {
     if (parts.length === 1 && method === 'POST') {
       const before = Object.keys(AGENTS).join();
@@ -868,6 +878,20 @@ async function api(req, res, url, access = 'local') {
     const room = store.getRoom(parts[1]);
     if (!room) return send(res, 404, { error: tr('群聊不存在') });
     const sub = parts[2];
+    if (sub === 'joint' && room.joint) return joint.roomApi(req, res, room, parts[3], method, { send });
+    // 加入方的联合群是主持方那边的镜像：发言交给主持方，停止只停自己这边的 AI；别的操作（换会话、改成员…）都不在这里做
+    if (joint.isGuest(room)) {
+      if (sub === 'messages' && method === 'POST') {
+        await joint.guestMessage(room, await readBody(req));
+        return send(res, 200, { ok: true });
+      }
+      if (sub === 'stop' && method === 'POST') {
+        const { agent } = await readBody(req);
+        await joint.guestStop(room, agent);
+        return send(res, 200, { ok: true });
+      }
+      if (method !== 'GET' && method !== 'DELETE' && !['read', 'draft'].includes(sub)) return send(res, 400, { error: tr('联合群里不能这样操作') });
+    }
     if (!sub && method === 'PATCH') {
       const before = Object.keys(AGENTS).join();
       let patch;
@@ -1154,6 +1178,13 @@ const server = http.createServer(async (req, res) => {
     const access = requestAccess(req, PORT);
     if (!access) return send(res, 403, { error: 'forbidden' });
     const url = new URL(req.url, `http://${req.headers.host}`);
+    // 联合群：对方的 ClawChat 只能走 /joint/v1/；别的一律不给（老板本人的手机、本机照旧）
+    if (url.pathname.startsWith('/joint/v1/')) {
+      const login = joint.peerLogin(req, access, decodeLogin);
+      if (!login) return send(res, 403, { error: 'forbidden' });
+      return await joint.peer(req, res, url, login, { send, readBody });
+    }
+    if (access === 'peer') return send(res, 403, { error: 'forbidden' });
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
       // 读的接口也不让别的网站借浏览器来调（比如触发重新打包、刷新用量）：浏览器会标出跨站请求。
@@ -1289,6 +1320,7 @@ hub.on('event', (ev) => {
 });
 
 function shutdown() {
+  joint.close();
   hub.shutdown();
   for (const res of clients) res.end();
   server.close();

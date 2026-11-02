@@ -44,7 +44,8 @@ test('打开以后：只认这台电脑登录的那个 Tailscale 账号；别的
   assert.equal(served()['/'], 'http://127.0.0.1:7317');
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
   assert.equal(requestAccess(req(`${REMOTE}:443`, { 'tailscale-user-login': 'boss@example.com' }), PORT), 'remote');
-  assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'someone@else.com' }), PORT), null, '别的账号');
+  // 别的账号（同事接受了共享）：只给「对方」级别，server 只让它走联合群的 /joint/v1/，再核对令牌
+  assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'someone@else.com' }), PORT), 'peer', '别的账号');
   assert.equal(requestAccess(req(REMOTE), PORT), null, '没带账号');
   assert.equal(requestAccess(req(REMOTE, { 'tailscale-user-login': 'boss@example.com', 'tailscale-funnel-request': '?1' }), PORT), null, '公开网络');
   assert.equal(requestAccess(req('other.ts.net', { 'tailscale-user-login': 'boss@example.com' }), PORT), null, '别的地址');
