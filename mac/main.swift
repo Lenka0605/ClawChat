@@ -279,6 +279,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     self.webView.evaluateJavaScript("window.__clawchatPicked(...\(json))")
                 }
             }
+        case "pickFile":
+            let id = body["id"] as? String ?? ""
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = false
+            panel.canChooseFiles = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = L("选择", "Choose")
+            panel.message = L("选择要发送的文件", "Choose a file to send")
+            panel.beginSheetModal(for: window) { resp in
+                let path = resp == .OK ? panel.url?.path : nil
+                let args: [Any] = [id, path ?? NSNull()]
+                if let data = try? JSONSerialization.data(withJSONObject: args), let json = String(data: data, encoding: .utf8) {
+                    self.webView.evaluateJavaScript("window.__clawchatPicked(...\(json))")
+                }
+            }
         default:
             break
         }

@@ -1891,6 +1891,8 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 .joint-inbox-row .joint-file-meta { flex: 1; }
 .joint-inbox-row .secondary { flex: none; }
 /* 群设置里的联合群一节 */
+.joint-file-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.joint-file-pick .hint { margin: 0; }
 .joint-confirm { margin-top: 2px; }
 .joint-confirm input { width: 100%; }
 .joint-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
