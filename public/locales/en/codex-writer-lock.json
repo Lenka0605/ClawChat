@@ -1,0 +1,4 @@
+{
+  "原会话被其他程序占用，已保留历史并切到独立会话继续。": "Another program has the original conversation open. Your history was preserved and the chat continued in a separate conversation.",
+  "ChatGPT 的会话正被另一个程序占用，暂时无法接上。请关闭桌面 App 中的这个会话后重试，或使用「换新会话」。": "Another program has the ChatGPT conversation open, so it couldn't be resumed. Close that conversation in the desktop app and retry, or use New conversation."
+}
