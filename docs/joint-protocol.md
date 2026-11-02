@@ -66,13 +66,31 @@
 - worker 领到任务 → 用联合群专用会话（`~/.clawchat/joint/<jointId>/sessions`，按 agent 分开，绝不接本地群/私聊的会话）、讨论档配置跑本机 AI → 交结果。
 - 停止：加入方老板按停止 → 本地结束那一轮 + 告诉主持方。
 
-## 传文件
+## 传文件（API 的 `lib/joint-files.js`，路由由 API 写在 `lib/joint-files-routes.js`，Claude 在 joint-server 里挂上）
 
-接口、确认框字段、收件箱细节见 API 的分支（`lib/joint-files.js`），原则照 ChatGPT 安全方案第 4 节：
-- 只传本机老板在可信界面里确认过的**精确文件快照**（按哈希绑定），一次授权只对应一次传输、一个收件节点。
-- 私钥类文件确认时加一次**系统认证**：浏览器 WebAuthn（Mac 上是 Touch ID，Windows 上是 Windows Hello），`userVerification: 'required'`，挑战值绑定这次的文件哈希和收件节点。
-- 收到的文件放 `~/.clawchat/joint-inbox/<jointId>/<transferId>/`，默认不给 AI 看、不自动打开。
-- 文件字节不进任何 AI 的对话、不进日志。
+原则照 ChatGPT 安全方案第 4 节：授权永远在**发送方本机**生成（快照 → 危险判定 → 确认框 → 私钥类加 WebAuthn → 一次性授权 → transferId）；主持方只做中转存储（存的是发送方老板确认过的那份快照，24 小时过期清理）；接收方拉回后落自己的收件箱（700/600、随机存储名），默认不给 AI、不自动打开。文件字节不进 AI 对话、不进日志、不进事件流（事件里只有文件名、大小、用途、谁提的）。
+
+**peer 接口**（`/joint/v1/rooms/:id/files/...`，三道认证；读正文/分块之后、动手之前必须再核对一次授权 `host.still(room, peer)`）：
+
+| 接口 | 谁调 | 说明 |
+|---|---|---|
+| `POST files/request` `{ name, size, purpose }` | 加入方 | 想要一个文件：主持方界面出确认框 |
+| `POST files/uploads` `{ transferId, hash, size, name, toNode, risk, auth? }` | 加入方（它是发送方时） | 私钥类主持方验 WebAuthn 断言才收；之后 `PUT files/:transferId/chunks`（按序）+ `POST files/:transferId/finish`（校验哈希进待取区） |
+| `GET files/:transferId/manifest` | 接收方 | 元数据（名称、大小、哈希、来源、风险级） |
+| `GET files/:transferId/content` | 接收方 | 文件字节；transferId 绑定接收节点，别的节点 404；`no-store` |
+
+**本机界面接口**（`/api/joint/files/...`，浏览器调，带 `X-ClawChat`）：
+
+| 接口 | 说明 |
+|---|---|
+| `POST snapshot` `{ path, roomId }` | 本机快照 + 危险判定 → `{ hash, size, name, risk, reason? }`；路径只在本机 |
+| `GET webauthn/register-challenge` / `POST webauthn/register` | 一次性注册本机认证器（凭据记下注册时的 rpId） |
+| `POST challenge` `{ hash, toNode }` | 私钥类确认前出挑战（绑 hash + toNode + rpId，5 分钟、一次性） |
+| `POST approve` `{ hash, size, name, toNode, auth? }` → `{ transferId }` | 确认发送；私钥类验断言（UP + UV） |
+| `POST :transferId/chunks` / `POST :transferId/finish` | 主持方老板自己发送时推进待取区 |
+| `GET inbox` / `POST inbox/reveal` `{ transferId }` | 收件箱 / 在访达里显示 |
+
+**第一期私钥类文件只能在电脑上确认**：确认接口只认本机电脑窗口（`127.0.0.1` / `localhost`），手机上碰到私钥类提示「请到电脑上确认」。WebAuthn 只验断言、不验 attestation 签名（凭据在本机生成、没离开过本机，attestation 只证明生成那一刻）。授权在内存里：主持方重启就失效，要重新走确认框。
 
 ## 版本
 
