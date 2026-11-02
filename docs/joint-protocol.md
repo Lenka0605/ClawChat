@@ -8,7 +8,7 @@
 
 - 做：配对、联合群里一起聊天（两边各自的 AI 都能被叫醒回话）、逐文件批准的传文件、收件箱。
 - **第一期所有 AI 在联合群里一律「讨论档」**：不管谁叫醒、不管哪边的 AI，都用联合群专用的受限配置跑——不能写文件、不能跑命令、不能调 MCP。
-  能不能读本机文件，按引擎验收结果：读边界验收过的引擎只能读本机老板指定的「共享文件夹」；没验收过的一律不给文件工具。
+  第一期**也不给读文件的工具**（ChatGPT 的 worker 已按这个做：每家都是空工具清单，`room.jointDiscussion === true` 强制生效）。共享文件夹留到第二期。主持方跑自己的 AI 时同样要带 `jointDiscussion`。
 - 不做（第二、三期）：对方叫醒后在本机动手；「和自己人一样」档。
 
 ## 角色和名词
@@ -35,7 +35,8 @@
 3. 加入方 `POST /joint/v1/pair`：`{ secret, nodeId, nodeName, ownerName, agents:[{ id, name, engine }], protocol:1, appVersion }`
    → `202 { pairId, code }`（`code` 是 6 位核对码，两边界面都显示，老板们口头对一下）。
 4. 主持方界面弹「xx（Tailscale 账号 a@b.com，设备 yy）想加入「群名」，核对码 123456」→ 老板点同意或拒绝。
-5. 加入方轮询 `GET /joint/v1/pair/:pairId` → 同意后 `200 { token, room:{ id, name, members } }`，令牌只发这一次。
+5. 加入方轮询 `GET /joint/v1/pair/:pairId`，请求头 `Authorization: Bearer <邀请秘密>`（光有 pairId / 核对码领不到令牌），主持方同时核对发起配对的 Tailscale 登录名。
+   没批准前 `202 { status:'waiting' }`；拒绝 `403`；过期 `410`；同意后 `200 { token, room:{ id, name, members } }`，令牌只发这一次。全部 `Cache-Control: no-store`，日志里不记秘密和令牌。
 
 ## 主持方提供的 peer 接口（`/joint/v1/rooms/:roomId/...`）
 
@@ -53,7 +54,11 @@
 
 任务 `context` 里只放：这位成员上次之后的公开消息（含图片引用）、群规模板需要的字段（ownerName、本机老板名、自动接力剩余次数）。**不放**任何一方的私聊、其他群、本机路径。
 
-同一个 `jobId` 只能交一次结果；租约过期没续上的，主持方标成「对方没回应」，不自动重发（防止重复执行）。
+线上格式（和 ChatGPT 的 worker 对齐）：
+- 事件：`{ events:[{ seq, type, ... }] }`，没有新事件时返回空数组（不要 404）。取消：`{ seq, type:'job.cancelled', jobId }`。
+- 领任务：`{ job:{ jobId, agentId, lease, context } }`，没有任务返回 `{ job:null }`。`lease` 是不可猜的字符串，心跳和交结果的正文都带上它；心跳回 `{ cancelled:true }` 表示取消。
+- 交结果按 `jobId` 去重：同样的结果重交照样返回成功；任务已过期 / 已关闭返回 `409` / `410`，worker 丢掉结果、不重跑。`401/403/404`（群级）表示连接失效，worker 停止。
+- 租约过期没续上的，主持方标成「对方没回应」，不自动重发（防止重复执行）。
 
 ## 加入方本地
 
@@ -79,7 +84,7 @@
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /api/joint/rooms` `{ name, members:[agentId], shareDir? }` | 新建联合群（主持方）。`shareDir` 可选：讨论档里读边界验收过的引擎只能读这里 |
+| `POST /api/joint/rooms` `{ name, members:[agentId] }` | 新建联合群（主持方） |
 | `POST /api/rooms/:id/joint/invite` → `{ code, expiresAt }` | 生成邀请码（只在本机显示） |
 | `POST /api/joint/join` `{ code, ownerName, members:[agentId] }` → `{ pairId, check }` | 加入方提交邀请码；`check` 是 6 位核对码 |
 | `GET /api/joint/join/:pairId` → `{ status:'waiting'|'approved'|'rejected'|'expired', roomId? }` | 加入方轮询 |
