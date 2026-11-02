@@ -57,6 +57,8 @@ const S = {
   usage: {}, // 订阅额度最近一次的用量（Claude、ChatGPT）
   agents: {},
   jointMembers: {}, // 联合群里对方成员：key -> { name, owner, base, online }
+  jointPolicy: null, // 当前打开的联合群设置：{ roomId, engines, agents }
+  jointApproval: null, // 正在等老板点的动手审批
   folders: [], // 侧栏的收纳组：[{ id, name }]，群对象上的 folder 字段记它在哪个组
   defaults: {},
   projectsDir: '',
@@ -99,6 +101,14 @@ const hasNative = () => !!window.webkit?.messageHandlers?.clawchat;
 // 新外壳收到 capabilities 会回一句，前端据此决定用原生面板还是走 /api/pick-file
 const nativeCaps = {};
 window.__clawchatCapabilities = (caps) => Object.assign(nativeCaps, caps || {});
+const biometricResolvers = new Map();
+window.__clawchatBiometric = (res) => {
+  if (!res?.id) return;
+  const done = biometricResolvers.get(res.id);
+  if (!done) return;
+  biometricResolvers.delete(res.id);
+  done(res);
+};
 
 // 界面语言告诉服务端（群里的提示、AI 回复用的语言跟着它）和原生外壳（菜单栏）
 // manual：老板在设置里亲手换的语言；页面打开时自动报的不带它（手机上自动报的服务端不认，免得把电脑的语言改掉）
@@ -3608,6 +3618,21 @@ function handleEvent(ev) {
       // 有人拿邀请码来加入：弹给老板确认（对方在场，不能自动同意）
       openJointApprove(ev);
       break;
+    case 'joint-approval':
+      // 对方请我这边 AI 动手：先让老板点头
+      openJointApproval(ev);
+      break;
+    case 'joint-approval-done':
+      if (S.jointApproval?.approvalId === ev.approvalId) {
+        S.jointApproval = null;
+        closeDialog($('#dlg-joint-action'));
+        toast(ev.approved ? tr('对方已经开始动手') : tr('这次动手请求已经结束，只讨论'));
+      }
+      break;
+    case 'joint-biometric-enrolled':
+      // Mac 外壳刚登记了这台电脑的 Touch ID：让老板知道以后私钥类文件要按指纹
+      toast(tr('这台电脑的 Touch ID 已登记，之后发私钥类文件需要按指纹'), 6000);
+      break;
     case 'joint-file-request':
       // 对方想要一个文件：先让本机老板选文件，选完再显示确认框
       openJointFileRequest(ev);
@@ -4701,6 +4726,16 @@ async function pickFile() {
   }
   const { path } = await api('POST', '/api/pick-file');
   return path;
+}
+
+// 让 Mac 外壳用 Touch ID（Secure Enclave 私钥）给服务端出的确认串签名；旧外壳没有这个能力
+async function biometricSign(payload) {
+  if (!hasNative() || !nativeCaps.biometric) throw new Error(tr('这台电脑用不了 Touch ID 确认'));
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2);
+    biometricResolvers.set(id, resolve);
+    native({ type: 'biometricSign', id, payload });
+  });
 }
 
 // 私聊里单独的设置（和 lib/hub.js 的 dmRoom 一样）：没单独设置的跟着群里
@@ -5996,8 +6031,16 @@ async function submitDialog(e) {
   const btn = $('#btn-save');
   // 保存前先记下原来有哪些成员：改个群名、换个设置不该反复问「要不要装 Claude Code」
   const before = S.editing ? roomById(S.editing)?.members || [] : [];
+  const jointRoom = S.editing ? roomById(S.editing) : null;
   btn.disabled = true;
   try {
+    if (jointRoom?.joint) {
+      // 权限先存（服务端会核对文件夹）；改群名、成员这些再走普通 PATCH
+      if (!S.jointPolicy || S.jointPolicy.roomId !== S.editing) await loadJointPolicy(jointRoom);
+      const agents = collectJointPolicy();
+      if (!agents) throw new Error(tr('权限还没读取出来，请重新打开设置'));
+      await api('PUT', `/api/rooms/${S.editing}/joint/policy`, { agents });
+    }
     if (S.editing) {
       const { room } = await api('PATCH', `/api/rooms/${S.editing}`, body);
       S.rooms = S.rooms.map((r) => (r.id === room.id ? room : r));
@@ -6107,6 +6150,15 @@ function bind() {
   $('#btn-joint-invite-close').onclick = () => closeDialog($('#dlg-joint-invite'));
   $('#dlg-joint-invite').addEventListener('close', () => clearInterval(jointInviteTimer));
   $('#btn-joint-invite').onclick = requestJointInvite;
+  $('#btn-joint-want-cancel').onclick = () => closeDialog($('#dlg-joint-want-file'));
+  $('#btn-joint-want-send').onclick = submitJointWantFile;
+  $('#btn-joint-action-no').onclick = () => answerJointApproval(false);
+  $('#btn-joint-action-yes').onclick = () => answerJointApproval(true);
+  $('#dlg-joint-action').addEventListener('cancel', (e) => e.preventDefault()); // 必须明确选同意或拒绝
+  $('#joint-confirm-all').onchange = () => {
+    const on = $('#joint-confirm-all').checked;
+    if (S.jointPolicy) for (const p of Object.values(S.jointPolicy.agents)) p.confirm = on;
+  };
   $('#btn-joint-inbox').onclick = openJointInbox;
   $('#btn-joint-leave').onclick = leaveJointRoom;
   $('#btn-joint-approve-no').onclick = () => answerJointApprove(false);
@@ -6116,6 +6168,7 @@ function bind() {
   $('#btn-joint-inbox-close').onclick = () => closeDialog($('#dlg-joint-inbox'));
   document.addEventListener('click', (e) => {
     if (e.target.closest('#btn-joint-invite-bar')) requestJointInvite();
+    if (e.target.closest('#btn-joint-want-file-bar')) openJointWantFile();
     const rev = e.target.closest('[data-inbox-reveal]');
     if (rev) {
       const room = jointRoom();
@@ -6983,9 +7036,37 @@ function renderJointBar() {
   const peerText = joint.peerName ? `${esc(joint.peerName)}${joint.peerOnline === false ? ` · ${tr('离线')}` : ` · ${tr('在线')}`}` : tr('等对方加入…');
   bar.innerHTML = `<span class="joint-badge">${tr('联合群')}</span><span class="joint-peer">${peerText}</span><span class="joint-perm">${tr('讨论档')}</span>${line(tr('我的'), mine)}${line(esc(joint.peerName || ''), theirs)}<span class="spacer"></span>${
     joint.role === 'host' && !joint.peerNode ? `<button type="button" class="joint-link" id="btn-joint-invite-bar">${tr('邀请同事…')}</button>` : ''
-  }`;
+  }${joint.role === 'host' && joint.peerNode ? `<button type="button" class="joint-link" id="btn-joint-want-file-bar">${tr('向对方要文件…')}</button>` : ''}`;
   bar.hidden = false;
   document.documentElement.style.setProperty('--joint-bar-h', `${bar.offsetHeight}px`);
+}
+
+function openJointWantFile() {
+  const room = jointRoom();
+  const dlg = $('#dlg-joint-want-file');
+  if (!dlg || !room?.joint || room.joint.role !== 'host' || !room.joint.peerNode) return;
+  $('#joint-want-purpose').value = '';
+  $('#btn-joint-want-send').disabled = false;
+  dlg.showModal();
+  reportDragRegions();
+  setTimeout(() => $('#joint-want-purpose').focus(), 60);
+}
+
+async function submitJointWantFile() {
+  const room = jointRoom();
+  if (!room?.joint || room.joint.role !== 'host') return;
+  const purpose = $('#joint-want-purpose').value.trim();
+  const btn = $('#btn-joint-want-send');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/joint/files/request-to-peer', { roomId: room.id, purpose });
+    closeDialog($('#dlg-joint-want-file'));
+    toast(tr('已经向对方发出文件请求'));
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function openJointInvite({ code = '', expiresAt = 0, roomName = '' } = {}) {
@@ -7175,6 +7256,53 @@ async function checkPendingJointPairs() {
   } catch {}
 }
 
+function openJointApproval(info = {}) {
+  const dlg = $('#dlg-joint-action');
+  if (!dlg || !info.approvalId) return;
+  S.jointApproval = info;
+  const room = roomById(info.roomId);
+  const from = info.from || room?.joint?.peerName || tr('对方');
+  const name = jointDisplayFor(room, info.agentId) || info.name || info.agentId;
+  $('#joint-action-title').textContent = tr('{from} 请 {name} 动手', { from, name });
+  const folder = info.folder || '';
+  $('#joint-action-body').innerHTML = `
+    ${info.text ? `<div class="joint-quote joint-action-quote">“${esc(info.text)}”<br><b>—— ${esc(from)}</b></div>` : ''}
+    ${folder ? `<div class="joint-folder-card"><span class="joint-file-icon">DIR</span><div><b>${esc(folder)}</b><small>${tr('对方只能在这个文件夹里改文件和跑命令')}</small></div></div>` : ''}
+    <p class="hint">${tr('这是对方 AI 发来的请求，只有你点「允许这一次」它才开始。停止按钮仍然只停你自己的 AI。')}</p>
+    <div class="joint-action-meta"><span>${tr('谁在等')}</span><b>${esc(from)}</b><small>${tr('对方的电脑')}</small></div>
+    <p class="hint">${tr('对方看不到这次操作之外的文件，也不会自动继续下一步；10 分钟不点会自动拒绝。')}</p>`;
+  if (!dlg.open) dlg.showModal();
+  reportDragRegions();
+}
+
+async function answerJointApproval(ok) {
+  const info = S.jointApproval;
+  if (!info) return;
+  S.jointApproval = null;
+  const no = $('#btn-joint-action-no');
+  const yes = $('#btn-joint-action-yes');
+  no.disabled = yes.disabled = true;
+  try {
+    await api('POST', `/api/joint/approvals/${encodeURIComponent(info.approvalId)}`, { approve: !!ok });
+    closeDialog($('#dlg-joint-action'));
+    toast(ok ? tr('已允许对方动手') : tr('已拒绝这次动手请求'));
+  } catch (err) {
+    toast(err.message);
+    closeDialog($('#dlg-joint-action'));
+  } finally {
+    no.disabled = yes.disabled = false;
+  }
+}
+
+async function checkPendingJointApprovals() {
+  if ($('#dlg-joint-action')?.open) return;
+  try {
+    const res = await api('GET', '/api/joint/approvals');
+    const a = (res.approvals || [])[0];
+    if (a) openJointApproval(a);
+  } catch {}
+}
+
 function jointPeerAvatar(info = {}) {
   if (info.avatar && S.jointMembers?.[info.avatar]) return avatarHtml(info.avatar);
   const ch = String(info.peerName || info.ownerName || '?').trim().slice(0, 1) || '?';
@@ -7252,6 +7380,7 @@ function drawJointFileRequest() {
   const f = req.snap;
   const danger = !!f && jointFileDanger(f);
   const onComputer = isLocalHost();
+  const biometric = !!(hasNative() && nativeCaps.biometric);
   const wanted = req.reqName || '';
   const size = jointFileSize(f ? f.size : req.reqSize);
   const peer = req.peerName || '';
@@ -7272,7 +7401,8 @@ function drawJointFileRequest() {
     }
     ${f && danger ? `<div class="joint-warn"><b>这是证书私钥文件。</b>对方拿到后可以用它冒充你的服务或给它签名。请确认是对方本人、确实需要；发送后建议更换这份证书。</div>` : ''}
     ${f && danger && !onComputer ? `<p class="hint warn-text">${tr('请到电脑上确认')}</p>` : ''}
-    ${f && danger && onComputer ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
+    ${f && danger && onComputer && biometric ? `<div class="joint-touchid"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 15c3.2-2.6 7.2-4 12-4 4.8 0 8.8 1.4 12 4"/><path d="M12 27c0-3 .7-5.7 2-8"/><path d="M52 27c0-3-.7-5.7-2-8"/><path d="M18 31v7c0 5-1 9-3 13"/><path d="M46 31v7c0 7-1.5 12-5 17"/><path d="M32 20c-5 0-8 3.3-8 8v12c0 5-.8 9-2.5 13"/><path d="M32 20c5 0 8 3.3 8 8v15c0 6-1 10-3 14"/><path d="M32 28v16c0 4.5-.7 8-2 11"/></svg><b>${tr('把手指放在 Touch ID 上')}</b><small>${tr('确认是你本人，才会把这份文件发出去')}</small></div>` : ''}
+    ${f && danger && onComputer && !biometric ? `<label class="form-row block joint-confirm"><span>${tr('输入文件名确认发送')}</span><input id="joint-file-confirm" autocomplete="off" spellcheck="false" placeholder="${esc(tr('输入上面的文件名'))}"></label>` : ''}
     <div class="joint-file-pick">
       ${!f && !onComputer ? `<span class="hint">${tr('传文件请在电脑上操作')}</span>` : ''}
       ${onComputer ? `<button type="button" class="secondary" id="btn-joint-file-pick">${f ? tr('重新选择文件…') : tr('选择文件…')}</button>` : ''}
@@ -7282,10 +7412,10 @@ function drawJointFileRequest() {
   const pick = $('#btn-joint-file-pick');
   if (pick) pick.onclick = chooseJointFile;
   const yes = $('#btn-joint-file-yes');
-  yes.textContent = tr('确认发送');
+  yes.textContent = f && danger && biometric ? tr('Touch ID 确认') : tr('确认发送');
   yes.hidden = !f || (danger && !onComputer);
-  yes.disabled = !f || danger;
-  if (f && danger && onComputer) {
+  yes.disabled = !f || (danger && !biometric);
+  if (f && danger && onComputer && !biometric) {
     const input = $('#joint-file-confirm');
     const sync = () => (yes.disabled = input.value !== (f.name || ''));
     input.addEventListener('input', sync);
@@ -7317,12 +7447,21 @@ async function approveJointFile() {
   const f = req?.snap;
   if (!req || !f) return toast(tr('先选择要发送的文件'), 5000);
   const danger = jointFileDanger(f);
+  const biometric = danger && hasNative() && nativeCaps.biometric;
   const confirmName = $('#joint-file-confirm')?.value || '';
   if (danger && !isLocalHost()) return toast(tr('请到电脑上确认'), 5000);
-  if (danger && confirmName !== (f.name || '')) return toast(tr('文件名对不上，没有发出去'), 5000);
+  if (danger && !biometric && confirmName !== (f.name || '')) return toast(tr('文件名对不上，没有发出去'), 5000);
   const btn = $('#btn-joint-file-yes');
   btn.disabled = true;
   try {
+    let auth = null;
+    if (biometric) {
+      // 先拿一次性的确认串，再让 Mac 外壳按指纹签名；私钥不离开 Secure Enclave
+      const { message } = await api('POST', '/api/joint/files/biometric-challenge', { hash: f.hash, toNode: req.toNode });
+      const signed = await biometricSign(message);
+      if (!signed?.ok || !signed.sig || !signed.pub) throw new Error(signed?.error || tr('没有完成 Touch ID 确认，文件没有发出去'));
+      auth = { message, pub: signed.pub, sig: signed.sig };
+    }
     const body = {
       roomId: req.roomId,
       staging: f.staging,
@@ -7331,14 +7470,15 @@ async function approveJointFile() {
       name: f.name,
       toNode: req.toNode,
     };
-    if (danger) body.confirmName = confirmName;
+    if (auth) body.auth = auth;
+    else if (danger) body.confirmName = confirmName;
     await api('POST', '/api/joint/files/approve', body);
     closeDialog($('#dlg-joint-file'));
     toast(tr('文件已经发出去'));
   } catch (err) {
     toast(err.message || tr('文件没有发出去'), 5000);
   } finally {
-    btn.disabled = danger && confirmName !== (f.name || '');
+    btn.disabled = danger && !biometric && confirmName !== (f.name || '');
   }
 }
 
@@ -7398,11 +7538,98 @@ async function leaveJointRoom() {
 }
 
 // 群设置里的联合群一节：只有联合群才显示；第一期只有「讨论档」
+async function loadJointPolicy(room) {
+  if (!room?.joint) return;
+  const id = room.id;
+  const list = $('#joint-policy-list');
+  if (list) list.innerHTML = `<p class="hint">${tr('正在读取权限…')}</p>`;
+  try {
+    const res = await api('GET', `/api/rooms/${id}/joint/policy`);
+    if (S.editing !== id) return;
+    S.jointPolicy = { roomId: id, engines: res.engines || [], agents: res.agents || {} };
+    renderJointPolicy();
+  } catch (err) {
+    if (S.editing === id && list) list.innerHTML = `<p class="hint error">${esc(err.message)}</p>`;
+  }
+}
+
+function renderJointPolicy() {
+  const room = roomById(S.editing);
+  const data = S.jointPolicy;
+  const list = $('#joint-policy-list');
+  if (!list || !room?.joint || !data || data.roomId !== room.id) return;
+  const ids = Object.keys(data.agents).sort((a, b) => {
+    const ia = AGENT_IDS.indexOf(a);
+    const ib = AGENT_IDS.indexOf(b);
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+  });
+  if (!ids.length) {
+    list.innerHTML = `<p class="hint">${tr('这个联合群里还没有自己这边的 AI。')}</p>`;
+    $('#joint-confirm-all').checked = true;
+    return;
+  }
+  $('#joint-confirm-all').checked = ids.every((a) => data.agents[a].confirm !== false);
+  list.innerHTML = ids.map((id) => {
+    const p = data.agents[id];
+    const name = jointDisplayFor(room, id);
+    const folder = p.level === 'folder';
+    const note = p.available
+      ? tr('已验收')
+      : tr('这家 AI 还没验收，先只能讨论');
+    return `<div class="joint-policy-row" data-agent="${esc(id)}">
+      <div class="joint-policy-top">${avatarHtml(id)}
+        <div class="joint-policy-name"><b>${esc(name)}</b><small>${esc(note)}</small></div>
+        <div class="joint-level">
+          <button type="button" data-level="discuss"${folder ? '' : ' class="on"'}>${tr('讨论')}</button>
+          <button type="button" data-level="folder"${folder ? ' class="on"' : ''}${p.available && (isLocalHost() || p.folder) ? '' : ' disabled'}>${tr('指定文件夹')}</button>
+        </div>
+      </div>
+      ${folder ? `<div class="joint-policy-folder">${p.folder ? `<span class="path">${esc(p.folder)}</span>` : `<span class="none">${tr('还没选文件夹')}</span>`}${isLocalHost() ? `<button type="button" class="pick" data-pick>${p.folder ? tr('更改…') : tr('选择文件夹…')}</button>` : `<span class="none">${tr('在电脑上更改')}</span>`}</div>` : ''}
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.joint-policy-row').forEach((row) => {
+    const id = row.dataset.agent;
+    row.querySelectorAll('[data-level]').forEach((b) => {
+      b.onclick = () => {
+        const p = data.agents[id];
+        if (b.dataset.level === 'folder' && !p.available) return;
+        p.level = b.dataset.level === 'folder' ? 'folder' : 'discuss';
+        renderJointPolicy();
+      };
+    });
+    const pick = row.querySelector('[data-pick]');
+    if (pick) pick.onclick = async () => {
+      try {
+        const path = await pickFolder();
+        if (!path) return;
+        const p = data.agents[id];
+        p.level = 'folder';
+        p.folder = path;
+        renderJointPolicy();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+  });
+}
+
+function collectJointPolicy() {
+  const data = S.jointPolicy;
+  if (!data) return null;
+  const confirm = $('#joint-confirm-all').checked;
+  const agents = {};
+  for (const [id, p] of Object.entries(data.agents)) {
+    agents[id] = { level: p.level === 'folder' ? 'folder' : 'discuss', folder: p.level === 'folder' ? p.folder : '', confirm };
+  }
+  return agents;
+}
+
 function syncJointFields(room) {
   const sec = $('#joint-fields');
   if (!sec) return;
   const joint = room?.joint || null;
   sec.hidden = !joint;
+  if (!joint) S.jointPolicy = null;
   // 「新建联合群 / 加入联合群」只放在新建聊天里；改已有群时不再露出（普通群不能变成联合群）
   const entry = $('#joint-entry-row');
   if (entry) entry.hidden = !!room;
@@ -7414,7 +7641,9 @@ function syncJointFields(room) {
   if (!joint) return void ($('#member-sub').textContent = tr('只选一位就是单聊'));
   $('#joint-peer').textContent = joint.peerName || tr('等对方加入…');
   $('#joint-self-name').textContent = joint.selfName || tr('我');
+  $('#joint-policy-summary').textContent = tr('每位 AI 单独设置');
   $('#member-sub').textContent = tr('自己这边派谁进去');
+  loadJointPolicy(room);
   $('#btn-joint-invite').hidden = joint.role === 'guest' || !!joint.peerNode;
   $('#btn-joint-inbox').hidden = false;
   $('#btn-joint-leave').hidden = false;
@@ -7467,6 +7696,9 @@ async function init() {
   setTimeout(() => {
     if (!document.querySelector('dialog[open]')) checkPendingJointPairs();
   }, 1200);
+  setTimeout(() => {
+    if (!document.querySelector('dialog[open]')) checkPendingJointApprovals();
+  }, 1400);
   // 启动后悄悄查一次有没有新版本，之后每小时查一次
   setTimeout(() => checkForUpdate(false), 5000);
   setInterval(() => checkForUpdate(false), 60 * 60 * 1000);

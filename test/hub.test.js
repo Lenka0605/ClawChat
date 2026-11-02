@@ -778,6 +778,29 @@ test('本体在群里忙时私聊它：分身马上回；本体干完后看到�
   assert.equal(store.getMessages(room.id).filter((m) => m.from === 'claude' && m.dm).length, 1); // 没有重复回私聊
 });
 
+test('联合群不开分身：本体在忙时私聊它，等本体做完再回，不会两个进程同时写一个会话', async () => {
+  const store = new Store();
+  const { run, calls } = heldRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store);
+  store.updateRoom(room.id, { joint: { role: 'host', selfNode: 'bbbbbbbbbbbb', selfName: 'Lenka', members: [] } });
+  hub.postUserMessage(room.id, '@Claude 去重构整个项目');
+  await tick();
+  const mainCall = calls.at(-1);
+  hub.postUserMessage(room.id, '进度怎么样了？', [], 'claude');
+  await tick();
+  assert.equal(calls.length, 1, '不开分身');
+  assert.equal(hub.sideRuns.size, 0);
+  mainCall.finish('重构完了');
+  await tick();
+  const next = calls.at(-1);
+  assert.equal(calls.length, 2);
+  assert.equal(next.side, false);
+  assert.match(next.prompt, /进度怎么样了/);
+  next.finish('做完了，老板');
+  await settle(hub);
+});
+
 test('本体在群里忙时同事私下找它：分身马上私下回同事；本体干完后看到分身聊了什么', async () => {
   const store = new Store();
   const { run, calls } = heldRunner();

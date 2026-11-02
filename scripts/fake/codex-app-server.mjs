@@ -34,6 +34,12 @@ rl.on('line', (line) => {
   if (!m.method) return;
   if (m.method === 'initialize') reply(m.id, { userAgent: 'clawchat-fake' });
   else if (m.method === 'initialized') return;
+  // 文件夹档建会话前会读实际生效的配置，确认 MCP 全关了。
+  // FAKE_CODEX_RPC_SCENARIO=mcp-still-on 时假装还有一个开着的 MCP，用来测「拒绝开工」
+  else if (m.method === 'config/read') {
+    const mcp = scenario === 'mcp-still-on' ? { leftover: { command: 'x', enabled: true } } : {};
+    reply(m.id, { config: { mcp_servers: mcp } });
+  }
   else if (['thread/start', 'thread/resume', 'thread/fork'].includes(m.method)) {
     if ('historyMode' in p) return reject(m.id, 'historyMode is not a ThreadStartParams field');
     if (p.threadId && (!fs.existsSync(path.join(dir, `${p.threadId}.json`)) || scenario === 'missing-session')) return reject(m.id, 'session not found');

@@ -243,13 +243,15 @@
           <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。</p>
         </section>
         <section class="form-section" id="joint-fields" hidden>
-          <h3>联合群 <small>讨论档</small></h3>
+          <h3>联合群 <small id="joint-policy-summary">讨论档</small></h3>
           <div class="group-box">
             <div class="form-row"><span>对方</span><span class="row-value" id="joint-peer">—</span></div>
             <div class="form-row"><span>我的称呼</span><span class="row-value" id="joint-self-name">—</span></div>
-            <div class="form-row"><span>权限</span><span class="row-value">讨论档 · 只能看和说</span></div>
           </div>
-          <p class="hint">讨论档下，对方 AI 只能讨论、不能读本机文件。项目文件夹、动手权限和共享文件夹在联合群里都不适用（共享文件夹留到第二期）。</p>
+          <div class="joint-policy-head"><b>我的 AI</b><small>对方叫醒它们时，各自能做到哪一步。没验收的引擎先只能讨论。</small></div>
+          <div class="joint-policy-list" id="joint-policy-list"><p class="hint">正在读取权限…</p></div>
+          <label class="form-row joint-confirm-row"><span>对方让我的 AI 动手前，先问我<small>每次改文件或跑命令都弹确认框；确认之前它什么都不会做。</small></span><input type="checkbox" id="joint-confirm-all" class="switch" checked></label>
+          <p class="hint">只有「指定文件夹」档会动文件；讨论档永远只能看和说。对方看不到你的私聊、别的群和文件夹外面。</p>
           <div class="joint-actions">
             <button type="button" id="btn-joint-invite" class="secondary">邀请同事…</button>
             <button type="button" id="btn-joint-inbox" class="secondary">收件箱</button>
@@ -679,6 +681,31 @@
       </div>
       <footer class="sheet-foot">
         <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-join-cancel" class="secondary">取消</button><button type="button" id="btn-joint-join-ok" class="primary">加入</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：主持方向对方要文件 -->
+  <dialog id="dlg-joint-want-file" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2>向对方要一个文件</h2></header>
+      <div class="sheet-body">
+        <p class="hint">对方收到后会先问它那边老板，同意后才把文件发过来。文件内容不经过任何 AI。</p>
+        <label class="form-row block"><span>用途（对方会看到）</span><textarea id="joint-want-purpose" rows="3" placeholder="比如：部署到测试服务器，麻烦发我一份" spellcheck="false"></textarea></label>
+      </div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-want-cancel" class="secondary">取消</button><button type="button" id="btn-joint-want-send" class="primary">发送请求</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 联合群：对方请我这边 AI 动手，等老板点头 -->
+  <dialog id="dlg-joint-action" class="sheet small">
+    <form method="dialog">
+      <header class="sheet-head"><h2 id="joint-action-title">对方想动手</h2></header>
+      <div class="sheet-body" id="joint-action-body"></div>
+      <footer class="sheet-foot">
+        <div class="dlg-actions"><span class="spacer"></span><button type="button" id="btn-joint-action-no" class="secondary">拒绝</button><button type="button" id="btn-joint-action-yes" class="primary">允许这一次</button></div>
       </footer>
     </form>
   </dialog>

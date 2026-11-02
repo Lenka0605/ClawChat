@@ -5,7 +5,9 @@ import crypto from 'node:crypto';
 
 const args = process.argv.slice(2);
 const send = (ev) => process.stdout.write(`${JSON.stringify(ev)}\n`);
-if (args[0] === '--version') console.log('codex-cli 0.0.0-fake');
+// 版本号要不低于联合群文件夹档要求的 0.165.0（lib/joint-discussion.js 的 jointFolderVersionSupported），
+// 要测「版本太旧」就设 FAKE_CODEX_VERSION
+if (args[0] === '--version') console.log(`codex-cli ${process.env.FAKE_CODEX_VERSION || '0.165.0'}-fake`);
 else if (args[0] === 'login') {
   if (process.env.FAKE_CODEX_LOGGED_OUT) { console.error('Not logged in'); process.exitCode = 1; }
   else console.log('Logged in using ChatGPT (fake)');
@@ -14,7 +16,9 @@ else if (args[0] === 'login') {
   // （旧版会悄悄忽略未知 feature）。清单要和 lib/joint-discussion.js 的 JOINT_CODEX_CONFIG 保持同步。
   const feats = ['shell_tool', 'view_image', 'multi_agent', 'apps', 'plugins', 'remote_plugin', 'memories',
     'hooks', 'goals', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode', 'code_mode_host',
-    'code_mode_only', 'request_permissions_tool', 'skill_search'];
+    'code_mode_only', 'request_permissions_tool', 'skill_search',
+    // 文件夹档另外要求的：受管网络代理
+    'network_proxy'];
   const missing = new Set((process.env.FAKE_CODEX_MISSING_FEATURES || '').split(',').filter(Boolean));
   for (const f of feats.filter((f) => !missing.has(f))) console.log(`${f}  enabled`);
 }

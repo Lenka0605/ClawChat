@@ -7,7 +7,7 @@ import { tr, setLang, getLang } from '../lib/i18n.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOCALES = path.join(ROOT, 'public', 'locales');
-const SOURCES = ['public/app.js', 'server.js', 'lib/hub.js', 'lib/store.js', 'lib/updater.js', 'lib/agents.js', 'lib/gemini.js', 'lib/antigravity.js', 'lib/providers.js', 'lib/cursor.js'];
+const SOURCES = ['public/app.js', 'server.js', 'lib/hub.js', 'lib/store.js', 'lib/updater.js', 'lib/agents.js', 'lib/gemini.js', 'lib/antigravity.js', 'lib/providers.js', 'lib/cursor.js', 'lib/joint-files.js', 'lib/joint-files-routes.js', 'lib/joint-biometric.js'];
 
 function loadDict(lang) {
   const dir = path.join(LOCALES, lang);

@@ -42,6 +42,37 @@ const makeFile = (content, name = 'a.txt') => {
 };
 
 describe('传文件路由：本机界面', () => {
+  test('Touch ID 登记、出挑战只认电脑窗口；同一把钥匙重复登记只提示一次', async () => {
+    const kp = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const jwk = kp.publicKey.export({ format: 'jwk' });
+    const pub = Buffer.concat([Buffer.from([0x04]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+    const phone = (parts, body) => new Promise((resolve) => {
+      files.api({ url: 'http://local/x', method: 'POST', headers: { 'x-forwarded-for': '10.0.0.1', host: 'fake.ts.net' } }, {}, { parts, method: 'POST', send: (r, status, obj) => resolve({ status, obj }), readBody: async () => body })
+        .catch((e) => resolve({ status: e.status || 500, obj: { error: e.message } }));
+    });
+    const keyFile = path.join(HOME, 'joint-biometric.json');
+    // 手机来源：登记、出挑战都 403，也没落下登记记录
+    assert.equal((await phone(['biometric-enroll'], { pub })).status, 403);
+    assert.equal(fs.existsSync(keyFile), false);
+    assert.equal((await phone(['biometric-challenge'], { hash: 'aa'.repeat(32), toNode: 'node-b' })).status, 403);
+    // 本机电脑窗口直连但 Host 被改成别的（经代理转进来）也拒绝
+    const proxied = await new Promise((resolve) => {
+      files.api({ url: 'http://local/x', method: 'POST', headers: { host: 'fake.ts.net' } }, {}, { parts: ['biometric-enroll'], method: 'POST', send: (r, status, obj) => resolve({ status, obj }), readBody: async () => ({ pub }) })
+        .catch((e) => resolve({ status: e.status || 500, obj: { error: e.message } }));
+    });
+    assert.equal(proxied.status, 403);
+    // 电脑窗口：第一次登记弹提示；外壳下次启动再来同一把，200 但不再弹
+    const before = hubEvents.filter((e) => e.type === 'joint-biometric-enrolled').length;
+    const r1 = await api(['biometric-enroll'], { pub });
+    assert.equal(r1.status, 200);
+    assert.equal(r1.obj.enrolled, true);
+    const r2 = await api(['biometric-enroll'], { pub });
+    assert.equal(r2.status, 200);
+    assert.equal(r2.obj.enrolled, false);
+    assert.equal(hubEvents.filter((e) => e.type === 'joint-biometric-enrolled').length - before, 1, '两次登记只弹一次提示');
+    fs.rmSync(keyFile, { force: true }); // 别影响后面按输文件名走的用例
+  });
+
   test('快照+确认：普通文件进待取区，事件通知对方来拉', async () => {
     const src = makeFile('普通文件内容'.repeat(10));
     const snap = await createSnapshot(src, STAGING);
@@ -93,6 +124,27 @@ describe('传文件路由：本机界面', () => {
     const r3 = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: 999, name: s.obj.name, toNode: 'node-b' });
     assert.equal(r3.status, 400);
     assert.match(r3.obj.error, /不一致|重新选择/);
+  });
+
+  test('登记过指纹公钥的电脑：secret 必须带签名，输文件名这条路关掉（组长定的规则）', async () => {
+    // 手动登记一个公钥（模拟这台电脑之前按过指纹）
+    const kp = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const jwk = kp.publicKey.export({ format: 'jwk' });
+    const pub = Buffer.concat([Buffer.from([0x04]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+    fs.writeFileSync(path.join(HOME, 'joint-biometric.json'), JSON.stringify({ pub }), { mode: 0o600 });
+    const src = makeFile('-----BEGIN PRIVATE KEY-----\nabc', '登记后.key');
+    const s2 = await api(['snapshot'], { path: src });
+    // 不带签名：拒绝
+    const r1 = await api(['approve'], { roomId: 'room1', staging: s2.obj.staging, hash: s2.obj.hash, size: s2.obj.size, name: s2.obj.name, toNode: 'node-b' });
+    assert.equal(r1.status, 403);
+    assert.match(r1.obj.error, /指纹/);
+    // 带真签名：放行
+    const ch = (await api(['biometric-challenge'], { hash: s2.obj.hash, toNode: 'node-b' })).obj;
+    const sig = crypto.sign('sha256', Buffer.from(ch.message, 'utf8'), kp.privateKey).toString('base64url');
+    const r2 = await api(['approve'], { roomId: 'room1', staging: s2.obj.staging, hash: s2.obj.hash, size: s2.obj.size, name: s2.obj.name, toNode: 'node-b', auth: { message: ch.message, pub, sig } });
+    assert.equal(r2.status, 200);
+    // 清掉登记，不影响后面的测试
+    fs.rmSync(path.join(HOME, 'joint-biometric.json'), { force: true });
   });
 
   test('收件箱列表和「在访达里显示」的位置检查', async () => {

@@ -89,6 +89,41 @@ test('Claude 只读和分身：硬工具白名单、配置隔离、禁用 hooks 
   assert.ok(claudeArgs({ permission: 'full' }, null, '', null, false, 'fake').includes('--dangerously-skip-permissions'));
 });
 
+test('Claude 项目内：不继承旧写权限，附件和完整历史保留读取但不能变成额外写目录', { skip: process.platform === 'win32' }, () => {
+  const uploads = path.join(root, 'room', 'uploads');
+  const transcripts = path.join(root, 'room', 'transcripts');
+  for (const dir of [uploads, transcripts]) fs.mkdirSync(dir, { recursive: true });
+  const args = claudeArgs({ cwd: root, permission: 'project' }, 'kept-session', '原群规', uploads, false, 'fake-model');
+  const value = (flag) => args[args.indexOf(flag) + 1];
+  assert.ok(args.includes('--restricted'));
+  assert.equal(value('--setting-sources'), '');
+  assert.equal(value('--permission-mode'), 'acceptEdits');
+  assert.equal(value('--resume'), 'kept-session');
+  assert.match(value('--append-system-prompt'), /原群规/);
+  assert.match(value('--append-system-prompt'), /AGENTS\.md/);
+  assert.match(value('--append-system-prompt'), /MEMORY\.md/);
+  assert.ok(value('--tools').split(',').includes('Bash'));
+  assert.ok(value('--tools').split(',').includes('Write'));
+  assert.ok(!value('--tools').split(',').includes('Agent'));
+  assert.equal(value('--disallowedTools'), 'mcp__*');
+  assert.deepEqual(JSON.parse(value('--mcp-config')), { mcpServers: {} });
+  assert.ok(args.includes('--disable-slash-commands'));
+  const settings = JSON.parse(value('--settings'));
+  assert.equal(settings.disableAllHooks, true);
+  assert.equal(settings.sandbox.enabled, true);
+  assert.equal(settings.sandbox.failIfUnavailable, true);
+  assert.equal(settings.sandbox.allowUnsandboxedCommands, false);
+  assert.deepEqual(settings.sandbox.excludedCommands, []);
+  assert.ok(settings.sandbox.network.allowedDomains.includes('registry.npmjs.org'));
+  for (const dir of [uploads, transcripts]) {
+    assert.ok(args.some((s, i) => s === '--add-dir' && args[i + 1] === dir));
+    for (const canonical of [path.resolve(dir), fs.realpathSync(dir)]) {
+      assert.ok(settings.sandbox.filesystem.denyWrite.includes(canonical));
+      for (const tool of ['Write', 'Edit', 'NotebookEdit']) assert.ok(settings.permissions.deny.includes(`${tool}(/${canonical}/**)`));
+    }
+  }
+});
+
 test('AI 环境：经过真实启动入口，八位成员和订阅 Gemini 均收不到别家的假凭据', async () => {
   await ensureApiBridge();
   for (const agent of ['claude', 'deepseek', 'glm', 'api', 'gpt', 'grok', 'cursor', 'gemini']) {

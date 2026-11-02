@@ -74,4 +74,4 @@ for item in "A:$A_PORT" "B:$B_PORT"; do
   fi
 done
 [ "$ok" = 1 ] && echo "两个实例都在，可以开始联调（双方互访地址就是上面两个）"
-exit $ok
+exit $((1 - ok)) # ok=1 表示都在，退出码要是 0

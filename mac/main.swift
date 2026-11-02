@@ -1,4 +1,5 @@
 import Cocoa
+import LocalAuthentication
 import UniformTypeIdentifiers
 import UserNotifications
 import WebKit
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenu()
+        enrollBiometricKey() // 启动就登记指纹钥匙，别给本机程序抢先进册的空档
         UNUserNotificationCenter.current().delegate = self
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "clawchat")
@@ -280,7 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 }
             }
         case "capabilities":
-            self.webView.evaluateJavaScript("window.__clawchatCapabilities({pickFile:true})")
+            // 只有这台 Mac 现在真能按指纹（有传感器、录过指纹、没被锁）才报 biometric；
+            // 报了网页就走 Touch ID，没报才可能退回输文件名（服务端对已登记的电脑仍会拒绝降级）
+            let bio = self.biometricAvailable() ? "true" : "false"
+            self.webView.evaluateJavaScript("window.__clawchatCapabilities({pickFile:true, biometric:\(bio)})")
         case "pickFile":
             let id = body["id"] as? String ?? ""
             let panel = NSOpenPanel()
@@ -296,8 +301,153 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     self.webView.evaluateJavaScript("window.__clawchatPicked(...\(json))")
                 }
             }
+        case "biometricSign":
+            let id = body["id"] as? String ?? ""
+            let payload = body["payload"] as? String ?? ""
+            self.biometricSign(id: id, payload: payload)
         default:
             break
+        }
+    }
+
+    // 启动时把 Secure Enclave 钥匙的公钥登记给服务端（没有就生成）。
+    // 生成和登记都不需要按指纹，但签名必须按——所以登记早一点也不降低安全。
+    func enrollBiometricKey() {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.5) {
+            // 用不了指纹的 Mac 不生成、不登记：钥匙的门槛是「当前录入的指纹」，没指纹登记了也签不出来，
+            // 反而会把这台电脑锁进「必须按指纹」而按不了的状态
+            guard self.biometricAvailable() else { return }
+            guard let priv = self.biometricPrivateKey(), let pub = self.publicKeyBase64(of: priv) else { return }
+            var req = URLRequest(url: URL(string: "http://127.0.0.1:\(self.port)/api/joint/files/biometric-enroll")!)
+            req.httpMethod = "POST"
+            req.setValue("1", forHTTPHeaderField: "X-ClawChat")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["pub": pub])
+            URLSession.shared.dataTask(with: req) { _, resp, _ in
+                // 409 = 这台电脑已经被别的钥匙登记过（不是这次启动登记的）。不能悄悄失败，要弹给老板看
+                if let http = resp as? HTTPURLResponse, http.statusCode == 409 {
+                    DispatchQueue.main.async {
+                        self.notify(title: L("Touch ID", "Touch ID"),
+                            text: L("这台电脑的 Touch ID 钥匙已被登记过，不是这次启动登记的；如果不是你自己做的，请删除 ~/.clawchat/joint-biometric.json 后重启 ClawChat",
+                                    "This Mac's Touch ID key was already enrolled, not by this launch. If you did not do this, delete ~/.clawchat/joint-biometric.json and restart ClawChat"),
+                            key: "biometric-enroll-409")
+                    }
+                }
+            }.resume()
+        }
+    }
+
+    // 这台 Mac 现在能不能按指纹：有 Touch ID、录过指纹、没有因为输错太多次被锁
+    func biometricAvailable() -> Bool {
+        var err: NSError?
+        return LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err)
+    }
+
+    // 取（或生成）指纹钥匙：Secure Enclave 里不可导出的 EC256，按 tag 从钥匙串查（kSecClassKey）
+    func biometricPrivateKey() -> SecKey? {
+        let tag = "com.clawchat.biometric".data(using: .utf8)!
+        let find: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrApplicationTag as String: tag,
+            kSecReturnRef as String: true,
+        ]
+        var item: CFTypeRef?
+        if SecItemCopyMatching(find as CFDictionary, &item) == errSecSuccess, let found = item {
+            return (found as! SecKey)
+        }
+        // 没有就生成：必须按指纹才能用、不可导出
+        let acl = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.privateKeyUsage, .biometryCurrentSet], nil)
+        let make: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+            kSecAttrIsPermanent as String: true,
+            kSecAttrApplicationTag as String: tag,
+            kSecAttrAccessControl as String: acl as Any,
+        ]
+        return SecKeyCreateRandomKey(make as CFDictionary, nil)
+    }
+
+    // 从私钥导出公钥（65 字节原始点 0x04||X||Y 的 base64url）——必须来自同一把私钥
+    func publicKeyBase64(of priv: SecKey) -> String? {
+        guard let pub = SecKeyCopyPublicKey(priv) else { return nil }
+        guard let raw = SecKeyCopyExternalRepresentation(pub, nil) as Data? else { return nil }
+        return raw.base64EncodedString()
+    }
+
+    // 按指纹确认传私钥类文件：钥匙串里一把只在按指纹时可用的 Secure Enclave 私钥，
+    // 网页把服务端出的确认串交给外壳，外壳弹出 Touch ID，签好把签名和公钥还给网页。
+    // AI 就算能调本机接口，没有老板的指纹也签不出来。
+    func biometricSign(id: String, payload: String) {
+        // 只认指纹，不退设备密码：钥匙的门槛是 biometryCurrentSet，密码解不开它，退了也签不出来。
+        // 认证上下文贯穿钥匙操作，保证这次签名确实走过了这次指纹认证
+        let ctx = LAContext()
+        ctx.localizedReason = L("确认发送私钥类文件", "Confirm sending a sensitive file")
+        var evalError: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &evalError) else {
+            self.replyBiometric(id: id, dict: ["ok": false, "error": L("这台 Mac 现在用不了 Touch ID（没录指纹或被锁定了），请先在系统设置里恢复", "Touch ID is not available on this Mac right now (no fingerprint enrolled, or locked out). Please restore it in System Settings first")])
+            return
+        }
+        ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: ctx.localizedReason) { ok, authError in
+            guard ok else {
+                let text = authError.map { ($0 as NSError).localizedDescription } ?? L("没有通过指纹确认", "Not confirmed")
+                self.replyBiometric(id: id, dict: ["ok": false, "error": text])
+                return
+            }
+            // 取（或生成）钥匙；把这次的认证上下文带进钥匙操作
+            let tag = "com.clawchat.biometric".data(using: .utf8)!
+            let find: [String: Any] = [
+                kSecClass as String: kSecClassKey,
+                kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+                kSecAttrApplicationTag as String: tag,
+                kSecReturnRef as String: true,
+                kSecUseAuthenticationContext as String: ctx,
+            ]
+            var item: CFTypeRef?
+            var priv: SecKey?
+            if SecItemCopyMatching(find as CFDictionary, &item) == errSecSuccess, let found = item {
+                priv = (found as! SecKey)
+            }
+            if priv == nil {
+                let acl = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                    [.privateKeyUsage, .biometryCurrentSet], nil)
+                let make: [String: Any] = [
+                    kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+                    kSecAttrKeySizeInBits as String: 256,
+                    kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+                    kSecAttrIsPermanent as String: true,
+                    kSecAttrApplicationTag as String: tag,
+                    kSecAttrAccessControl as String: acl as Any,
+                    kSecUseAuthenticationContext as String: ctx,
+                ]
+                priv = SecKeyCreateRandomKey(make as CFDictionary, nil)
+            }
+            guard let key = priv else {
+                self.replyBiometric(id: id, dict: ["ok": false, "error": L("取不到指纹钥匙", "Key unavailable")])
+                return
+            }
+            guard let sig = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, Data(payload.utf8) as CFData, nil) as Data? else {
+                self.replyBiometric(id: id, dict: ["ok": false, "error": L("签名失败", "Signing failed")])
+                return
+            }
+            // 公钥必须来自刚才签名用的那一把（不能另查一把）
+            guard let pub64 = self.publicKeyBase64(of: key) else {
+                self.replyBiometric(id: id, dict: ["ok": false, "error": L("取不到公钥", "Public key unavailable")])
+                return
+            }
+            self.replyBiometric(id: id, dict: ["ok": true, "sig": sig.base64EncodedString(), "pub": pub64])
+        }
+    }
+
+    func replyBiometric(id: String, dict: [String: Any]) {
+        var full = dict
+        full["id"] = id
+        guard let data = try? JSONSerialization.data(withJSONObject: full), let json = String(data: data, encoding: .utf8) else { return }
+        // evaluatePolicy 的完成回调在后台线程，WebKit 只能在主线程调
+        DispatchQueue.main.async {
+            self.webView.evaluateJavaScript("window.__clawchatBiometric(\(json))")
         }
     }
 

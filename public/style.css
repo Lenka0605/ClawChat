@@ -1913,7 +1913,7 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .joint-line .joint-chip { padding: 0 3px; }
   .joint-line .joint-chip-name { display: none; } /* 手机上名字藏起来，只留头像，角标区分是谁家的 */
   /* 联合群弹窗的按钮靠右，和电脑上一致（手机上 spacer 被隐藏了） */
-  #dlg-joint-create .dlg-actions, #dlg-joint-join .dlg-actions, #dlg-joint-invite .dlg-actions,
+  #dlg-joint-create .dlg-actions, #dlg-joint-join .dlg-actions, #dlg-joint-invite .dlg-actions, #dlg-joint-action .dlg-actions, #dlg-joint-want-file .dlg-actions,
   #dlg-joint-approve .dlg-actions, #dlg-joint-file .dlg-actions, #dlg-joint-inbox .dlg-actions { justify-content: flex-end; }
   .joint-actions { gap: 10px; }
   .joint-actions .danger-text { margin-left: 0; flex: 1 1 100%; text-align: left; }
@@ -1949,3 +1949,43 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 #chat.can-mention .msg.user.peer-user .mention:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .msg.user.peer-user .msg-actions { justify-content: flex-start; }
 .msg.user.peer-user .msg-images { justify-content: flex-start; }
+
+/* ---------- 联合群第二期：每位 AI 的权限、动手审批 ---------- */
+.joint-policy-head { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 7px; flex-wrap: wrap; }
+.joint-policy-head b { font-size: 12.5px; color: var(--text); font-weight: 600; }
+.joint-policy-head small { font-size: 11px; color: var(--muted); }
+.joint-policy-list { display: grid; gap: 7px; }
+.joint-policy-row { display: grid; gap: 7px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--fill); }
+.joint-policy-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.joint-policy-top .avatar { width: 26px; height: 26px; border-radius: 7px; flex: none; }
+.joint-policy-name { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.joint-policy-name b { font-size: 12.5px; font-weight: 600; }
+.joint-policy-name small { font-size: 10.5px; color: var(--muted); }
+.joint-level { display: flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--glass); }
+.joint-level button { height: 23px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 11px; }
+.joint-level button.on { background: var(--card, var(--bg)); color: var(--text); box-shadow: 0 .5px 1.5px rgba(0,0,0,.12); }
+.joint-level button:disabled { opacity: .38; }
+.joint-policy-folder { display: flex; align-items: center; gap: 6px; margin-left: 34px; min-width: 0; }
+.joint-policy-folder .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px var(--mono); color: var(--muted); background: var(--fill); border-radius: 6px; padding: 3px 7px; }
+.joint-policy-folder .pick { border: 0; background: none; color: var(--accent); font-size: 10.5px; padding: 0 2px; flex: none; }
+.joint-policy-folder .none { font-size: 10.5px; color: var(--faint); }
+.joint-confirm-row { align-items: flex-start; margin-top: 10px; flex-wrap: nowrap; }
+.joint-confirm-row .switch { margin-left: auto; }
+.joint-confirm-row > span { flex: 1; display: grid; gap: 2px; }
+.joint-confirm-row small { font-size: 11px; color: var(--muted); font-weight: 400; line-height: 1.45; }
+.joint-confirm-row .switch { flex: none; margin-top: 1px; }
+.joint-action-quote { margin-bottom: 10px; }
+.joint-folder-card { display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--fill); }
+.joint-folder-card .joint-file-icon { width: 32px; height: 32px; flex: none; }
+.joint-folder-card b { display: block; font-size: 12.5px; word-break: break-all; }
+.joint-folder-card small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.joint-action-meta { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
+.joint-action-meta b { font-size: 12.5px; color: var(--text); }
+
+.joint-touchid { display: grid; justify-items: center; gap: 4px; padding: 13px 14px 12px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 13px; background: linear-gradient(180deg, var(--accent-soft), transparent); }
+.joint-touchid svg { width: 40px; height: 40px; color: var(--accent); opacity: .92; }
+.joint-touchid b { font-size: 13px; }
+.joint-touchid small { font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.45; }
+
+#dlg-joint-want-file .form-row.block { display: block; }
+#dlg-joint-want-file textarea { width: 100%; min-height: 84px; }

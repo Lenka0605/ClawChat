@@ -25,7 +25,8 @@ const PROJECTS_DIR = path.join(os.homedir(), 'ClawChatProjects');
 setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群里的提示也用它）
 const store = new Store();
 // 联合群里对方的成员（remote）不在本机跑：交给联合群的任务队列，由对方的 ClawChat 来领
-const hub = new Hub(store, { run: (id, opts) => (AGENTS[id]?.remote ? joint.host.run(id, opts) : runAgent(id, opts)) });
+// 联合群里本机的 AI 走 joint.guarded：按老板定的权限档跑，对方叫它动手前先问老板
+const hub = new Hub(store, { run: (id, opts) => (AGENTS[id]?.remote ? joint.host.run(id, opts) : opts.room?.joint ? joint.guarded(opts.room.id, id, opts, opts.messages) : runAgent(id, opts)) });
 const clients = new Set();
 const remoteClients = new Set(); // 其中从手机（经 Tailscale）连进来的：关掉手机访问时马上断开
 const joint = setupJoint({ store, hub, runAgent, port: PORT, appVersion: JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version, publicHost });
@@ -913,7 +914,7 @@ async function api(req, res, url, access = 'local') {
     const room = store.getRoom(parts[1]);
     if (!room) return send(res, 404, { error: tr('群聊不存在') });
     const sub = parts[2];
-    if (sub === 'joint' && room.joint) return joint.roomApi(req, res, room, parts[3], method, { send });
+    if (sub === 'joint' && room.joint) return joint.roomApi(req, res, room, parts[3], method, { send, readBody });
     // 加入方的联合群是主持方那边的镜像：发言交给主持方，停止只停自己这边的 AI；别的操作（换会话、改成员…）都不在这里做
     if (joint.isGuest(room)) {
       if (sub === 'messages' && method === 'POST') {

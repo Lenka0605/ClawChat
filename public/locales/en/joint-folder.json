@@ -1,0 +1,9 @@
+{
+  "联合群文件夹沙盒未能准备，已停止": "The shared-folder sandbox could not be prepared. The task has stopped.",
+  "请重新选择要共享的文件夹": "Please select the shared folder again.",
+  "联合群文件夹档需要更新 {name}，请到「设置 → 程序与模型」更新后再试": "Shared-folder mode requires a newer {name}. Update it in Settings → Programs & models, then try again.",
+  "Codex 不支持联合群所需的安全开关，请先更新 Codex": "Codex does not support the required joint-room safety controls. Please update Codex.",
+  "联合群的 MCP 无法关闭，已停止；请检查 Codex 的托管设置": "MCP could not be disabled for this joint room. The task has stopped; check Codex managed settings.",
+  "这一轮已完成，但联合群会话索引未能保存；请检查磁盘后恢复记录，不要重复执行": "This turn completed, but its joint-room session index could not be saved. Check the disk and restore the record; do not run the task again.",
+  "联合群授权已改变，请重新发起任务": "Joint-room permissions have changed. Please submit the task again."
+}

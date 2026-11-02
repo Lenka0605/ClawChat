@@ -1,0 +1,8 @@
+{
+  "请选一个文件夹": "Please choose a folder",
+  "找不到这个文件夹": "Can't find this folder",
+  "不能把整个电脑或整个用户目录交出去，请选一个具体的项目文件夹": "You can't hand over the whole computer or your whole home folder. Choose a specific project folder.",
+  "这个文件夹里有登录凭据或 ClawChat 自己的数据，不能交给联合群": "This folder holds login credentials or ClawChat's own data, so it can't be shared with a joint chat",
+  "{name} 还不能在联合群里动手（这家 AI 还没验收过），只能讨论": "{name} can't work on files in joint chats yet (not verified for this AI), so it can only discuss",
+  "这个请求已经过期了": "This request has expired"
+}

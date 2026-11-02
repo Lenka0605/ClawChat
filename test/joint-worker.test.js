@@ -54,6 +54,8 @@ test('结果丢回执后只重交结果，重启也不会重复叫 AI', async (t
   let ran = 0, fail = true;
   const options = { runAgent: (_, opts) => {
     ran++; assert.equal(opts.room.permission, 'readonly'); assert.equal(opts.room.jointDiscussion, true);
+    assert.deepEqual(opts.jointContext, job.context);
+    assert.equal(opts.jointRemoteTask, true, '主持方给的 from/node 不能作为本机老板授权的证明');
     assert.notEqual(opts.room.cwd, '/remote/path'); assert.equal(opts.session, null);
     return { done: Promise.resolve({ ok: true, text: '完成', session: 'joint-session' }), kill() {} };
   }, fetchImpl: async (url) => {

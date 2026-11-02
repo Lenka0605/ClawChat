@@ -136,5 +136,9 @@
   "这台电脑没装 Android SDK，打不了安卓 App": "Android SDK isn't installed on this computer, so the Android app can't be built",
   "Claude Code 版本太旧，只读和分身用不了。请到「设置 → 程序与模型」里点 Claude Code 的「更新」（需要 2.1.248 以上）": "Claude Code is too old for read-only and side sessions. Go to Settings → Engines & Models and click Update next to Claude Code (needs 2.1.248 or later).",
   "选择要发送的文件": "Choose a file to send",
-  "手机上选不了文件，请回到电脑上操作": "Files can't be picked on a phone; please use the computer"
+  "手机上选不了文件，请回到电脑上操作": "Files can't be picked on a phone; please use the computer",
+  "这台电脑已启用指纹确认，请按指纹后重试": "Touch ID is enabled on this computer; confirm with your fingerprint and try again",
+  "指纹钥匙的格式不对": "The Touch ID key format is invalid",
+  "对方还没有加入": "The other side hasn't joined yet",
+  "对方老板改了权限，这一轮没开工": "The other owner changed the permissions, so this turn didn't start"
 }

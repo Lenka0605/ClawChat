@@ -117,3 +117,12 @@
 - @：可以 @ 两边任何一位，写全名 `@Claude·小王`、`@Claude·Lenka`。发送时 `mentions` 传完整成员 key（加入方的发言，主持方以 `mentions` 为准）。
 - 测试模式：`CLAWCHAT_JOINT_TEST=1` + `CLAWCHAT_JOINT_TEST_LOGIN=<假账号>`，邀请码写本机 http 地址、本机请求带 `x-clawchat-test-login` 当 Tailscale 账号。不开就一律不认。
 - 第一期不支持：和对方 AI 私聊、改对方 AI 的模型/思考档（模型菜单只列自己这边的）、联合群里的分身。
+
+## 第二期：权限档和动手前的审批（Claude，`lib/joint-policy.js`）
+
+- 每位老板只给**自己这边**的 AI 定档，存在本机群设置 `room.joint.policy[agentId] = { level:'discuss'|'folder', folder, confirm }`，不发给对方。
+- `folder` 档只对验收过的引擎开放：`lib/joint-discussion.js` 导出 `JOINT_FOLDER_ENGINES`（引擎名数组，ChatGPT 验收后填），没有就一家都不开放。文件夹不能是根目录、整个用户目录、凭据目录（.ssh/.aws/.claude/.codex/钥匙串）、ClawChat 数据目录。
+- 本机 AI 在联合群里每一轮都过 `policy.guard(runAgent, room, agentId, opts, messages)`：给 `opts.room` 加上 `jointDiscussion: true` 和 `jointMode: 'discuss'|'folder'`（folder 时再加 `jointFolder`）。**真正的限制由 runAgent 按 `jointMode`/`jointFolder` 落实**（ChatGPT）。
+- 要不要先问老板：这一轮看到的消息里只要有不是本机老板自己发的（对方老板、对方 AI、接力），且 `confirm` 开着，就先弹审批：事件 `{ type:'joint-approval', approvalId, roomId, agentId, name, folder, from, text }`；老板 `POST /api/joint/approvals/:id { approve }`；`GET /api/joint/approvals` 补查。同意 → folder 档；不同意、10 分钟没点、等的时候被停 → 只讨论。结束时推 `{ type:'joint-approval-done', approvalId, approved }`。
+- 加入方：worker 调 runAgent 时请带上 `jointContext: job.context`（用里面的公开消息判断要不要问；没带就一律当成要问）。
+- 本机接口：`GET/PUT /api/rooms/:id/joint/policy`，PUT 正文 `{ agents: { claude: { level:'folder', folder:'/abs', confirm:true } } }`，返回 `{ engines, agents:{ id:{ level, folder, confirm, available } } }`。
