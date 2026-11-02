@@ -6978,6 +6978,16 @@ function syncJointMembers() {
   for (const room of S.rooms || []) for (const m of room.jointMembers || []) if (m?.key) S.jointMembers[m.key] = m;
 }
 
+// 输入框上面那一排 @ 按钮：真放不下（能横着滑）时才在右边淡出，放得下就不淡
+(() => {
+  const tools = $('#group-tools');
+  if (!tools || typeof ResizeObserver === 'undefined') return;
+  const fit = () => tools.classList.toggle('overflowing', tools.scrollWidth > tools.clientWidth + 1);
+  new ResizeObserver(fit).observe(tools);
+  new MutationObserver(fit).observe(tools, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
+  fit();
+})();
+
 // 群标题下面那一条：对方老板在线状态、对方成员、讨论档、邀请入口
 // 输入框上面那一排 @ 按钮：联合群里把对方的成员也补上（自己的成员本来就有）
 function syncJointMentionChips(room) {

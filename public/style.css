@@ -2082,3 +2082,51 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop { min-height: 36px; padding: 0 14px; }
   #room-head .icon-btn { border-radius: 50%; }
 }
+
+/* ---------- 自适应：窗口窄、手机上不挤、不竖排 ---------- */
+/* 干活卡片：按钮里的字永远一行；放不下时整排按钮换到下一行，「停止」靠右 */
+.live-head { flex-wrap: wrap; row-gap: 8px; }
+.live-head:has(> .live-stop) > span:nth-child(2) { flex: 1 1 0; min-width: 7.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop {
+  white-space: nowrap; flex: none; height: 28px; padding: 0 12px; font-size: 12px; line-height: 28px;
+}
+.live-head .live-fresh-mini { margin-left: 0; }
+.live-head .live-stop { margin-left: auto; }
+.live-head .live-fresh-mini + .live-stop { margin-left: 8px; }
+/* 输入框上面那一排：@ 按钮放不下就在自己那一段里横着滑（右边淡出），「不 @ 时」和「停止 xx」不被挤扁 */
+#group-tools { display: inline-flex; gap: 6px; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#group-tools.overflowing { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+#group-tools::-webkit-scrollbar { display: none; }
+#group-tools > * { flex: none; }
+.composer-tools .target, #stop-controls { flex: none; }
+.stop-controls .chip { white-space: nowrap; flex: none; }
+/* 弹窗中间滚动的那块：只能上下滚，不出横向滚动条（有的安卓浏览器会把竖滚动条的宽度也算进去） */
+.sheet-body { overflow-x: hidden; }
+
+/* 卡片窄的时候（手机、电脑窗口拉窄）：第一行「正在干活 · 时间」，最右边是「停止」；第二行「展开过程」「换新会话」。
+   按卡片自己的宽度判断，不按屏幕宽度 */
+.msg.live .msg-body { container: live / inline-size; }
+@container live (max-width: 520px) {
+  /* 只排真正在干活的卡片（有「停止」的）；排队卡片「去看看」照旧一行 */
+  .live-head:has(> .live-stop) { row-gap: 0; }
+  .live-head:has(> .live-stop) > .typing { order: 0; }
+  .live-head:has(> .live-stop) > span:nth-child(2) { order: 1; flex: 1 1 0; }
+  .live-head .live-stop, .live-head .live-fresh-mini + .live-stop { order: 2; margin-left: 8px; }
+  .live-head:has(> .live-stop)::after { content: ""; order: 3; flex-basis: 100%; height: 0; }
+  .live-head .live-toggle, .live-head .live-fresh-mini { order: 4; margin-left: 0; margin-top: 8px; }
+}
+
+@media (max-width: 600px) {
+  .live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop { min-height: 0; height: 34px; line-height: 34px; padding: 0 14px; font-size: 13px; }
+  .sheet-body { scrollbar-width: none; }
+  .sheet-body::-webkit-scrollbar { display: none; }
+  /* 删除 / 清空：两颗一样宽的玻璃按钮、红字，不再是两行裸文字 */
+  .danger-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .danger-actions .danger-text {
+    position: relative; isolation: isolate; height: 40px; min-height: 40px; border-radius: 999px; text-align: center;
+    background: var(--lg-sheen), var(--lg-fill); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+    box-shadow: var(--lg-rim), 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .danger-actions .danger-text[hidden] { display: none; }
+  .danger-actions:has(.danger-text[hidden]) { grid-template-columns: 1fr; }
+}
