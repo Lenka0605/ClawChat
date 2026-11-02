@@ -1989,3 +1989,96 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 
 #dlg-joint-want-file .form-row.block { display: block; }
 #dlg-joint-want-file textarea { width: 100%; min-height: 84px; }
+
+/* ---------- 液态玻璃按钮（照 Apple 的 Liquid Glass）----------
+   三层叠起来：底下一层半透明的玻璃（背景模糊 + 提饱和度），中间一层从上往下变淡的高光，
+   外面一圈斜着打过来的边缘反光（左上亮、右下弱，用 ::before 画，不占布局）。
+   有颜色的按钮（发送、停止）是「染了色的玻璃」，不是实色块。 */
+:root {
+  --lg-fill: rgba(255, 255, 255, 0.46);
+  --lg-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.14) 48%, rgba(255, 255, 255, 0.04) 100%);
+  --lg-rim: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.45), inset 0 0 0 0.5px rgba(0, 0, 0, 0.07);
+  --lg-depth: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px rgba(0, 0, 0, 0.09);
+  --lg-edge: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.1) 38%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.55));
+  --lg-blur: blur(18px) saturate(200%) brightness(1.04);
+  --lg-press: rgba(255, 255, 255, 0.7);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --lg-fill: rgba(118, 118, 128, 0.2);
+    --lg-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.015) 100%);
+    --lg-rim: inset 0 1px 0.5px rgba(255, 255, 255, 0.3), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.08), inset 0 0 0 0.5px rgba(255, 255, 255, 0.09);
+    --lg-depth: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.38);
+    --lg-edge: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.22));
+    --lg-blur: blur(18px) saturate(180%) brightness(1.08);
+    --lg-press: rgba(140, 140, 150, 0.32);
+  }
+}
+:root[data-theme="dark"] {
+  --lg-fill: rgba(118, 118, 128, 0.2);
+  --lg-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.015) 100%);
+  --lg-rim: inset 0 1px 0.5px rgba(255, 255, 255, 0.3), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.08), inset 0 0 0 0.5px rgba(255, 255, 255, 0.09);
+  --lg-depth: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.38);
+  --lg-edge: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.22));
+  --lg-blur: blur(18px) saturate(180%) brightness(1.08);
+  --lg-press: rgba(140, 140, 150, 0.32);
+}
+
+.round-btn, .send-btn, #room-head .model-chip, #room-head .model-more, #room-head .icon-btn, #room-head .dm-more,
+.live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop {
+  position: relative; isolation: isolate;
+  background: var(--lg-sheen), var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+  box-shadow: var(--lg-rim), var(--lg-depth);
+  transition: transform 0.18s cubic-bezier(0.3, 1.5, 0.6, 1), background 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.round-btn::before, .send-btn::before, #room-head .model-chip::before, #room-head .model-more::before, #room-head .icon-btn::before, #room-head .dm-more::before,
+.live-head .live-toggle::before, .live-head .live-fresh-mini::before, .live-head .live-stop::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: -1;
+  background: var(--lg-edge);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.round-btn:hover, #room-head .model-chip:hover, #room-head .model-chip.open, #room-head .icon-btn:hover, #room-head .dm-more:hover,
+.live-head .live-toggle:hover, .live-head .live-fresh-mini:hover {
+  background: var(--lg-sheen), var(--lg-press);
+}
+/* 按下去：像果冻一样微微缩一下，松手弹回来 */
+.round-btn:active, .send-btn:active:not(:disabled), #room-head .model-chip:active, #room-head .icon-btn:active,
+.live-head button:active { transform: scale(0.92); }
+
+/* 发送：染蓝的玻璃；没字时不是变灰的实心块，而是一块空玻璃，箭头淡一点 */
+.send-btn {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.06) 52%, rgba(255, 255, 255, 0) 100%), rgba(0, 122, 255, 0.82);
+  box-shadow: var(--lg-rim), 0 1px 2px rgba(0, 0, 0, 0.12), 0 6px 18px rgba(0, 122, 255, 0.32);
+}
+.send-btn:hover:not(:disabled) { background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.08) 52%, rgba(255, 255, 255, 0) 100%), rgba(0, 122, 255, 0.92); }
+.send-btn:disabled { opacity: 1; color: var(--faint); background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), var(--lg-depth); }
+/* 停止：和旁边按钮一样的玻璃，只有中间的方块是红的（老板 2026-11-03 选的） */
+.send-btn.stopping, .send-btn.stopping:hover:not(:disabled) {
+  color: var(--danger); filter: none;
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim), var(--lg-depth);
+}
+.send-btn.stopping:hover:not(:disabled) { background: var(--lg-sheen), var(--lg-press); }
+.send-btn.stopping .send-stop { width: 27px; height: 27px; filter: drop-shadow(0 0 6px rgba(255, 59, 48, 0.45)); }
+
+/* 干活卡片里的「收起过程」「换新会话」「停止」：薄一点的玻璃胶囊，贴着卡片，不要大投影 */
+.live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop {
+  border: 0; border-radius: 999px; padding: 4px 12px; box-shadow: var(--lg-rim), 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.live-head .live-stop { color: var(--danger); } /* 和输入区的停止键一样：灰玻璃，只有字是红的 */
+
+/* 输入框也是一块玻璃：和两边的按钮同一种质感 */
+.input-wrap {
+  background: var(--lg-sheen), var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+  box-shadow: var(--lg-rim), var(--lg-depth);
+}
+@media (max-width: 600px) {
+  .input-wrap:focus-within { box-shadow: var(--lg-rim), var(--lg-depth), inset 0 0 0 1px var(--accent-ring); }
+  #room-head .model-chip, #room-head .model-more, #room-head .dm-more { border-radius: 22px; }
+  .live-head .live-toggle, .live-head .live-fresh-mini, .live-head .live-stop { min-height: 36px; padding: 0 14px; }
+  #room-head .icon-btn { border-radius: 50%; }
+}
