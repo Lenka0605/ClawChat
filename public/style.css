@@ -735,8 +735,8 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 /* 私聊 / 单聊时 @ 那一排收起来，「不 @ 时」这个下拉也一起藏掉（它只对群里有意义） */
 #group-tools[hidden] + .target { display: none; }
 /* 一行放不下时（app.js 的 fitTools）：@ 按钮只留头像，「不 @ 时」收起来 */
-.composer-tools.compact .chip-name, .composer-tools.compact .target-label { display: none; }
-.composer-tools.compact .mention-chip { padding: 0 4px; }
+.composer-tools.compact .target-label { display: none; } /* 名字一直留着：只剩头像分不清是谁家的 */
+.composer-tools.compact .mention-chip { padding: 0 8px 0 4px; }
 .stop-controls .chip-stack .avatar { width: 14px; height: 14px; }
 .stop-controls .chip-stack .avatar + .avatar { box-shadow: 0 0 0 1.5px var(--danger); }
 .chip {
@@ -755,7 +755,9 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 .chip-stack { gap: 0; }
 .chip-stack .avatar + .avatar { margin-left: -3px; box-shadow: 0 0 0 1.5px var(--bg); }
 .stop-controls { display: inline-flex; gap: 6px; align-items: center; }
-#group-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: nowrap; flex: none; }
+#group-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#group-tools::-webkit-scrollbar { display: none; }
+#group-tools > * { flex: none; }
 .target {
   font-size: 12px; color: var(--muted); display: inline-flex; gap: 2px; align-items: center; margin-left: 4px; height: 24px; padding: 0 4px 0 10px;
   border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
@@ -1933,8 +1935,10 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 .joint-group + .joint-chip { margin-left: 1px; }
 /* 对方老板发的消息：靠左，用和 AI 一样的浅底气泡 */
 .msg.user.peer-user { justify-content: flex-start; }
-.msg.user.peer-user > .avatar { display: flex; }
+.msg.user.peer-user > .avatar { display: grid; } /* 用回头像的居中格，字头不会贴在左边 */
 .msg.user.peer-user .msg-body { align-items: flex-start; }
 .msg.user.peer-user .bubble { background: var(--bubble-agent); color: var(--bubble-agent-text); }
+.msg.user.peer-user .mention { color: var(--accent); background: var(--accent-soft); }
+#chat.can-mention .msg.user.peer-user .mention:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .msg.user.peer-user .msg-actions { justify-content: flex-start; }
 .msg.user.peer-user .msg-images { justify-content: flex-start; }
