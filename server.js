@@ -1175,11 +1175,11 @@ function serveStatic(res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
   try {
     // 只接受本机地址访问，防止别的网页借浏览器调用这个服务；打开了手机访问的话，老板自己 Tailscale 账号的设备也能进来
     const access = requestAccess(req, PORT);
     if (!access) return send(res, 403, { error: 'forbidden' });
-    const url = new URL(req.url, `http://${req.headers.host}`);
     // 联合群：对方的 ClawChat 只能走 /joint/v1/；别的一律不给（老板本人的手机、本机照旧）
     if (url.pathname.startsWith('/joint/v1/')) {
       const login = joint.peerLogin(req, access, decodeLogin);
@@ -1203,6 +1203,7 @@ const server = http.createServer(async (req, res) => {
     }
     return serveStatic(res, url.pathname);
   } catch (err) {
+    if (!err.status) console.error('[clawchat] 接口出错', req.method, url.pathname, err.stack || err.message);
     if (!res.headersSent) send(res, err.status || 500, { error: err.message });
   }
 });
