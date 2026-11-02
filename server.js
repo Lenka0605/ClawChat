@@ -1081,7 +1081,9 @@ async function api(req, res, url, access = 'local') {
       const body = await readBody(req);
       const file = await roomFile(room, body.path, Array.isArray(body.near) ? body.near : []);
       if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
-      if (fs.statSync(file).isDirectory()) openPath(file); // 文件夹直接打开，进到里面
+      // 文件夹直接打开，进到里面。但 Mac 上 .app、.pkg 这类「看着是文件夹」的程序包，用 open 会直接运行它：
+      // 带扩展名的文件夹一律只在访达里选中显示，不打开（安全检查时查出来的）
+      if (fs.statSync(file).isDirectory() && !path.extname(file)) openPath(file);
       else revealPath(file);
       return send(res, 200, { ok: true });
     }
@@ -1154,6 +1156,10 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
+      // 读的接口也不让别的网站借浏览器来调（比如触发重新打包、刷新用量）：浏览器会标出跨站请求。
+      // 没有这个头的（安卓 App 的后台连接、命令行工具）照常放行
+      const site = req.headers['sec-fetch-site'];
+      if (site && !['same-origin', 'none'].includes(site)) return send(res, 403, { error: 'forbidden' });
       return await api(req, res, url, access);
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
