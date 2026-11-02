@@ -16,7 +16,7 @@ const { createSnapshot } = await import('../lib/joint-files.js');
 const STAGING = path.join(HOME, 'joint-staging');
 const room = { id: 'room1', joint: { role: 'host', selfName: 'Lenka' } };
 const peer = { nodeId: 'node-b', ownerName: '小王' };
-const host = { still() {}, pushEvent(evType, ev) { host.pushed ||= []; host.pushed.push(ev); } };
+const host = { still() {}, pushEvent(evType, ev) { host.pushed ||= []; host.pushed.push(ev); }, on() {}, data: { peers: { room1: { epoch: 'epoch-1' } } } };
 const hubEvents = [];
 const hub = { emit(_, ev) { hubEvents.push(ev); } };
 const mirrorRoom = { id: 'mirror1', joint: { role: 'guest' } };
@@ -49,7 +49,7 @@ describe('传文件路由：本机界面', () => {
     const r1 = await api(['snapshot'], { path: src, roomId: 'room1' });
     assert.equal(r1.status, 200);
     assert.equal(r1.obj.risk.risk, 'normal');
-    const r2 = await api(['approve'], { roomId: 'room1', staging: r1.obj.staging, hash: r1.obj.hash, size: r1.obj.size, name: '报表.txt', toNode: 'node-b' });
+    const r2 = await api(['approve'], { roomId: 'room1', staging: r1.obj.staging, hash: r1.obj.hash, size: r1.obj.size, name: r1.obj.name, toNode: 'node-b' });
     assert.equal(r2.status, 200);
     assert.ok(r2.obj.transferId);
     // 待取区落盘：meta ready=true，文件在
@@ -87,9 +87,12 @@ describe('传文件路由：本机界面', () => {
     assert.equal(r1.status, 400);
     const src = makeFile('内容A');
     const s = await api(['snapshot'], { path: src });
-    const r2 = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: 'dd'.repeat(32), size: 4, name: 'a', toNode: 'node-b' });
+    const r2 = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: s.obj.size, name: '改过的名字.txt', toNode: 'node-b' });
     assert.equal(r2.status, 400);
-    assert.match(r2.obj.error, /被改过/);
+    assert.match(r2.obj.error, /不一致|重新选择/);
+    const r3 = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: 999, name: s.obj.name, toNode: 'node-b' });
+    assert.equal(r3.status, 400);
+    assert.match(r3.obj.error, /不一致|重新选择/);
   });
 
   test('收件箱列表和「在访达里显示」的位置检查', async () => {
@@ -126,7 +129,7 @@ describe('传文件路由：peer 接口', () => {
     assert.equal(r3.status, 200);
     const meta = JSON.parse(fs.readFileSync(path.join(HOME, 'joint-inbox', 'room1', tid, 'meta.json'), 'utf8'));
     assert.equal(meta.done, true);
-    assert.equal(fs.readFileSync(meta.stored).toString('hex'), data.toString('hex'));
+    assert.equal(fs.readFileSync(path.join(HOME, 'joint-inbox', 'room1', tid, meta.stored)).toString('hex'), data.toString('hex'));
     const ev = hubEvents.find((e) => e.type === 'joint-file-arrived');
     assert.ok(ev);
   });
@@ -136,15 +139,50 @@ describe('传文件路由：peer 接口', () => {
     assert.equal(r.status, 400);
   });
 
+  test('撤权重配（换账号同节点号）后，新身份拿不到旧文件；过期 410（复核反例）', async () => {
+    const src = makeFile('给老身份的文件');
+    const s2 = await api(['snapshot'], { path: src });
+    const a2 = await api(['approve'], { roomId: 'room1', staging: s2.obj.staging, hash: s2.obj.hash, size: s2.obj.size, name: s2.obj.name, toNode: 'node-b' });
+    const tid2 = a2.obj.transferId;
+    // 同节点号、换了身份（epoch 不同）：404
+    const newIdentity = await peerReq([tid2, 'manifest'], { method: 'GET', peer: { nodeId: 'node-b', epoch: 'epoch-2-new-pair', ownerName: '新同事' } });
+    assert.equal(newIdentity.status, 404);
+    // 同一代次正常拿
+    const same = await peerReq([tid2, 'manifest'], { method: 'GET', peer: { nodeId: 'node-b', epoch: 'epoch-1', ownerName: '小王' } });
+    assert.equal(same.status, 200);
+    // 把 meta 时间改到 25 小时前：下载入口自己核有效期 → 410
+    const metaFile = path.join(HOME, 'joint-transfer', 'room1', tid2, 'meta.json');
+    const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+    meta.at = Date.now() - 25 * 60 * 60 * 1000;
+    fs.writeFileSync(metaFile, JSON.stringify(meta));
+    const expired = await peerReq([tid2, 'manifest'], { method: 'GET', peer });
+    assert.equal(expired.status, 410);
+  });
+
+  test('manifest 声明超限：拉取直接拒绝，不进收件箱（复核反例）', async () => {
+    const connRoom2 = 'mirror9';
+    const bigManifest = { name: 'big.bin', size: 200 * 1024 * 1024, hash: 'x', risk: 'normal', fromNode: 'node-a' };
+    let contentAsked = false;
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith('/manifest')) return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(bigManifest)) };
+      contentAsked = true;
+      return { ok: true, body: (async function* () { yield Buffer.alloc(10); })() };
+    };
+    await files.onGuestEvent(connRoom2, { type: 'file.ready', transferId: 'B'.repeat(22), name: 'big.bin' });
+    assert.equal(contentAsked, false); // 大小不对连内容都不拉
+    assert.equal(fs.existsSync(path.join(HOME, 'joint-inbox', connRoom2)), false);
+    delete globalThis.fetch;
+  });
+
   test('对方拉文件：只给 meta.toNode 指的节点；别人的节点 404', async () => {
     // 主持方发一份出去
     const src = makeFile('给小王的文件');
     const s = await api(['snapshot'], { path: src });
-    const a = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: s.obj.size, name: '给小王.txt', toNode: 'node-b' });
+    const a = await api(['approve'], { roomId: 'room1', staging: s.obj.staging, hash: s.obj.hash, size: s.obj.size, name: s.obj.name, toNode: 'node-b' });
     const tid = a.obj.transferId;
     const m = await peerReq([tid, 'manifest'], { method: 'GET', peer });
     assert.equal(m.status, 200);
-    assert.equal(m.obj.name, '给小王.txt');
+    assert.equal(m.obj.name, 'a.txt');
     assert.equal(m.obj.risk, 'normal');
     const c = await peerReq([tid, 'content'], { method: 'GET', peer });
     assert.equal(c.status, 200);
@@ -163,7 +201,7 @@ describe('传文件路由：加入方拉取', () => {
     globalThis.fetch = async (url, opts) => {
       calls.push(String(url));
       if (String(url).endsWith('/manifest')) return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(manifest)) };
-      if (String(url).endsWith('/content')) return { ok: true, arrayBuffer: async () => fileData };
+      if (String(url).endsWith('/content')) return { ok: true, body: (async function* () { yield fileData; })() };
       throw new Error('意外请求');
     };
     const connRoom = 'mirror1';
@@ -175,7 +213,7 @@ describe('传文件路由：加入方拉取', () => {
     await files2.onGuestEvent(connRoom, { type: 'file.ready', transferId: 'P'.repeat(22), name: '收到.txt' });
     const meta = JSON.parse(fs.readFileSync(path.join(HOME, 'joint-inbox', connRoom, 'P'.repeat(22), 'meta.json'), 'utf8'));
     assert.equal(meta.done, true);
-    assert.equal(fs.readFileSync(meta.stored).toString(), fileData.toString());
+    assert.equal(fs.readFileSync(path.join(HOME, 'joint-inbox', connRoom, 'P'.repeat(22), meta.stored)).toString(), fileData.toString());
     assert.ok(hubEvents.some((e) => e.type === 'joint-file-arrived' && e.roomId === connRoom));
     delete globalThis.fetch;
   });
