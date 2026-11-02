@@ -306,8 +306,15 @@ function toast(text, ms = 2600) {
   const find = $('#find');
   // 群里的搜索条也在顶栏下面：它开着的时候把提示再往下让一让，免得盖住搜索框
   const findBox = find && !find.hidden ? find.offsetHeight + 8 : 0;
-  t.style.left = `${main.left + main.width / 2}px`;
-  t.style.top = `${main.top + head + 12 + findBox}px`;
+  if (main.width > 40) {
+    t.style.left = `${main.left + main.width / 2}px`;
+    t.style.top = `${main.top + head + 12 + findBox}px`;
+  } else {
+    // 手机上正在看会话列表时，聊天区是隐藏的（量出来全是 0）：
+    // 还按它定位会把提示推到屏幕左缘外、盖住顶栏标题——清掉内联值，让样式表里的居中定位接管
+    t.style.left = '';
+    t.style.top = '';
+  }
   t.textContent = text;
   t.classList.remove('leaving');
   t.hidden = false;

@@ -1620,6 +1620,8 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   /* 固定在看得见的那块区域里：键盘弹起时整页被往上推，界面跟着挪过去，不会在输入框和键盘之间空出一大段 */
   html, body { overflow: hidden; overscroll-behavior: none; }
   #app { position: fixed; left: 0; right: 0; top: var(--vvtop, 0px); height: var(--vvh, 100dvh); }
+  /* 手机上提示框按窗口居中、落在顶栏和搜索条下面（含刘海留白）：会话列表全屏时聊天区量不出位置，由它接管 */
+  #toast { top: calc(116px + env(safe-area-inset-top)); max-width: calc(100vw - 24px); }
   #sidebar {
     width: 100%;
     border-right: 0;
