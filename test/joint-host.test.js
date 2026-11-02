@@ -91,3 +91,35 @@ test('邀请码只能用一次；令牌只发一次，必须带邀请秘密和�
   assert.throws(() => host.pairStatus('c@test', pairId, secret), (e) => e.status === 404, '令牌只发一次');
   assert.throws(() => host.invite(room.id, 'https://x.ts.net'), (e) => e.status === 400, '已经有同事加入时不能再邀请');
 });
+
+test('对方慢慢传正文、这边中途撤了权：正文补齐以后照样拒绝，不发消息', async () => {
+  const { setupJoint } = await import('../lib/joint-server.js');
+  const store = new Store();
+  const posted = [];
+  const hub = new Hub(store, { run: () => ({ done: new Promise(() => {}), kill: async () => true }) });
+  hub.postPeerMessage = (...a) => posted.push(a);
+  const j = setupJoint({ store, hub, runAgent: () => {}, port: 1, appVersion: 't', publicHost: () => 'https://x.ts.net' });
+  try {
+    const room = j.host.createRoom({ name: '慢', members: ['claude'], ownerName: 'Lenka', cwd: home });
+    const { code } = j.host.invite(room.id, 'https://x.ts.net');
+    const secret = JSON.parse(Buffer.from(code.slice(14), 'base64url').toString()).secret;
+    const { pairId } = j.host.pairRequest('b@test', { secret, nodeId: 'cccccccccccc', ownerName: '小王', agents: [{ id: 'claude', name: 'Claude', engine: 'claude' }], protocol: 1 });
+    j.host.decide(pairId, true);
+    const { body } = j.host.pairStatus('b@test', pairId, secret);
+    let release;
+    const slowBody = () => new Promise((r) => (release = () => r({ clientId: 'c1', text: '迟到的消息' })));
+    const out = {};
+    const send = (res, status, data) => Object.assign(out, { status, data });
+    const req = { method: 'POST', headers: { authorization: `Bearer ${body.token}` } };
+    const url = new URL(`http://x/joint/v1/rooms/${room.id}/messages`);
+    const pending = j.peer(req, {}, url, 'b@test', { send, readBody: slowBody });
+    await new Promise((r) => setImmediate(r));
+    j.host.removePeer(room.id); // 正文还没传完，这边撤权
+    release();
+    await pending;
+    assert.equal(out.status, 404);
+    assert.equal(posted.length, 0, '撤权以后补齐的消息不能发出去');
+  } finally {
+    j.close();
+  }
+});
