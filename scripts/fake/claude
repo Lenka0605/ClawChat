@@ -8,8 +8,8 @@ INFILE="$(mktemp -t fake-claude-in)"
 exec 3<&0 # 后台命令的标准输入会被换成 /dev/null：先另存一份
 cat <&3 > "$INFILE" &
 SID="fake-$(date +%s)-$$-$RANDOM" # 带上进程号和随机数：同一秒开好几个（多开成员）也不会撞号
-# 联调用：记下这一轮在哪个目录跑、带了哪些限制参数（看联合群文件夹档的 cwd 和沙盒参数有没有生效）
-{ printf '%s\tcwd=%s\t' "$(date +%T)" "$(pwd -P)"; for x in "$@"; do case "$x" in --restricted|--tools|--permission-mode|acceptEdits|dontAsk|--settings) printf '%s ' "$x";; esac; done; echo; } >> "${CLAWCHAT_HOME:-/tmp}/fake-claude-runs.log" 2>/dev/null || true
+# 联调用：记下这一轮在哪个目录跑、用的模型和思考强度、带了哪些限制参数（看联合群文件夹档的 cwd 和沙盒参数有没有生效）
+{ printf '%s\tcwd=%s\t' "$(date +%T)" "$(pwd -P)"; prev=""; for x in "$@"; do case "$prev" in --model|--effort) printf '%s=%s ' "${prev#--}" "$x";; esac; case "$x" in --restricted|--tools|--permission-mode|acceptEdits|dontAsk|--settings) printf '%s ' "$x";; esac; prev="$x"; done; echo; } >> "${CLAWCHAT_HOME:-/tmp}/fake-claude-runs.log" 2>/dev/null || true
 echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$SID\",\"model\":\"claude-fake\"}"
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"我先看一下项目文件夹里的东西"}]}}'
 if [ -f "$FAKE_COMPACT" ]; then

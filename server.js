@@ -916,6 +916,7 @@ async function api(req, res, url, access = 'local') {
     const sub = parts[2];
     if (sub === 'joint' && room.joint) return joint.roomApi(req, res, room, parts[3], method, { send, readBody });
     // 加入方的联合群是主持方那边的镜像：发言交给主持方，停止只停自己这边的 AI；别的操作（换会话、改成员…）都不在这里做
+    let guestPatch = null;
     if (joint.isGuest(room)) {
       if (sub === 'messages' && method === 'POST') {
         await joint.guestMessage(room, await readBody(req));
@@ -926,13 +927,17 @@ async function api(req, res, url, access = 'local') {
         await joint.guestStop(room, agent);
         return send(res, 200, { ok: true });
       }
-      if (method !== 'GET' && method !== 'DELETE' && !['read', 'draft'].includes(sub)) return send(res, 400, { error: tr('联合群里不能这样操作') });
+      // 群设置里的保存：只收自己这边能定的（模型、思考强度、速度、收纳组），群名、成员、文件夹、权限这些归主持方
+      if (!sub && method === 'PATCH') {
+        const body = await readBody(req);
+        guestPatch = Object.fromEntries(['models', 'efforts', 'fast', 'folder'].filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+      } else if (method !== 'GET' && method !== 'DELETE' && !['read', 'draft'].includes(sub)) return send(res, 400, { error: tr('联合群里不能这样操作') });
     }
     if (!sub && method === 'PATCH') {
       const before = Object.keys(AGENTS).join();
       let patch;
       try {
-        patch = normalizeRoom(await readBody(req), false, room);
+        patch = normalizeRoom(guestPatch || (await readBody(req)), false, room);
       } catch (err) {
         pruneExtraMembers(before);
         throw err;

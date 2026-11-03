@@ -5779,7 +5779,8 @@ function fillModelOptions(room) {
 // 群设置里单独的「速度」分区：ChatGPT 在群里、当前模型支持快速模式才显示
 function refreshSpeedField() {
   const speed = fastSpeed('gpt', formField('modelGpt').value);
-  $('#speed-fields').hidden = speed === null || !formField('memberGpt').checked;
+  // 联合群里 ChatGPT 一律标准速度，这一栏选了也不生效，不显示
+  $('#speed-fields').hidden = speed === null || !formField('memberGpt').checked || !!roomById(S.editing)?.joint;
   if (speed === null) formField('fastGpt').value = '';
   formField('fastGpt').options[1].textContent = speed ? tr('快速 · 约 {speed} 倍速', { speed }) : tr('快速 · 更快');
   $('#speed-hint').textContent = speed
@@ -5818,7 +5819,8 @@ async function switchModel(agent, id, custom = false) {
 
 function syncMemberFields() {
   const members = AGENT_IDS.filter((a) => formField(fieldName('member', a)).checked);
-  $('#group-fields').hidden = members.length < 2;
+  // 加入方的「协作」归主持方管，不显示
+  $('#group-fields').hidden = members.length < 2 || roomById(S.editing)?.joint?.role === 'guest';
 
   for (const a of AGENT_IDS) $(`#field-model-${a}`).hidden = !members.includes(a);
   refreshSpeedField();
@@ -7585,7 +7587,9 @@ function renderJointPolicy() {
     const folder = p.level === 'folder';
     const note = p.available
       ? tr('已验收')
-      : tr('这家 AI 还没验收，先只能讨论');
+      : data.platformReady === false
+        ? tr('「指定文件夹」目前只在 Mac 上验收过，这台电脑先只能讨论')
+        : tr('这家 AI 还没验收，先只能讨论');
     return `<div class="joint-policy-row" data-agent="${esc(id)}">
       <div class="joint-policy-top">${avatarHtml(id)}
         <div class="joint-policy-name"><b>${esc(name)}</b><small>${esc(note)}</small></div>
@@ -7648,11 +7652,16 @@ function syncJointFields(room) {
   $('#cwd-row').hidden = !!joint;
   $('#cwd-hint').hidden = !!joint;
   $('#btn-clone-add').hidden = !!joint; // 第一期联合群里不开放分身；普通群照常
+  // 加入方：群名、成员、协作这些由主持方管，这边改了也存不上，干脆灰掉，免得以为改上了
+  const guest = joint?.role === 'guest';
+  formField('name').disabled = guest;
+  document.querySelectorAll('#dlg-room .members input').forEach((el) => { el.disabled = guest; });
+  $('#group-fields').hidden = guest;
   if (!joint) return void ($('#member-sub').textContent = tr('只选一位就是单聊'));
   $('#joint-peer').textContent = joint.peerName || tr('等对方加入…');
   $('#joint-self-name').textContent = joint.selfName || tr('我');
   $('#joint-policy-summary').textContent = tr('每位 AI 单独设置');
-  $('#member-sub').textContent = tr('自己这边派谁进去');
+  $('#member-sub').textContent = guest ? tr('群名和成员由主持方管理') : tr('自己这边派谁进去');
   loadJointPolicy(room);
   $('#btn-joint-invite').hidden = joint.role === 'guest' || !!joint.peerNode;
   $('#btn-joint-inbox').hidden = false;

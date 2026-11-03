@@ -2130,3 +2130,19 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .danger-actions .danger-text[hidden] { display: none; }
   .danger-actions:has(.danger-text[hidden]) { grid-template-columns: 1fr; }
 }
+
+/* 弹窗底部：「取消」「保存」「清空聊天记录」字永远一行；点了删除之后那句长的确认话单独占一整行，不把别的按钮挤成竖排 */
+.dlg-actions { flex-wrap: wrap; row-gap: 10px; }
+.dlg-actions > button, .danger-actions .danger-text { white-space: nowrap; flex: none; }
+.danger-actions:has(> [data-armed]) { display: contents; }
+.danger-actions .danger-text[data-armed] { white-space: normal; text-align: left; flex: 1 1 100%; }
+@media (max-width: 600px) {
+  /* 手机：确认删除那句话占一整行（圆角块、字可以折行），「清空聊天记录」在它下面 */
+  .danger-actions:has(> [data-armed]) { display: grid; grid-template-columns: 1fr; }
+  .danger-actions .danger-text[data-armed] { height: auto; padding: 9px 16px; border-radius: 14px; text-align: center; line-height: 1.4; }
+}
+
+/* 改不了的（比如联合群加入方的群名、成员）：看得出是灰的，鼠标也提示点不了 */
+#dlg-room .members .member:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+#dlg-room .members .member:has(input:disabled) * { cursor: not-allowed; }
+#dlg-room input[name="name"]:disabled { opacity: 0.55; cursor: not-allowed; background: transparent; }
