@@ -2146,3 +2146,23 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 #dlg-room .members .member:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 #dlg-room .members .member:has(input:disabled) * { cursor: not-allowed; }
 #dlg-room input[name="name"]:disabled { opacity: 0.55; cursor: not-allowed; background: transparent; }
+
+/* ---------------- 手机上看电脑里的文件 ---------------- */
+/* AI 回复里提到的图片：气泡下面一排小图，点开看大图 */
+.ref-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ref-thumbs img {
+  width: 76px; height: 76px; object-fit: cover; border-radius: 14px; cursor: zoom-in; display: block;
+  background: var(--glass); box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+/* 大图：手机上整页不能缩放，双指放大由脚本接管 */
+#lightbox { touch-action: none; overscroll-behavior: contain; }
+#lightbox img { transform-origin: center; transition: transform 0.2s var(--spring, ease); will-change: transform; }
+#lightbox.gesturing img { transition: none; }
+#lightbox .lb-loading { position: absolute; color: rgba(255, 255, 255, 0.75); font-size: 14px; letter-spacing: 0.02em; }
+#lightbox .lb-save {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px;
+  padding: 8px 16px; border-radius: 999px; font-size: 14px; color: #fff; text-decoration: none; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 4px 18px rgba(0, 0, 0, 0.3);
+}
+#lightbox .lb-save:active { transform: scale(0.96); }

@@ -309,5 +309,11 @@
   "{h} 小时 {m} 分钟前": "{h} hr {m} min ago",
   "{n} 天前": "{n} days ago",
   "「指定文件夹」目前只在 Mac 上验收过，这台电脑先只能讨论": "“Specific folder” is only verified on Mac so far; on this computer it can only discuss",
-  "群名和成员由主持方管理": "The group name and members are managed by the host"
+  "群名和成员由主持方管理": "The group name and members are managed by the host",
+  "打不开这个文件": "Can't open this file",
+  "连不上电脑，请检查网络": "Can't reach the computer. Check your network",
+  "这个文件在电脑上，手机上只能看图片、PDF 和音视频": "This file is on the computer. On the phone you can only view images, PDFs, audio and video",
+  "加载中…": "Loading…",
+  "保存 / 分享": "Save / Share",
+  "图片打不开": "Couldn't open the image"
 }

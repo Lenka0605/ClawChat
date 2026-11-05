@@ -203,7 +203,7 @@ function checkFileRefs() {
       if (!pending.has(key)) pending.set(key, { item: { path: el.dataset.path, near }, els: [] });
       pending.get(key).els.push(el);
     }
-    if (!pending.size) return;
+    if (!pending.size) return syncRefThumbs();
     const list = [...pending.entries()].slice(0, 400);
     try {
       const { found } = await api('POST', `/api/rooms/${conv.roomId}/exists`, { items: list.map(([, v]) => v.item) });
@@ -212,6 +212,7 @@ function checkFileRefs() {
         for (const el of v.els) markFileRef(el, !!found[i]);
       });
     } catch {}
+    syncRefThumbs();
   }, 120);
 }
 
@@ -268,6 +269,90 @@ async function revealFile(file, near = []) {
     await api('POST', `/api/rooms/${conv.roomId}/reveal`, { path: file, near });
   } catch (err) {
     toast(err.message);
+  }
+}
+
+// ---------------- 手机上看电脑里的文件 ----------------
+// 人不在这台电脑前（手机、平板，或者从别的电脑经 Tailscale 打开）时，点路径「在访达里显示」是在家里那台 Mac 上弹，
+// 这边什么也看不到：图片就地全屏看，PDF、音视频新开一页看。电脑上照旧在访达里显示。
+const VIEW_IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico|heic|heif|tiff?|psd|dng|cr2|nef|arw)$/i;
+const VIEW_MEDIA_RE = /\.(pdf|mp4|mov|m4v|webm|mp3|m4a|wav)$/i;
+const viewHere = () => !isLocalHost() || !finePointer();
+
+function viewUrl(roomId, file, near = []) {
+  return `/api/rooms/${roomId}/view?path=${encodeURIComponent(file)}${near.map((p) => `&near=${encodeURIComponent(p)}`).join('')}`;
+}
+
+// 接口出错时返回 { error }（中文的原因：敏感位置、找不到、太大、类型不支持），读出来给老板看
+async function viewError(url) {
+  try {
+    const r = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    if (r.ok) return '';
+    return (await r.json().catch(() => null))?.error || tr('打不开这个文件');
+  } catch {
+    return tr('连不上电脑，请检查网络');
+  }
+}
+
+function openFileRef(ref) {
+  const conv = currentConv();
+  if (!conv) return;
+  const file = ref.dataset.path;
+  const near = nearPaths(ref);
+  if (!viewHere()) return revealFile(file, near);
+  const url = viewUrl(conv.roomId, file, near);
+  const name = file.split('/').pop();
+  if (VIEW_IMAGE_RE.test(file)) return openLightbox(url, { name, check: true });
+  if (VIEW_MEDIA_RE.test(file)) {
+    // 新页要在点的这一下就开（晚了会被浏览器当成弹窗拦掉），先确认能打开再跳过去，打不开就关掉、说原因
+    const w = window.open('', '_blank');
+    viewError(url).then((err) => {
+      if (!err) {
+        if (w) w.location.href = url;
+        else location.href = url;
+        return;
+      }
+      w?.close();
+      toast(err, 5000);
+    });
+    return;
+  }
+  toast(tr('这个文件在电脑上，手机上只能看图片、PDF 和音视频'), 5000);
+}
+
+// AI 回复里提到的图片：手机上在气泡下面直接排一行小图（最多 4 张），不用去点路径。过程里的路径不加
+function syncRefThumbs() {
+  const conv = currentConv();
+  for (const bubble of document.querySelectorAll('#chat .msg.agent:not(.live) > .msg-body > .bubble')) {
+    const old = bubble.nextElementSibling?.classList.contains('ref-thumbs') ? bubble.nextElementSibling : null;
+    const refs = [];
+    if (conv && viewHere()) {
+      for (const r of bubble.querySelectorAll('.file-ref[data-checked="1"]:not(.missing)')) {
+        if (VIEW_IMAGE_RE.test(r.dataset.path) && !refs.some((x) => x.dataset.path === r.dataset.path)) refs.push(r);
+      }
+    }
+    const list = refs.slice(0, 4);
+    const key = list.map((r) => r.dataset.path).join('\n');
+    if (old && old.dataset.key === key) continue;
+    old?.remove();
+    if (!list.length) continue;
+    const box = document.createElement('div');
+    box.className = 'ref-thumbs';
+    box.dataset.key = key;
+    for (const r of list) {
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = r.dataset.path.split('/').pop();
+      img.title = img.alt;
+      img.dataset.view = viewUrl(conv.roomId, r.dataset.path, nearPaths(r));
+      img.src = img.dataset.view;
+      img.onerror = () => {
+        img.remove();
+        if (!box.children.length) box.remove();
+      };
+      box.append(img);
+    }
+    bubble.after(box);
   }
 }
 
@@ -6113,18 +6198,116 @@ async function deleteRoom() {
   }
 }
 
-function openLightbox(src) {
+// opts.name：给「保存」用的文件名（手机上看电脑里的图才有）；opts.check：加载失败时去问原因
+function openLightbox(src, opts = {}) {
   const box = $('#lightbox');
-  box.firstElementChild.src = src;
+  const img = box.querySelector('img');
+  let wait = box.querySelector('.lb-loading');
+  let save = box.querySelector('.lb-save');
+  if (!wait) {
+    wait = document.createElement('div');
+    wait.className = 'lb-loading';
+    save = document.createElement('a');
+    save.className = 'lb-save';
+    box.append(wait, save);
+  }
+  wait.textContent = tr('加载中…');
+  save.textContent = tr('保存 / 分享');
+  lbZoom.reset();
+  img.removeAttribute('src');
+  img.hidden = true;
+  wait.hidden = false;
+  save.hidden = true;
+  img.onload = () => {
+    wait.hidden = true;
+    img.hidden = false;
+    if (opts.name) {
+      // 转过格式的（HEIC 等）存下来是 JPEG，扩展名跟着改
+      const jpeg = /\.(heic|heif|tiff?|psd|dng|cr2|nef|arw)$/i.test(opts.name);
+      save.href = src;
+      save.download = jpeg ? opts.name.replace(/\.[^.]+$/, '.jpg') : opts.name;
+      save.hidden = false;
+    }
+  };
+  img.onerror = async () => {
+    if (box.hidden || img.getAttribute('src') !== src) return;
+    const err = opts.check ? await viewError(src) : '';
+    closeLightbox();
+    toast(err || tr('图片打不开'), 5000);
+  };
+  img.src = src;
   box.hidden = false;
   reportDragRegions();
 }
+
+// 大图双指放大、放大后单指拖动、双击放大或复原（手机上整页不能缩放，只能在这里自己做）
+const lbZoom = (() => {
+  const pts = new Map();
+  let scale = 1, x = 0, y = 0, start = null, moved = false, lastTap = 0;
+  const img = () => $('#lightbox img');
+  const apply = () => { img().style.transform = scale === 1 ? '' : `translate(${x}px, ${y}px) scale(${scale})`; };
+  const reset = () => { scale = 1; x = 0; y = 0; pts.clear(); start = null; apply(); };
+  const dist = ([a, b]) => Math.hypot(a.x - b.x, a.y - b.y);
+  const mid = ([a, b]) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  function down(e) {
+    if (e.target.closest('.lb-save')) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) moved = false;
+    const list = [...pts.values()];
+    start = { scale, x, y, d: list.length > 1 ? dist(list) : 0, m: list.length > 1 ? mid(list) : list[0] };
+    $('#lightbox').classList.add('gesturing');
+  }
+  function move(e) {
+    if (!pts.has(e.pointerId)) return;
+    const p = pts.get(e.pointerId);
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 6) moved = true;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const list = [...pts.values()];
+    if (list.length > 1 && start.d) {
+      const m = mid(list);
+      scale = Math.min(6, Math.max(1, start.scale * (dist(list) / start.d)));
+      x = start.x + (m.x - start.m.x);
+      y = start.y + (m.y - start.m.y);
+    } else if (scale > 1) {
+      x = start.x + (e.clientX - start.m.x);
+      y = start.y + (e.clientY - start.m.y);
+    }
+    apply();
+  }
+  function up(e) {
+    if (!pts.delete(e.pointerId)) return;
+    const list = [...pts.values()];
+    if (list.length) start = { scale, x, y, d: list.length > 1 ? dist(list) : 0, m: list.length > 1 ? mid(list) : list[0] };
+    else {
+      $('#lightbox').classList.remove('gesturing');
+      if (scale < 1.05) { scale = 1; x = 0; y = 0; apply(); }
+    }
+  }
+  // 点一下：没在拖、没放大就关掉；双击：放大 / 复原
+  function tap(e) {
+    if (e.target.closest('.lb-save')) return;
+    if (moved) return void (moved = false);
+    const now = Date.now();
+    if (now - lastTap < 300 && e.target.tagName === 'IMG') {
+      lastTap = 0;
+      clearTimeout(tap.timer);
+      if (scale > 1) { scale = 1; x = 0; y = 0; } else scale = 2.5;
+      return apply();
+    }
+    lastTap = now;
+    clearTimeout(tap.timer);
+    if (scale > 1) return; // 放大着看细节时点一下不关，双击复原后再点
+    tap.timer = setTimeout(closeLightbox, e.target.tagName === 'IMG' ? 280 : 0);
+  }
+  return { reset, down, move, up, tap };
+})();
 
 function closeLightbox() {
   const box = $('#lightbox');
   if (box.hidden) return;
   animateThen(box, 'leaving', 180, () => {
     box.hidden = true;
+    lbZoom.reset();
     reportDragRegions();
   });
 }
@@ -6514,7 +6697,10 @@ function bind() {
   });
   $('#btn-reply-cancel').onclick = cancelReply;
   $('#btn-update-badge').onclick = updateFromBadge;
-  $('#lightbox').onclick = closeLightbox;
+  $('#lightbox').onclick = (e) => lbZoom.tap(e);
+  $('#lightbox').addEventListener('pointerdown', (e) => lbZoom.down(e));
+  $('#lightbox').addEventListener('pointermove', (e) => lbZoom.move(e));
+  for (const t of ['pointerup', 'pointercancel']) $('#lightbox').addEventListener(t, (e) => lbZoom.up(e));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#lightbox').hidden) closeLightbox();
   });
@@ -6711,11 +6897,13 @@ function bind() {
     if (ref && !ref.contains(e.relatedTarget)) hideFilePreview();
   });
   $('#scroller').addEventListener('click', (e) => {
+    const thumb = e.target.closest('.ref-thumbs img');
+    if (thumb) return openLightbox(thumb.dataset.view, { name: thumb.alt, check: true });
     const ref = e.target.closest('.file-ref');
     if (!ref || !fileRefLive(ref) || getSelection().toString()) return; // 在选字的时候别打断
     e.preventDefault();
     hideFilePreview();
-    revealFile(ref.dataset.path, nearPaths(ref));
+    openFileRef(ref);
   });
   $('#scroller').addEventListener('scroll', hideFilePreview, { passive: true });
   new MutationObserver(checkFileRefs).observe($('#chat'), { childList: true, subtree: true });

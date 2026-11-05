@@ -140,5 +140,8 @@
   "这台电脑已启用指纹确认，请按指纹后重试": "Touch ID is enabled on this computer; confirm with your fingerprint and try again",
   "指纹钥匙的格式不对": "The Touch ID key format is invalid",
   "对方还没有加入": "The other side hasn't joined yet",
-  "对方老板改了权限，这一轮没开工": "The other owner changed the permissions, so this turn didn't start"
+  "对方老板改了权限，这一轮没开工": "The other owner changed the permissions, so this turn didn't start",
+  "这个位置的文件不能在手机上打开": "Files in this location can't be opened on your phone",
+  "手机上只能看图片、PDF 和音视频，这个文件请到电脑上打开": "Only images, PDFs, audio and video can be viewed on the phone; open this file on the computer",
+  "文件太大了，请到电脑上打开": "The file is too large; open it on the computer"
 }

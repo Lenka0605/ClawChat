@@ -554,6 +554,82 @@ async function findInProject(root, rel) {
 // 鼠标移到文件名上时显示的缩略图：只给这几种浏览器能直接显示的图片
 const PREVIEW_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
 
+// ---- 在手机上看电脑里的文件（消息里提到的图片、PDF、音视频）----
+// 只给看这几类：图片看不出密钥，文本、配置这类可能带账号密码的一律不给。
+// 手机浏览器显示不了的图片格式（HEIC、TIFF、PSD…）用 macOS 自带的 sips 转成 JPEG 再给。
+const VIEW_WEB = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav', '.ogg': 'audio/ogg' };
+const VIEW_CONVERT = new Set(['.heic', '.heif', '.tif', '.tiff', '.psd', '.jp2', '.tga', '.dng', '.cr2', '.nef', '.arw']);
+const VIEW_MAX = 1024 * 1024 * 1024; // 音视频最大 1 GB；图片、PDF 另外限 100 MB
+const VIEW_CACHE = path.join(os.tmpdir(), 'clawchat-view');
+// 不管什么格式，这些地方的文件都不给看：登录凭据、钥匙串、ClawChat 自己的数据（聊天上传的图片除外）
+function viewBlocked(file) {
+  const home = os.homedir();
+  const under = (p, base) => p === base || p.startsWith(base + path.sep);
+  let real = file;
+  try { real = fs.realpathSync(file); } catch {}
+  const deny = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex', '.grok', '.cursor', '.gemini', 'Library/Keychains', 'Library/Cookies']
+    .map((p) => path.join(home, p)).concat(['/Library/Keychains', '/private/etc', '/private/var/db']);
+  if (deny.some((d) => under(real, d))) return true;
+  if (under(real, DATA_DIR) && !real.split(path.sep).includes('uploads')) return true;
+  return false;
+}
+async function viewableFile(file) {
+  const ext = path.extname(file).toLowerCase();
+  const stat = fs.statSync(file);
+  if (!stat.isFile()) return null;
+  if (VIEW_WEB[ext]) {
+    const media = /^(video|audio)\//.test(VIEW_WEB[ext]);
+    if (stat.size > (media ? VIEW_MAX : 100 * 1024 * 1024)) return { tooBig: true };
+    return { file, type: VIEW_WEB[ext], size: stat.size };
+  }
+  if (!VIEW_CONVERT.has(ext) || IS_WIN || stat.size > 300 * 1024 * 1024) return null;
+  // 转好的放在临时目录里，按「路径 + 修改时间 + 大小」认，原图改了会重新转
+  fs.mkdirSync(VIEW_CACHE, { recursive: true, mode: 0o700 });
+  const key = crypto.createHash('sha256').update(`${file}|${stat.mtimeMs}|${stat.size}`).digest('hex').slice(0, 32);
+  const out = path.join(VIEW_CACHE, `${key}.jpg`);
+  if (!fs.existsSync(out)) {
+    const tmp = `${out}.${process.pid}.tmp.jpg`;
+    try {
+      await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', '4096', file, '--out', tmp]);
+      fs.renameSync(tmp, out);
+    } catch {
+      fs.rmSync(tmp, { force: true });
+      return null;
+    }
+  }
+  return { file: out, type: 'image/jpeg', size: fs.statSync(out).size };
+}
+// 支持 Range：iPhone 的 Safari 放视频一定要分段读
+function sendViewable(req, res, v, name) {
+  const headers = {
+    'content-type': v.type, 'cache-control': 'private, max-age=60', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes',
+    // SVG、PDF 里可能带脚本：一律放进沙盒，不能借这个页面调 ClawChat 的接口
+    // （PDF 例外：Chrome 的 PDF 阅读器在 sandbox 下会被直接屏蔽；PDF 里的脚本由阅读器自己隔离，不在我们的页面里跑）
+    'content-security-policy': v.type === 'application/pdf'
+      ? "default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; form-action 'none'"
+      : "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+    'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
+  };
+  const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+  if (m && (m[1] || m[2])) {
+    let start = m[1] ? Number(m[1]) : Math.max(0, v.size - Number(m[2]));
+    let end = m[1] && m[2] ? Number(m[2]) : v.size - 1;
+    end = Math.min(end, v.size - 1);
+    if (start > end || start >= v.size) {
+      res.writeHead(416, { 'content-range': `bytes */${v.size}` });
+      return res.end();
+    }
+    res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${v.size}`, 'content-length': end - start + 1 });
+    return fs.createReadStream(v.file, { start, end }).pipe(res);
+  }
+  res.writeHead(200, { ...headers, 'content-length': v.size });
+  if (req.method === 'HEAD') return res.end();
+  return fs.createReadStream(v.file).pipe(res);
+}
+
 function events(req, res, access = 'local') {
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -1153,6 +1229,16 @@ async function api(req, res, url, access = 'local') {
       if (fs.statSync(file).isDirectory() && !path.basename(file).includes('.')) openPath(file);
       else revealPath(file);
       return send(res, 200, { ok: true });
+    }
+    // 在手机上看消息里提到的文件：图片（各种格式）、PDF、音视频。别的类型、敏感目录一律不给
+    if (sub === 'view' && (method === 'GET' || method === 'HEAD')) {
+      const file = await roomFile(room, url.searchParams.get('path'), url.searchParams.getAll('near'));
+      if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
+      if (viewBlocked(file)) return send(res, 403, { error: tr('这个位置的文件不能在手机上打开') });
+      const v = await viewableFile(file);
+      if (!v) return send(res, 415, { error: tr('手机上只能看图片、PDF 和音视频，这个文件请到电脑上打开') });
+      if (v.tooBig) return send(res, 413, { error: tr('文件太大了，请到电脑上打开') });
+      return sendViewable(req, res, v, path.basename(file));
     }
     // 读本机的图片给缩略图用：只认 ClawChat 自己页面发来的请求（别的网站用 <img> 嵌进来时浏览器会标成跨站），只给图片
     if (sub === 'preview' && method === 'GET') {
