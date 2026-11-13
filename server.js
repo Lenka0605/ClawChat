@@ -602,9 +602,61 @@ async function viewableFile(file) {
   }
   return { file: out, type: 'image/jpeg', size: fs.statSync(out).size };
 }
+// ---- 在手机上看 AI 做的网页（.html）----
+// 网页里常有脚本，还会引用同目录的 css、js、图片。做法：点开时发一张临时通行证，只认这个网页所在的文件夹，
+// 网页和它引用的文件都从 /site/<通行证>/相对路径 读。所有内容都放进浏览器沙盒（不给 allow-same-origin）：
+// 脚本能跑，但被当成「别的网站」，读不到、也调不动 ClawChat 的接口（/api 会按跨站请求拒绝）。
+const SITE_TTL = 2 * 60 * 60 * 1000;
+const SITE_GRANTS = new Map(); // 通行证 -> { root, at }
+const SITE_TYPES = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.avif': 'image/avif', '.ico': 'image/x-icon', '.bmp': 'image/bmp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav' };
+const SITE_CSP = 'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads';
+// only：文件夹太「大」时（桌面、下载、/tmp 这类），只开放这一个网页本身，同目录别的文件一概不给
+function siteGrant(file, only = false) {
+  const now = Date.now();
+  for (const [k, g] of SITE_GRANTS) if (now - g.at > SITE_TTL) SITE_GRANTS.delete(k);
+  while (SITE_GRANTS.size >= 100) SITE_GRANTS.delete(SITE_GRANTS.keys().next().value);
+  const root = fs.realpathSync(path.dirname(file));
+  const token = crypto.randomBytes(18).toString('base64url');
+  SITE_GRANTS.set(token, { root, at: now, only: only ? fs.realpathSync(file) : null });
+  return `/site/${token}/${encodeURIComponent(path.basename(file))}`;
+}
+// 网页所在的文件夹太「大」（整个电脑、整个用户目录、用户目录下的第一层）就不给：同目录的文件会被一起开放
+function siteRootTooBroad(file) {
+  const dir = fs.realpathSync(path.dirname(file));
+  const home = fs.realpathSync(os.homedir());
+  return dir === path.parse(dir).root || dir === home || path.dirname(dir) === home || !dir.startsWith(home + path.sep) && dir.split(path.sep).length < 4;
+}
+function serveSite(req, res, url) {
+  const parts = url.pathname.split('/'); // ['', 'site', token, ...相对路径]
+  const g = SITE_GRANTS.get(parts[2] || '');
+  const head = { 'content-security-policy': SITE_CSP, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' };
+  if (!g || Date.now() - g.at > SITE_TTL) {
+    res.writeHead(410, { ...head, 'content-type': 'text/plain; charset=utf-8' });
+    return res.end(tr('这个网页的链接已经过期了，请回到 ClawChat 里重新点一次'));
+  }
+  let rel;
+  try { rel = parts.slice(3).map(decodeURIComponent); } catch { rel = null; }
+  const notFound = () => { res.writeHead(404, { ...head, 'content-type': 'text/plain; charset=utf-8' }); res.end('not found'); };
+  // 隐藏文件、上级目录一律不给（.env、.git 这些）
+  if (!rel || !rel.length || rel.some((s) => !s || s.startsWith('.') || s.includes('\\') || s.includes('\0'))) return notFound();
+  const file = path.join(g.root, ...rel);
+  const type = SITE_TYPES[path.extname(file).toLowerCase()];
+  let real;
+  try { real = fs.realpathSync(file); } catch { return notFound(); }
+  if (!type || !(real === g.root || real.startsWith(g.root + path.sep)) || viewBlocked(real) || (g.only && real !== g.only)) return notFound();
+  const stat = fs.statSync(real);
+  if (!stat.isFile() || stat.size > 200 * 1024 * 1024) return notFound();
+  return sendViewable(req, res, { file: real, type, size: stat.size }, path.basename(real), head);
+}
+
 // 支持 Range：iPhone 的 Safari 放视频一定要分段读
-function sendViewable(req, res, v, name) {
-  const headers = {
+function sendViewable(req, res, v, name, extra = null) {
+  const headers = extra ? { 'content-type': v.type, 'accept-ranges': 'bytes', 'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`, ...extra } : {
     'content-type': v.type, 'cache-control': 'private, max-age=60', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes',
     // SVG、PDF 里可能带脚本：一律放进沙盒，不能借这个页面调 ClawChat 的接口
     // （PDF 例外：Chrome 的 PDF 阅读器在 sandbox 下会被直接屏蔽；PDF 里的脚本由阅读器自己隔离，不在我们的页面里跑）
@@ -1230,6 +1282,15 @@ async function api(req, res, url, access = 'local') {
       else revealPath(file);
       return send(res, 200, { ok: true });
     }
+    // 手机上看 AI 做的网页：发一张只认这个网页所在文件夹的临时通行证
+    if (sub === 'site' && method === 'POST') {
+      const body = await readBody(req);
+      const file = await roomFile(room, body.path, Array.isArray(body.near) ? body.near : []);
+      if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
+      if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) return send(res, 415, { error: tr('只有 .html 网页可以这样打开') });
+      if (viewBlocked(file)) return send(res, 403, { error: tr('这个位置的网页不能在手机上打开（它所在的文件夹太大，或者放着登录凭据）') });
+      return send(res, 200, { url: siteGrant(file, siteRootTooBroad(file)) });
+    }
     // 在手机上看消息里提到的文件：图片（各种格式）、PDF、音视频。别的类型、敏感目录一律不给
     if (sub === 'view' && (method === 'GET' || method === 'HEAD')) {
       const file = await roomFile(room, url.searchParams.get('path'), url.searchParams.getAll('near'));
@@ -1315,6 +1376,11 @@ const server = http.createServer(async (req, res) => {
       return await joint.peer(req, res, url, login, { send, readBody });
     }
     if (access === 'peer') return send(res, 403, { error: 'forbidden' });
+    // AI 做的网页（沙盒里跑，见 serveSite）：页面里引用的 css、js 是跨站请求，所以不走 /api 的同站检查
+    if (url.pathname.startsWith('/site/')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'method not allowed' });
+      return serveSite(req, res, url);
+    }
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
       // 读的接口也不让别的网站借浏览器来调（比如触发重新打包、刷新用量）：浏览器会标出跨站请求。

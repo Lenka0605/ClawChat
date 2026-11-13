@@ -303,6 +303,20 @@ function openFileRef(ref) {
   const url = viewUrl(conv.roomId, file, near);
   const name = file.split('/').pop();
   if (VIEW_IMAGE_RE.test(file)) return openLightbox(url, { name, check: true });
+  // AI 做的网页：先要一张临时通行证（只认这个网页所在的文件夹），新开一页在沙盒里看
+  if (/\.html?$/i.test(file)) {
+    const w = window.open('', '_blank');
+    api('POST', `/api/rooms/${conv.roomId}/site`, { path: file, near })
+      .then(({ url: page }) => {
+        if (w) w.location.href = page;
+        else location.href = page;
+      })
+      .catch((err) => {
+        w?.close();
+        toast(err.message, 5000);
+      });
+    return;
+  }
   if (VIEW_MEDIA_RE.test(file)) {
     // 新页要在点的这一下就开（晚了会被浏览器当成弹窗拦掉），先确认能打开再跳过去，打不开就关掉、说原因
     const w = window.open('', '_blank');
@@ -317,7 +331,7 @@ function openFileRef(ref) {
     });
     return;
   }
-  toast(tr('这个文件在电脑上，手机上只能看图片、PDF 和音视频'), 5000);
+  toast(tr('这个文件在电脑上，手机上只能看图片、网页、PDF 和音视频'), 5000);
 }
 
 // AI 回复里提到的图片：手机上在气泡下面直接排一行小图（最多 4 张），不用去点路径。过程里的路径不加

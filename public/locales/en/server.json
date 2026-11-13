@@ -143,5 +143,8 @@
   "对方老板改了权限，这一轮没开工": "The other owner changed the permissions, so this turn didn't start",
   "这个位置的文件不能在手机上打开": "Files in this location can't be opened on your phone",
   "手机上只能看图片、PDF 和音视频，这个文件请到电脑上打开": "Only images, PDFs, audio and video can be viewed on the phone; open this file on the computer",
-  "文件太大了，请到电脑上打开": "The file is too large; open it on the computer"
+  "文件太大了，请到电脑上打开": "The file is too large; open it on the computer",
+  "这个网页的链接已经过期了，请回到 ClawChat 里重新点一次": "This page link has expired. Go back to ClawChat and tap it again.",
+  "只有 .html 网页可以这样打开": "Only .html pages can be opened this way",
+  "这个位置的网页不能在手机上打开（它所在的文件夹太大，或者放着登录凭据）": "Pages in this location can't be opened on the phone (the folder is too broad or holds login credentials)"
 }

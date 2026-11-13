@@ -312,8 +312,8 @@
   "群名和成员由主持方管理": "The group name and members are managed by the host",
   "打不开这个文件": "Can't open this file",
   "连不上电脑，请检查网络": "Can't reach the computer. Check your network",
-  "这个文件在电脑上，手机上只能看图片、PDF 和音视频": "This file is on the computer. On the phone you can only view images, PDFs, audio and video",
   "加载中…": "Loading…",
   "保存 / 分享": "Save / Share",
-  "图片打不开": "Couldn't open the image"
+  "图片打不开": "Couldn't open the image",
+  "这个文件在电脑上，手机上只能看图片、网页、PDF 和音视频": "This file is on the computer; the phone can only view images, web pages, PDFs, audio and video"
 }
