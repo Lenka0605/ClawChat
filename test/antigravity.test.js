@@ -183,3 +183,26 @@ test('订阅：做完了但没拿到会话编号，不算失败、不重跑，�
   assert.equal(res.session, null);
   assert.match(res.warning, /会话编号/);
 });
+
+test('订阅：模型列表按 agy models 来；群里选的模型账号用不了时，这一轮退回默认并提示', async () => {
+  const { parseAgyModels, antigravityModels } = await import('../lib/antigravity.js');
+  const out = 'Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n';
+  const listed = parseAgyModels(out);
+  assert.deepEqual(listed.map((m) => m.id), ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'claude-sonnet-4-6']);
+  assert.equal(parseAgyModels('Fetching available models...\n'), null, '拿不到列表时不覆盖');
+  const before = agyState.models;
+  agyState.models = listed;
+  try {
+    const ids = antigravityModels().map((m) => m.id);
+    assert.deepEqual(ids, ['auto', 'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'claude-sonnet-4-6']);
+    assert.ok(!ids.includes('gemini-4-argon-high'), '账号没开通的不出现在列表里');
+    const room = { cwd: root, permission: 'project', models: { gemini: 'gemini-4-argon-high' } };
+    const args = antigravityArgs({ room });
+    assert.equal(args[args.indexOf('--model') + 1], 'gemini-3.8-flash-medium', '用不了的模型退回默认');
+    const ok = { cwd: root, permission: 'project', models: { gemini: 'claude-sonnet-4-6' } };
+    const args2 = antigravityArgs({ room: ok });
+    assert.equal(args2[args2.indexOf('--model') + 1], 'claude-sonnet-4-6', '能用的照选');
+  } finally {
+    agyState.models = before;
+  }
+});
