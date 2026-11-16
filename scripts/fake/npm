@@ -1,0 +1,10 @@
+#!/bin/bash
+# 假 npm：假实例里的「全局安装 / 更新」（比如程序列表里点 Gemini 的「更新」会跑 npm install -g）不能动到电脑上真的全局目录，
+# 带 -g 的直接说装好了；别的命令去掉假程序目录后交给真的 npm
+for a in "$@"; do
+  case "$a" in -g|--global|--location=global) echo "（假的 npm）npm $*：已是最新"; exit 0 ;; esac
+done
+FAKE_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$FAKE_DIR" | paste -sd: -)"
+export PATH
+exec npm "$@"

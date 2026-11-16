@@ -1254,7 +1254,9 @@ function renderEngines() {
     if (CAN_INSTALL.includes(key) && !installed) action = installButtonHtml('secondary', key);
     else if (BYOK[key] && !installed) action = installButtonHtml('secondary', 'claude');
     else if (loggedOut && LOGIN_NAMES[key] && isLocalHost()) action = `<button class="secondary engine-login" data-login="${key}"${busyLogin ? ' disabled' : ''}>${busyLogin ? tr('等待登录…') : tr('登录')}</button>`;
-    else if (installed && !loggedOut && !BYOK[key] && key !== 'gemini' && key !== 'api') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
+    else if (installed && !loggedOut && !BYOK[key] && key !== 'api') action = `<button class="secondary engine-update" data-engine="${key}">${tr('更新')}</button>`;
+    // DeepSeek、GLM、API 借 Claude Code 干活：它们这一行的「更新」更新的就是 Claude Code
+    else if ((BYOK[key] || key === 'api') && S.engines.claude?.path) action = `<button class="secondary engine-update" data-engine="claude" title="${esc(tr('{name} 借 Claude Code 干活，更新的就是 Claude Code', { name }))}">${tr('更新')}</button>`;
     // 浏览器没自动打开时：官方命令打印出来的登录网址（有验证码的话一起显示）
     const extra = link && loggedOut
       ? `<small class="engine-login-hint">${link.code ? `${tr('验证码 {code} · ', { code: esc(link.code) })}` : ''}<a href="${esc(link.url)}" target="_blank" rel="noopener">${tr('浏览器没打开？点这里')}</a></small>`
@@ -5111,13 +5113,20 @@ async function submitCustomModel(e) {
 
 // 一键更新 Claude Code / Codex：新模型常常要新版本才看得到
 async function updateEngine(engine, btn) {
-  const name = { codex: 'Codex', grok: 'Grok Build', cursor: 'Cursor CLI' }[engine] || 'Claude Code';
-  btn.disabled = true;
-  btn.textContent = tr('更新中…');
+  const name = { codex: 'Codex', grok: 'Grok Build', cursor: 'Cursor CLI', gemini: 'Gemini' }[engine] || 'Claude Code';
+  // 同一个程序的按钮一起灰掉（Claude Code 那四个）
+  for (const b of document.querySelectorAll(`.engine-update[data-engine="${engine}"]`)) {
+    b.disabled = true;
+    b.textContent = tr('更新中…');
+  }
   try {
     const res = await api('POST', '/api/engines/update', { engine });
     S.engines = res.engines || S.engines;
-    toast(res.ok ? tr('{name} 已是最新：{version}', { name, version: S.engines[engine]?.version || '' }) : tr('{name} 更新失败：{error}', { name, error: res.output }), 5000);
+    // Gemini 一次更新两个程序：成功时也把各自的结果说出来
+    const summary = engine === 'gemini' ? String(res.output || '').split('\n').filter((l) => /^(Antigravity CLI|Gemini CLI)：/.test(l)).join('；') : '';
+    toast(res.ok
+      ? summary || tr('{name} 已是最新：{version}', { name, version: S.engines[engine]?.version || '' })
+      : tr('{name} 更新失败：{error}', { name, error: res.output }), 6000);
   } catch (err) {
     toast(err.message);
   }

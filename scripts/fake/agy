@@ -6,6 +6,14 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 
 if (process.argv.includes('--version')) { process.stdout.write('1.4.10-fake\n'); process.exit(0); }
+// 程序列表里的「更新」会跑 agy update；不联网，直接说已是最新
+if (process.argv[2] === 'update') { process.stdout.write('Already up to date (1.4.10-fake)\n'); process.exit(0); }
+// 检测程序时会跑 agy models 问账号能用哪些模型（每行「编号<Tab>显示名」）；FAKE_AGY_MODELS 可以换成别的列表测
+if (process.argv[2] === 'models') {
+  process.stdout.write('Fetching available models...\n');
+  process.stdout.write(process.env.FAKE_AGY_MODELS || 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n');
+  process.exit(0);
+}
 const args = process.argv.slice(2);
 const value = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : '';
 const emit = (e) => process.stdout.write(`${JSON.stringify(e)}\n`);

@@ -691,6 +691,8 @@ function sendViewable(req, res, v, name, extra = null) {
   return fs.createReadStream(v.file).pipe(res);
 }
 
+const enginesUpdating = new Map(); // 程序 -> 正在进行的那次更新
+
 function events(req, res, access = 'local') {
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -906,9 +908,11 @@ async function api(req, res, url, access = 'local') {
   if (method === 'POST' && parts[0] === 'engines' && parts[1] === 'update') {
     // DeepSeek 用的就是 Claude Code，更新它就是更新 Claude Code
     const { engine } = await readBody(req);
-    if (!['claude', 'codex', 'grok', 'cursor'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
-    const result = await updateEngine(engine);
-    await refreshEngines();
+    if (!['claude', 'codex', 'grok', 'cursor', 'gemini'].includes(engine)) return send(res, 400, { error: tr('不认识这个程序') });
+    // 同一个程序同时只更新一次：Claude Code 有四个「更新」按钮（Claude Code、DeepSeek、GLM、API），连着点不会并发跑两次
+    if (!enginesUpdating.has(engine)) enginesUpdating.set(engine, updateEngine(engine).finally(() => enginesUpdating.delete(engine)));
+    const result = await enginesUpdating.get(engine);
+    await refreshEngines(true); // 新版本常带新模型（Gemini 的模型列表也跟着重新问一遍）
     return send(res, 200, { ...result, engines });
   }
   // 借外部接口那几位的 API Key（DeepSeek、GLM）：先用它读一次模型目录，Key 不对就不存；空的就是删掉。Key 只存在本机，不会再发回界面
