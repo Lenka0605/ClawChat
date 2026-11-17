@@ -151,5 +151,7 @@
   "已更新": "updated",
   "Gemini CLI：请在终端运行 npm install -g @google/gemini-cli@latest": "Gemini CLI: run npm install -g @google/gemini-cli@latest in Terminal",
   "没找到 agy 或 gemini 命令，请先安装": "Couldn't find the agy or gemini command; install one first",
-  "需要管理员权限，请在终端运行 sudo npm i -g @google/gemini-cli@latest": "Needs administrator rights: run sudo npm i -g @google/gemini-cli@latest in Terminal"
+  "需要管理员权限，请在终端运行 sudo npm i -g @google/gemini-cli@latest": "Needs administrator rights: run sudo npm i -g @google/gemini-cli@latest in Terminal",
+  "Gemini 原来的对话接连中断，换成新会话、带上最近的聊天记录重来": "Gemini's conversation was cut off twice in a row, so it's starting a new session with the recent chat history",
+  "和 Google 的连接中途断了（多半是网络问题），可以直接让它「继续」": "lost the connection to Google mid-turn (usually a network hiccup). You can just tell it to continue."
 }

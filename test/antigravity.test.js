@@ -206,3 +206,20 @@ test('订阅：模型列表按 agy models 来；群里选的模型账号用不�
     agyState.models = before;
   }
 });
+
+test('订阅：连接中途断了先报中文让老板「继续」；同一个对话继续以后又断，交给 hub 换新会话', async () => {
+  const cut = (id) => [
+    { event: 'init', conversation_id: id, init: { model: 'gemini-4-hydrogen-high' } },
+    { event: 'result', result: { conversation_id: id, status: 'ERROR', error: 'The stream was interrupted. Please continue the task you were working on.' } },
+  ];
+  const first = await runAntigravity({ room, prompt: '干活', session: 'agy:cut-id' }, runtime(cut('cut-id'))).done;
+  assert.equal(first.ok, false);
+  assert.match(first.error, /连接中途断了/);
+  assert.ok(!first.sessionMismatch, '第一次断：不换会话，让老板叫它继续');
+  const again = await runAntigravity({ room, prompt: '继续', session: 'agy:cut-id' }, runtime(cut('cut-id'))).done;
+  assert.equal(again.ok, false);
+  assert.equal(again.sessionMismatch, true, '同一个对话又断：交给 hub 换新会话');
+  // 别的对话、别的错误不受影响
+  const other = await runAntigravity({ room, prompt: '干活', session: 'agy:other-id' }, runtime(cut('other-id'))).done;
+  assert.ok(!other.sessionMismatch);
+});
