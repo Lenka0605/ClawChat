@@ -68,7 +68,7 @@ test('订阅：解析真实官方事件、步骤去重、以最终回复为准�
   assert.equal(JSON.parse(rt.captured.opts.input).message.content, '@Claude\n正文');
   assert.equal(rt.captured.opts.env.GEMINI_API_KEY, '');
   assert.equal(rt.captured.opts.env.GOOGLE_API_KEY, '');
-  assert.deepEqual(antigravityUsage(result.session), { images: 0, used: 15, window: 0 });
+  assert.deepEqual(antigravityUsage(result.session), { images: 0, used: 15, window: 1048576 }); // Gemini 4 的上限按公开资料补上
   const next = runtime();
   await runAntigravity({ room, session: result.session, prompt: '继续' }, next).done;
   assert.equal(next.captured.args[next.captured.args.indexOf('--conversation') + 1], 'native-id');

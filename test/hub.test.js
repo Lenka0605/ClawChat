@@ -28,6 +28,8 @@ test('isPass', () => {
   assert.ok(isPass('[PASS]'));
   assert.ok(isPass(' pass '));
   assert.ok(!isPass('PASS 了测试'));
+  assert.ok(isPass('[PASS]\n[PASS]\n\n[PASS]'), '一轮里每一步都回了 [PASS]');
+  assert.ok(!isPass('[PASS]\n好的，我来看'));
 });
 
 test('unwrapShell 去掉 zsh -lc 外壳', () => {
