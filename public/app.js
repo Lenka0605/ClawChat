@@ -7994,9 +7994,9 @@ async function init() {
   setTimeout(() => {
     if (!document.querySelector('dialog[open]')) checkPendingJointApprovals();
   }, 1400);
-  // 启动后悄悄查一次有没有新版本，之后每小时查一次
+  // 启动后悄悄查一次有没有新版本，之后每 10 分钟查一次
   setTimeout(() => checkForUpdate(false), 5000);
-  setInterval(() => checkForUpdate(false), 60 * 60 * 1000);
+  setInterval(() => checkForUpdate(false), 10 * 60 * 1000);
 }
 
 init();
