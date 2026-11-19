@@ -20,7 +20,12 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const PORT = Number(process.env.CLAWCHAT_PORT) || 7317;
 const HOST = '127.0.0.1';
-const PROJECTS_DIR = path.join(os.homedir(), 'ClawChatProjects');
+// 新建群时项目文件夹留空：自动建在这里。测试、另起的实例（设了 CLAWCHAT_HOME）建在自己的数据目录里，
+// 不往老板的 ~/ClawChatProjects 里堆空的测试文件夹（以前留下过二十多个「甲群」「插话测试」这类）
+const PROJECTS_DIR = process.env.CLAWCHAT_PROJECTS
+  || (process.env.CLAWCHAT_HOME && path.resolve(process.env.CLAWCHAT_HOME) !== path.join(os.homedir(), '.clawchat')
+    ? path.join(DATA_DIR, 'projects')
+    : path.join(os.homedir(), 'ClawChatProjects'));
 
 setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群里的提示也用它）
 const store = new Store();

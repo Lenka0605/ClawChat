@@ -24,6 +24,7 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 - 新数据目录里没有 `config.json`，DeepSeek 会显示没填 Key。要测 DeepSeek 的话，用 `CLAWCHAT_DEEPSEEK_API` 指向本地的假接口，不要拿真 Key。
 - 自己写脚本调接口时：**所有写接口（POST 等）都要带请求头 `X-ClawChat: 1`**，否则一律 403。
 - 起测试实例前先在群里报端口和数据目录，别用同一个端口，免得关掉别人的实例。
+- 测试实例（设了 `CLAWCHAT_HOME`）新建群时，项目文件夹默认建在它自己的数据目录 `projects/` 下，不进老板的 `~/ClawChatProjects`。测试时别手动把 `cwd` 指到 `~/ClawChatProjects` 下面；干活产出的文件也放在本群项目文件夹里，别往 `~/ClawChatProjects` 根目录放。
 - 生效方式：改 `public/` 刷新页面就行（静态文件是 `no-store`）；改 `lib/`、`server.js` 要重启服务；改 `mac/` 或者挪了目录要重新 `npm run app`。
 
 ## 发版

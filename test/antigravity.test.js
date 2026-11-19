@@ -223,3 +223,20 @@ test('订阅：连接中途断了先报中文让老板「继续」；同一个�
   const other = await runAntigravity({ room, prompt: '干活', session: 'agy:other-id' }, runtime(cut('other-id'))).done;
   assert.ok(!other.sessionMismatch);
 });
+
+test('订阅：断线但已经说了话：照常发出来、标一句可能不完整；同一个对话接连断：话照发，下一轮换新会话', async () => {
+  const cutWithText = (id) => [
+    { event: 'init', conversation_id: id, init: { model: 'gemini-4-hydrogen-high' } },
+    { event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, state: 'DONE', text_delta: '已经核对完发布状态，一切正常' } },
+    { event: 'result', result: { conversation_id: id, status: 'ERROR', error: 'The stream was interrupted. Please continue the task you were working on.' } },
+  ];
+  const first = await runAntigravity({ room, prompt: '干活', session: 'agy:salvage-id' }, runtime(cutWithText('salvage-id'))).done;
+  assert.equal(first.ok, true, '说了话就不作废');
+  assert.equal(first.text, '已经核对完发布状态，一切正常');
+  assert.match(first.warning, /可能不完整/);
+  assert.equal(first.session, 'agy:salvage-id', '会话照常保留');
+  const again = await runAntigravity({ room, prompt: '继续', session: 'agy:salvage-id' }, runtime(cutWithText('salvage-id'))).done;
+  assert.equal(again.ok, true);
+  assert.equal(again.resetSession, true, '接连断：下一轮换新会话');
+  assert.match(again.warning, /接连中断/);
+});
