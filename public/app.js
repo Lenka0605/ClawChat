@@ -1345,12 +1345,12 @@ function renderEngines() {
 }
 
 // ---------------- 订阅用量（设置 → 程序与模型最上面） ----------------
-// 数据是 Claude Code / Codex 自己带回来的最近一次额度；DeepSeek、GLM 走 API，不显示。
+// 数据由各家官方工具带回或现查；DeepSeek、GLM 走 API，不显示。
 const USAGE_AGENTS = [
   { agent: 'claude', key: 'claude' },
   { agent: 'gpt', key: 'codex' },
-  { agent: 'gemini' },
-  { agent: 'grok' },
+  { agent: 'gemini', key: 'gemini' },
+  { agent: 'grok', key: 'grok' },
 ];
 
 function usagePlanName(plan) {
@@ -1361,8 +1361,14 @@ function usagePlanName(plan) {
 function usageWindowName(w) {
   if (w.key === 'five_hour') return tr('5 小时');
   if (w.key === 'seven_day') return tr('本周');
+  if (w.key === 'seven_day_argon') return tr('本周 Argon');
+  if (w.key === 'five_hour_argon') return tr('5 小时 Argon');
+  if (w.key === 'five_hour_3p') return tr('5 小时（Claude / GPT）');
+  if (w.key === 'seven_day_3p') return tr('本周（Claude / GPT）');
   if (w.key === 'seven_day_opus') return tr('本周 Opus');
   if (w.key === 'seven_day_sonnet') return tr('本周 Sonnet');
+  if (w.key === 'daily') return tr('今日');
+  if (w.key === 'monthly') return tr('本月');
   // Anthropic 后来加的「本周额度（含另外买的超额部分）」
   if (w.key === 'seven_day_overage_included') return tr('本周（含超额）');
   const minutes = Number(w.windowMinutes) || (/^\d+m$/.test(w.key) ? Number(w.key.slice(0, -1)) : 0);
@@ -1399,9 +1405,10 @@ function usageRowHtml(agent, key) {
   const plan = d?.plan ? `<span class="usage-plan">${esc(usagePlanName(d.plan))}</span>` : '';
   const head = `<div class="list-row top usage-row">${avatarHtml(agent)}<span class="row-text"><span class="usage-name"><b>${esc(agentName(agent))}</b>${plan}</span>`;
   if (!key) return `${head}<small class="usage-empty">${tr('暂时看不到余量')}</small></span></div>`;
+  if (agent === 'gemini' && S.engines?.gemini?.authMode === 'api') return `${head}<small class="usage-empty">${tr('使用 API Key 计费，不显示余量')}</small></span></div>`;
   const credits = d?.credits;
   const windows = (Array.isArray(d?.windows) ? [...d.windows] : []).sort((a, b) => {
-    const order = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet'];
+    const order = ['five_hour', 'seven_day', 'seven_day_argon', 'five_hour_argon', 'five_hour_3p', 'seven_day_3p', 'seven_day_opus', 'seven_day_sonnet', 'daily', 'monthly'];
     const ia = order.indexOf(a.key);
     const ib = order.indexOf(b.key);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
@@ -1438,13 +1445,13 @@ function renderUsage() {
   const title = $('#usage-title');
   if (title) title.textContent = tr('订阅用量');
   const hint = $('#usage-hint');
-  if (hint) hint.textContent = tr('数字是 AI 最近一次干活时官方工具带回来的；DeepSeek、GLM 按 API 收费，不显示余量。');
+  if (hint) hint.textContent = tr('ChatGPT、Gemini、Grok 打开设置时现查，Claude 最近一次干活时带回；DeepSeek、GLM 按 API 收费，不显示余量。');
   box.innerHTML = USAGE_AGENTS.map(({ agent, key }) => usageRowHtml(agent, key)).join('');
 }
 
 async function refreshUsage() {
   try {
-    S.usage = (await api('GET', '/api/usage?refresh=1')) || {}; // 打开时顺便现读一次 ChatGPT 的余量
+    S.usage = (await api('GET', '/api/usage?refresh=1')) || {}; // 打开时顺便现读一次 ChatGPT、Gemini、Grok 的余量
     renderUsage();
   } catch {}
 }

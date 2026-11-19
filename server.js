@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
 import { Hub, dmRoom } from './lib/hub.js';
-import { AGENTS, runAgent, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits } from './lib/agents.js';
+import { AGENTS, runAgent, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits, readGrokRateLimits, readGeminiRateLimits } from './lib/agents.js';
 import { PROVIDERS, providerKey, validApiBase, ensureApiBridge } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
@@ -827,10 +827,15 @@ async function api(req, res, url, access = 'local') {
       }
     }
   }
-  // 订阅额度还剩多少（Claude、ChatGPT）：最近一次跑的时候官方工具带回来的数
-  // ?refresh=1（打开设置时）：顺便现读一次 ChatGPT 的余量（只查询，不开聊天、不花额度），最多等 8 秒；Claude 的只能等它下次干活带回来
+  // 订阅额度还剩多少（Claude、ChatGPT、Gemini、Grok）：最近一次跑的时候或打开设置时官方工具带回来的数
+  // ?refresh=1（打开设置时）：顺便现读一次 ChatGPT、Gemini、Grok 的余量（只查询，不开聊天、不花额度），最多等 8 秒；Claude 的只能等它下次干活带回来
   if (parts[0] === 'usage' && !parts[1] && method === 'GET') {
-    if (url.searchParams.get('refresh')) await Promise.race([readCodexRateLimits(), new Promise((r) => setTimeout(r, 8000))]).catch(() => {});
+    if (url.searchParams.get('refresh')) {
+      await Promise.race([
+        Promise.allSettled([readCodexRateLimits(), readGrokRateLimits(), readGeminiRateLimits()]),
+        new Promise((r) => setTimeout(r, 8000)),
+      ]).catch(() => {});
+    }
     return send(res, 200, getUsage());
   }
   // 手机远程访问（Tailscale）：看状态、开关。打开只能在电脑上点（手机这时还连不进来）
@@ -1482,7 +1487,12 @@ server.listen(PORT, HOST, () => {
   hub.noticeInterrupted();
   pruneExtraMembers(); // 以前在设置里开了、但哪个群都没用上的多开成员
   ensureIcons();
-  refreshEngines().then(() => console.log(`[clawchat] 程序：${engineSummary()}`));
+  refreshEngines().then(() => {
+    console.log(`[clawchat] 程序：${engineSummary()}`);
+    // 启动检测完在后台静默查一次 Gemini、Grok 的余量（不阻塞启动，拿到后推给前端）
+    readGrokRateLimits();
+    readGeminiRateLimits();
+  });
   setInterval(refreshEngines, 5 * 60 * 1000); // 定时重新读模型目录：出了新模型不用重启就能看到
 });
 
@@ -1539,8 +1549,21 @@ async function restartWhenIdle() {
   restartNow();
 }
 
+const activeUsageEngines = new Set();
+const lastTurnUsageRefresh = { grok: 0, gemini: 0 };
 hub.on('event', (ev) => {
-  if (ev.type !== 'status' || !pendingRestart || !allIdle()) return;
+  if (ev.type !== 'status') return;
+  const nowRunning = new Set((ev.runs || []).map((r) => AGENTS[r.agent]?.engine).filter((e) => e === 'grok' || e === 'gemini'));
+  for (const prev of activeUsageEngines) {
+    if (!nowRunning.has(prev) && Date.now() - lastTurnUsageRefresh[prev] > 5000) {
+      lastTurnUsageRefresh[prev] = Date.now();
+      if (prev === 'grok') readGrokRateLimits();
+      else if (prev === 'gemini') readGeminiRateLimits();
+    }
+  }
+  activeUsageEngines.clear();
+  for (const e of nowRunning) activeUsageEngines.add(e);
+  if (!pendingRestart || !allIdle()) return;
   clearTimeout(pendingTimer);
   pendingTimer = setTimeout(restartWhenIdle, 2000);
 });

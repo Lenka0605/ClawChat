@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-usage-'));
 process.env.CLAWCHAT_HOME = HOME;
-const { getUsage, recordClaudeRateLimit, recordCodexRateLimits, seedCodexUsage, onUsageChange, _resetUsage } = await import('../lib/usage.js');
+const { getUsage, recordClaudeRateLimit, recordCodexRateLimits, recordGrokBilling, recordAgyUsage, seedCodexUsage, onUsageChange, _resetUsage } = await import('../lib/usage.js');
 const sec = (h) => Math.floor(Date.now() / 1000) + h * 3600;
 
 test('Claude 的额度：分窗口的按窗口存，小数换成百分数，秒换成毫秒；只报一个窗口时其余沿用上次', () => {
@@ -56,4 +56,76 @@ test('启动时从最近的 Codex 会话文件里读一次余量', () => {
   seedCodexUsage(codex);
   assert.equal(getUsage().codex.windows[0].usedPercent, 55, '取最后一次');
   assert.equal(seedCodexUsage(path.join(codex, '没有')), null, '目录不存在也不出错');
+});
+
+test('Grok 的账单用量：识别周期、百分数、套餐与预付余额，替换旧窗口', () => {
+  _resetUsage();
+  const futureIso = new Date(Date.now() + 3 * 86400000).toISOString();
+  const got = recordGrokBilling({
+    config: {
+      creditUsagePercent: 16,
+      currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: futureIso },
+      prepaidBalance: { val: 0 },
+    },
+    subscription_tier: 'SuperGrok',
+  });
+  assert.equal(got.plan, 'SuperGrok');
+  assert.deepEqual(got.windows.map((w) => [w.key, w.usedPercent]), [['seven_day', 16]]);
+  assert.ok(got.windows[0].resetsAt > Date.now());
+  assert.equal(got.credits, undefined, '预付余额为 0 时不额外显示 credits');
+  // 换到月周期、且有预付余额时：替换旧窗口而不保留残留
+  const got2 = recordGrokBilling({
+    config: {
+      creditUsagePercent: 45.5,
+      currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY', end: futureIso },
+      prepaidBalance: { val: 500 },
+    },
+    subscription_tier: 'SuperGrok',
+  });
+  assert.deepEqual(got2.windows.map((w) => [w.key, w.usedPercent]), [['monthly', 45.5]]);
+  assert.deepEqual(got2.credits, { hasCredits: true, unlimited: false, balance: null });
+  assert.equal(recordGrokBilling(null), null);
+  assert.equal(recordGrokBilling({ config: {} }), null);
+});
+
+test('Gemini (agy /usage) 的额度：解析三组窗口，remaining_fraction 转成已用百分比', () => {
+  _resetUsage();
+  const futureIso = new Date(Date.now() + 2 * 3600000).toISOString();
+  const got = recordAgyUsage({
+    status: 'SUCCESS',
+    command: {
+      name: 'usage',
+      data: {
+        groups: [
+          {
+            name: 'Gemini Models',
+            buckets: [
+              { id: 'gemini-weekly', window: 'weekly', remaining_fraction: 0.892, reset_time: futureIso },
+              { id: 'gemini-5h', window: '5h', remaining_fraction: 0.7824, reset_time: futureIso },
+            ],
+          },
+          {
+            name: 'Claude and GPT models',
+            buckets: [
+              { id: '3p-weekly', window: 'weekly', remaining_fraction: 1, reset_time: futureIso },
+              { id: '3p-5h', window: '5h', remaining_fraction: 0.5, reset_time: futureIso },
+            ],
+          },
+          {
+            name: 'Gemini 4 Argon',
+            buckets: [
+              { id: 'gemini-argon-wtu-weekly', window: 'weekly', remaining_fraction: 0, reset_time: futureIso },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(
+    got.windows.map((w) => [w.key, w.usedPercent]),
+    [['seven_day', 10.8], ['five_hour', 21.8], ['seven_day_3p', 0], ['five_hour_3p', 50], ['seven_day_argon', 100]],
+  );
+  assert.ok(got.windows[0].resetsAt > Date.now());
+  assert.equal(recordAgyUsage({ status: 'ERROR' }), null);
+  assert.equal(recordAgyUsage(null), null);
 });

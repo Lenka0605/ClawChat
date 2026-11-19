@@ -9,6 +9,7 @@ const bin = path.join(root, 'bin');
 fs.mkdirSync(bin);
 process.env.CLAWCHAT_HOME = path.join(root, 'data');
 process.env.CODEX_HOME = path.join(root, 'codex');
+process.env.GROK_HOME = path.join(root, 'grok');
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 process.env.DEEPSEEK_API_KEY = process.env.GLM_API_KEY = 'fake';
 process.env.CLAWCHAT_DEEPSEEK_API = process.env.CLAWCHAT_GLM_API = 'http://127.0.0.1:1';
@@ -36,8 +37,35 @@ for (const name of ['claude', 'codex']) {
   fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n${cli}`, { mode: 0o755 });
   fs.writeFileSync(path.join(bin, `${name}.cmd`), `@echo off\r\n"%~dp0\\${name}.js" %*\r\n`);
 }
-const { runAgent, which, readCodexRateLimits: readFromAgents } = await import('../lib/agents.js');
+const grokCli = `
+const readline = require('node:readline');
+const fs = require('node:fs');
+const emit = (v) => process.stdout.write(JSON.stringify(v) + '\\n');
+if (process.argv[2] === 'agent' && process.argv[3] === 'stdio') {
+  readline.createInterface({ input: process.stdin }).on('line', (line) => {
+    const m = JSON.parse(line);
+    if (process.env.FAKE_USAGE_LOG) fs.appendFileSync(process.env.FAKE_USAGE_LOG, JSON.stringify(m) + '\\n');
+    if (m.method === 'initialize') emit({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1 } });
+    if (m.method === '_x.ai/billing') emit({ jsonrpc: '2.0', id: m.id, result: JSON.parse(process.env.FAKE_USAGE_RESULT) });
+  });
+}
+`;
+const agyCli = `
+const fs = require('node:fs');
+if (process.argv.includes('-p') && process.argv.includes('/usage')) {
+  if (process.env.FAKE_USAGE_LOG) fs.appendFileSync(process.env.FAKE_USAGE_LOG, JSON.stringify({ args: process.argv.slice(2), hasKey: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) }) + '\\n');
+  process.stdout.write(process.env.FAKE_USAGE_RESULT || '');
+}
+`;
+for (const [name, code] of [['grok', grokCli], ['agy', agyCli]]) {
+  fs.writeFileSync(path.join(bin, `${name}.js`), code);
+  fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n${code}`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, `${name}.cmd`), `@echo off\r\n"%~dp0\\${name}.js" %*\r\n`);
+}
+const { runAgent, which, readCodexRateLimits: readFromAgents, readGrokRateLimits, readGeminiRateLimits } = await import('../lib/agents.js');
 const { runCodexServer, readCodexRateLimits } = await import('../lib/codex.js');
+const { readGrokUsage } = await import('../lib/grok.js');
+const { readAgyUsage } = await import('../lib/antigravity.js');
 const { getUsage, _resetUsage } = await import('../lib/usage.js');
 const room = { cwd: root, permission: 'readonly' };
 const resetAt = Math.floor(Date.now() / 1000) + 3600;
@@ -169,4 +197,74 @@ test('设置页读取接口：并发刷新共用一个假进程，命令缺失�
     process.env.PATH = path.join(root, '没有程序');
     assert.equal(await readFromAgents(), null);
   } finally { process.env.PATH = oldPath; }
+});
+
+test('主动读 Grok 额度：未登录不启进程；已登录通过 _x.ai/billing 读取并并发共用同一进程；晚到回执不写入', async () => {
+  fs.rmSync(process.env.GROK_HOME, { recursive: true, force: true });
+  assert.equal(await readGrokRateLimits(), null, '未登录直接返回 null');
+  fs.mkdirSync(process.env.GROK_HOME, { recursive: true });
+  fs.writeFileSync(path.join(process.env.GROK_HOME, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::test': { auth_mode: 'oauth2', key: 'fake-token' } }));
+  const futureIso = new Date(Date.now() + 86400000).toISOString();
+  process.env.FAKE_USAGE_LOG = path.join(root, 'grok-rpc.jsonl');
+  process.env.FAKE_USAGE_RESULT = JSON.stringify({
+    config: { creditUsagePercent: 25, currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: futureIso } },
+    subscription_tier: 'SuperGrok',
+  });
+  const a = readGrokRateLimits();
+  const b = readGrokRateLimits();
+  assert.equal(a, b, '并发刷新共用同一次读取');
+  const got = await a;
+  assert.equal(got.plan, 'SuperGrok');
+  assert.equal(got.windows[0].usedPercent, 25);
+  const sent = fs.readFileSync(process.env.FAKE_USAGE_LOG, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(sent.map((m) => m.method), ['initialize', '_x.ai/billing']);
+  // 超时或错误后，晚到的回执不能把旧值覆盖掉
+  const before = JSON.stringify(getUsage());
+  let lateEmit;
+  const fakeProc = {
+    write: () => true,
+    end() {},
+    kill: async () => {},
+    done: Promise.resolve({ code: 0 }),
+  };
+  const res = await readGrokUsage({
+    bin: 'grok',
+    spawnJsonl: (_b, _a, { onEvent }) => { lateEmit = onEvent; return fakeProc; },
+  });
+  assert.equal(res, null);
+  lateEmit({ jsonrpc: '2.0', id: 2, result: { config: { creditUsagePercent: 99, currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: futureIso } } } });
+  assert.equal(JSON.stringify(getUsage()), before);
+});
+
+test('主动读 Gemini (agy) 额度：剥离 API Key 环境变量，并发共用一次查询；有配置 API Key 时跳过', async () => {
+  const futureIso = new Date(Date.now() + 86400000).toISOString();
+  process.env.FAKE_USAGE_LOG = path.join(root, 'agy-usage.jsonl');
+  process.env.FAKE_USAGE_RESULT = JSON.stringify({
+    status: 'SUCCESS',
+    command: {
+      name: 'usage',
+      data: { groups: [{ name: 'Gemini Models', buckets: [{ id: 'gemini-5h', window: '5h', remaining_fraction: 0.75, reset_time: futureIso }] }] },
+    },
+  });
+  process.env.GEMINI_API_KEY = 'should-not-leak';
+  const resDirect = await readAgyUsage({
+    which: () => path.join(bin, process.platform === 'win32' ? 'agy.cmd' : 'agy'),
+    run: async (cmd, args, _t, env) => {
+      fs.appendFileSync(process.env.FAKE_USAGE_LOG, JSON.stringify({ args, hasKey: !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY) }) + '\n');
+      return { ok: true, stdout: process.env.FAKE_USAGE_RESULT };
+    },
+  });
+  assert.equal(resDirect.windows[0].usedPercent, 25);
+  const logRow = JSON.parse(fs.readFileSync(process.env.FAKE_USAGE_LOG, 'utf8').trim());
+  assert.deepEqual(logRow.args, ['-p', '/usage', '--output-format', 'json']);
+  assert.equal(logRow.hasKey, false, '订阅查询必须剥离 GEMINI_API_KEY');
+  // 配了 GEMINI_API_KEY 时 readGeminiRateLimits 直接返回 null，不走订阅查询
+  assert.equal(await readGeminiRateLimits(), null);
+  delete process.env.GEMINI_API_KEY;
+  // 无 API Key 时走真（假）子进程且并发共用一次读取
+  fs.rmSync(process.env.FAKE_USAGE_LOG, { force: true });
+  const r1 = readGeminiRateLimits();
+  const r2 = readGeminiRateLimits();
+  assert.equal(r1, r2);
+  assert.equal((await r1).windows[0].usedPercent, 25);
 });

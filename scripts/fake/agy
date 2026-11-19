@@ -14,6 +14,40 @@ if (process.argv[2] === 'models') {
   process.stdout.write(process.env.FAKE_AGY_MODELS || 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n');
   process.exit(0);
 }
+if (process.argv.includes('-p') && process.argv.includes('/usage')) {
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+    process.stderr.write('订阅查询不能带 API Key\n');
+    process.exit(2);
+  }
+  if (process.env.FAKE_AGY_USAGE) {
+    process.stdout.write(process.env.FAKE_AGY_USAGE);
+  } else {
+    const future = (ms) => new Date(Date.now() + ms).toISOString();
+    process.stdout.write(JSON.stringify({
+      conversation_id: '',
+      status: 'SUCCESS',
+      command: {
+        name: 'usage',
+        data: {
+          groups: [
+            { name: 'Gemini Models', buckets: [
+              { id: 'gemini-weekly', window: 'weekly', remaining_fraction: 0.89, reset_time: future(5 * 86400000) },
+              { id: 'gemini-5h', window: '5h', remaining_fraction: 0.78, reset_time: future(3 * 3600000) },
+            ] },
+            { name: 'Claude and GPT models', buckets: [
+              { id: '3p-weekly', window: 'weekly', remaining_fraction: 1, reset_time: future(7 * 86400000) },
+              { id: '3p-5h', window: '5h', remaining_fraction: 1, reset_time: future(5 * 3600000) },
+            ] },
+            { name: 'Gemini 4 Argon', buckets: [
+              { id: 'gemini-argon-wtu-weekly', window: 'weekly', remaining_fraction: 0.95, reset_time: future(6 * 86400000) },
+            ] },
+          ],
+        },
+      },
+    }) + '\n');
+  }
+  process.exit(0);
+}
 const args = process.argv.slice(2);
 const value = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : '';
 const emit = (e) => process.stdout.write(`${JSON.stringify(e)}\n`);
