@@ -315,6 +315,7 @@
   "加载中…": "Loading…",
   "保存 / 分享": "Save / Share",
   "图片打不开": "Couldn't open the image",
-  "这个文件在电脑上，手机上只能看图片、网页、PDF 和音视频": "This file is on the computer; the phone can only view images, web pages, PDFs, audio and video",
-  "{name} 借 Claude Code 干活，更新的就是 Claude Code": "{name} runs on Claude Code, so this updates Claude Code"
+  "{name} 借 Claude Code 干活，更新的就是 Claude Code": "{name} runs on Claude Code, so this updates Claude Code",
+  "这个文件在电脑上，手机上只能看图片、网页、PDF、音视频和下载安卓安装包": "This file is on the computer; the phone can only view images, web pages, PDFs, audio and video, or download Android installers",
+  "开始下载 {name}，下载完点开就能安装": "Downloading {name}. Open it when it's done to install"
 }

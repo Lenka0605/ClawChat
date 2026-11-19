@@ -565,7 +565,10 @@ const PREVIEW_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'imag
 const VIEW_WEB = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
   '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
   '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
-  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav', '.ogg': 'audio/ogg' };
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
+  // 安卓安装包：AI 打好的 APK，老板在外面用手机点一下就下载安装（下载，不在页面里打开）
+  '.apk': 'application/vnd.android.package-archive' };
+const VIEW_DOWNLOAD = new Set(['application/vnd.android.package-archive']);
 const VIEW_CONVERT = new Set(['.heic', '.heif', '.tif', '.tiff', '.psd', '.jp2', '.tga', '.dng', '.cr2', '.nef', '.arw']);
 const VIEW_MAX = 1024 * 1024 * 1024; // 音视频最大 1 GB；图片、PDF 另外限 100 MB
 const VIEW_CACHE = path.join(os.tmpdir(), 'clawchat-view');
@@ -586,7 +589,7 @@ async function viewableFile(file) {
   const stat = fs.statSync(file);
   if (!stat.isFile()) return null;
   if (VIEW_WEB[ext]) {
-    const media = /^(video|audio)\//.test(VIEW_WEB[ext]);
+    const media = /^(video|audio)\//.test(VIEW_WEB[ext]) || VIEW_DOWNLOAD.has(VIEW_WEB[ext]);
     if (stat.size > (media ? VIEW_MAX : 100 * 1024 * 1024)) return { tooBig: true };
     return { file, type: VIEW_WEB[ext], size: stat.size };
   }
@@ -677,7 +680,7 @@ function sendViewable(req, res, v, name, extra = null) {
     'content-security-policy': v.type === 'application/pdf'
       ? "default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; form-action 'none'"
       : "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
-    'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'content-disposition': `${VIEW_DOWNLOAD.has(v.type) ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
   };
   const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
   if (m && (m[1] || m[2])) {
@@ -1323,7 +1326,7 @@ async function api(req, res, url, access = 'local') {
       if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
       if (viewBlocked(file)) return send(res, 403, { error: tr('这个位置的文件不能在手机上打开') });
       const v = await viewableFile(file);
-      if (!v) return send(res, 415, { error: tr('手机上只能看图片、PDF 和音视频，这个文件请到电脑上打开') });
+      if (!v) return send(res, 415, { error: tr('手机上只能看图片、PDF、音视频和下载安卓安装包，这个文件请到电脑上打开') });
       if (v.tooBig) return send(res, 413, { error: tr('文件太大了，请到电脑上打开') });
       return sendViewable(req, res, v, path.basename(file));
     }
