@@ -6579,6 +6579,7 @@ function fillModelRow(a) {
 // 群设置分页：成员 / 常规 / 模型 / 记忆 / 联合群。只是把已有的段落分页显示，保存时整张表单一起提交
 const ROOM_TAB_LABEL = { members: tr('成员'), general: tr('常规'), model: tr('模型'), memory: tr('记忆'), joint: tr('联合群') };
 let roomTab = 'members';
+let roomTabsResize = null;
 
 function roomTabPages(room) {
   const pages = ['members', 'general', 'model'];
@@ -6632,10 +6633,16 @@ function renderRoomTabs(room) {
       roomTab = b.dataset.roomTab;
       applyRoomTab(true); // 不重画页签条，滑块才有过渡
       $('#dlg-room .sheet-body').scrollTop = 0;
+      b.focus(); // 焦点留在刚点的页签上，用 Tab 键切页签的人不丢位置
     };
   });
   applyRoomTab();
   requestAnimationFrame(() => moveRoomTabThumb(false)); // 弹窗刚显示出来、尺寸才算得准
+  // 窗口或手机横竖屏变了，页签宽度跟着变：滑块跟着重算
+  if (!roomTabsResize && typeof ResizeObserver !== 'undefined' && $('#room-tabs')) {
+    roomTabsResize = new ResizeObserver(() => moveRoomTabThumb(false));
+    roomTabsResize.observe($('#room-tabs'));
+  }
 }
 
 function openDialog(room, preset = null) {
