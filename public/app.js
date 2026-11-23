@@ -6587,13 +6587,35 @@ function roomTabPages(room) {
   return pages;
 }
 
-function applyRoomTab() {
-  for (const el of document.querySelectorAll('#dlg-room [data-room-page]')) el.classList.toggle('page-hidden', el.dataset.roomPage !== roomTab);
+// 选中的那块底色是一个单独的滑块：切页签时滑到新位置；新页面淡入、轻轻上浮
+function moveRoomTabThumb(animate) {
+  const nav = $('#room-tabs');
+  const thumb = nav?.querySelector('.seg-thumb');
+  const on = nav?.querySelector('[aria-checked="true"]');
+  if (!thumb || !on || !on.offsetWidth) return;
+  if (!animate) thumb.style.transition = 'none';
+  thumb.style.width = `${on.offsetWidth}px`;
+  thumb.style.transform = `translateX(${on.offsetLeft}px)`;
+  if (!animate) { void thumb.offsetWidth; thumb.style.transition = ''; }
+}
+
+function applyRoomTab(animate = false) {
+  for (const el of document.querySelectorAll('#dlg-room [data-room-page]')) {
+    const show = el.dataset.roomPage === roomTab;
+    const was = !el.classList.contains('page-hidden');
+    el.classList.toggle('page-hidden', !show);
+    if (animate && show && !was) {
+      el.classList.remove('page-enter');
+      void el.offsetWidth; // 重新开始动画
+      el.classList.add('page-enter');
+    }
+  }
   document.querySelectorAll('#room-tabs [data-room-tab]').forEach((b) => {
     const on = b.dataset.roomTab === roomTab;
     b.setAttribute('aria-selected', String(on));
     b.setAttribute('aria-checked', String(on));
   });
+  moveRoomTabThumb(animate);
 }
 
 function renderRoomTabs(room) {
@@ -6601,18 +6623,19 @@ function renderRoomTabs(room) {
   if (!nav) return;
   const pages = roomTabPages(room);
   if (!pages.includes(roomTab)) roomTab = 'members';
-  nav.innerHTML = pages
+  nav.innerHTML = '<span class="seg-thumb" aria-hidden="true"></span>' + pages
     .map((p) => `<button type="button" role="tab" data-room-tab="${p}" aria-selected="${p === roomTab}" aria-checked="${p === roomTab}">${esc(ROOM_TAB_LABEL[p])}</button>`)
     .join('');
   nav.querySelectorAll('[data-room-tab]').forEach((b) => {
     b.onclick = () => {
+      if (roomTab === b.dataset.roomTab) return;
       roomTab = b.dataset.roomTab;
-      renderRoomTabs(room);
+      applyRoomTab(true); // 不重画页签条，滑块才有过渡
       $('#dlg-room .sheet-body').scrollTop = 0;
-      nav.querySelector(`[data-room-tab="${roomTab}"]`)?.focus();
     };
   });
   applyRoomTab();
+  requestAnimationFrame(() => moveRoomTabThumb(false)); // 弹窗刚显示出来、尺寸才算得准
 }
 
 function openDialog(room, preset = null) {

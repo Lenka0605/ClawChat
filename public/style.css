@@ -928,6 +928,15 @@ dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: c
 #dlg-room .sheet-head { display: grid; gap: 10px; justify-items: center; }
 .room-tabs { width: 100%; max-width: 380px; overflow-x: auto; scrollbar-width: none; }
 .room-tabs::-webkit-scrollbar { display: none; }
+.room-tabs { position: relative; }
+.room-tabs .seg-thumb {
+  position: absolute; top: 2px; bottom: 2px; left: 0; width: 0; border-radius: 6px; background: var(--seg-selected); box-shadow: var(--control-shadow);
+  transition: transform 0.28s var(--spring, cubic-bezier(0.32, 0.72, 0, 1)), width 0.28s var(--spring, cubic-bezier(0.32, 0.72, 0, 1)); pointer-events: none;
+}
+.room-tabs button { position: relative; transition: color 0.2s; }
+.room-tabs button[aria-checked="true"] { background: transparent; box-shadow: none; }
+.page-enter { animation: rise 0.26s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .room-tabs .seg-thumb { transition: none; } .page-enter { animation: none; } }
 .room-tabs button { min-height: 25px; font-size: 12px; padding-left: 8px; padding-right: 8px; }
 @media (max-width: 480px) {
   .room-tabs button { font-size: 11px; padding-left: 4px; padding-right: 4px; }
