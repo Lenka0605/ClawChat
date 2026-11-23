@@ -1983,60 +1983,27 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 #auto-switch-fields .form-row > span:first-child { display: grid; gap: 1px; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 #auto-switch-fields .form-row > span:first-child small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.4; }
 #auto-switch-fields .form-row > select { min-width: 0; max-width: 100%; }
-.auto-tier-name small { overflow-wrap: anywhere; }
-.auto-tier-list { display: grid; gap: 7px; }
-.auto-tier-row { display: grid; gap: 7px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--fill); }
-.auto-tier-row[hidden] { display: none; }
-.auto-tier-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.auto-tier-top .avatar { width: 26px; height: 26px; border-radius: 7px; flex: none; }
-.auto-tier-name { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.auto-tier-name b { font-size: 12.5px; font-weight: 600; }
-.auto-tier-name small { font-size: 10.5px; color: var(--muted); }
-.auto-tier-controls { display: grid; gap: 6px; margin-left: 34px; min-width: 0; }
-.tier-effort-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; font-size: 11.5px; color: var(--muted); }
-.tier-effort-line > span:first-child { flex: none; }
-.tier-effort-line select {
-  height: 24px; padding: 0 22px 0 9px; border: 0.5px solid var(--faint); border-radius: 6px; background-color: var(--field);
-  color: var(--text); font-size: 11.5px; max-width: 160px;
+/* 每位 AI 一行：左边头像和名字，右边两个下拉框（「能换的模型」是按钮，长得和下拉框一样，点开是打勾的菜单） */
+.auto-tier-list > * { border-top: 0; }
+.auto-tier-list > :not([hidden]) ~ :not([hidden]) { border-top: 0.5px solid var(--line); }
+.tier-row[hidden] { display: none; }
+#auto-switch-fields .tier-row > span.with-icon:first-child { display: inline-flex; flex: 0 1 auto; min-width: 0; gap: 8px; }
+.tier-row .with-icon > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tier-controls { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.tier-pick {
+  -webkit-appearance: none; appearance: none; height: 24px; padding: 0 22px 0 9px; border: 0.5px solid var(--faint); border-radius: 6px;
+  background-color: var(--field); color: var(--text); font: inherit; font-size: 12px; white-space: nowrap; cursor: default;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14'%3E%3Cpath d='M2 5.2 5 2.2l3 3M2 8.8l3 3 3-3' fill='none' stroke='%238e8e93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 7px center; background-size: 8px 12px; box-shadow: none;
 }
-.tier-effort-line select:hover { border-color: var(--muted); }
-.tier-none { color: var(--faint); font-size: 11px; line-height: 1.4; }
-.tier-models { min-width: 0; }
-.tier-models > summary {
-  list-style: none; display: flex; align-items: center; gap: 10px; justify-content: space-between;
-  min-height: 24px; cursor: pointer; color: var(--muted); font-size: 11.5px;
-}
-.tier-models > summary::-webkit-details-marker { display: none; }
-.tier-models > summary > span { flex: none; }
-.tier-models > summary > b {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text);
-}
-.tier-models > summary::after {
-  content: ""; flex: none; width: 6px; height: 6px; margin: -3px 3px 0 0; border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); transition: transform 0.15s;
-}
-.tier-models[open] > summary::after { margin-top: 3px; transform: rotate(225deg); }
-.tier-model-menu {
-  margin-top: 7px; padding: 7px 9px; border-radius: 9px; background: var(--bg); box-shadow: inset 0 0 0 0.5px var(--line);
-  max-height: 230px; overflow-y: auto; display: grid; gap: 2px;
-}
-.tier-model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
-.tier-model { display: flex; align-items: flex-start; gap: 7px; min-width: 0; padding: 4px 2px; font-size: 11.5px; color: var(--text); }
-.tier-model input { flex: none; margin: 2px 0 0; accent-color: var(--accent); }
-.tier-model > span { display: grid; gap: 1px; min-width: 0; line-height: 1.35; }
-.tier-model > span > small { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tier-model-all { border-bottom: 0.5px solid var(--line); padding-bottom: 6px; margin-bottom: 3px; }
-.tier-model-group { grid-column: 1 / -1; margin-top: 5px; font-size: 10px; font-weight: 600; color: var(--faint); }
-.tier-model-group:first-of-type { margin-top: 0; }
-.auto-tier-row.unsupported .auto-tier-name small { color: var(--faint); }
-.auto-tier-row.unsupported { background: transparent; }
+.tier-pick:hover { border-color: var(--muted); }
+.tier-pick.open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tier-none { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.tier-menu { max-height: min(340px, calc(100dvh - 24px)); }
 @media (max-width: 600px) {
-  .tier-model-grid { grid-template-columns: 1fr; }
-  .tier-effort-line { align-items: flex-start; flex-wrap: wrap; gap: 6px; }
-  .tier-effort-line select { flex: 1 1 auto; max-width: 100%; font-size: 13px; height: 30px; }
-  .auto-tier-controls { margin-left: 0; }
-  .tier-models > summary { min-height: 30px; }
-  #auto-switch-fields .form-row > span:first-child, #auto-switch-fields .form-row > select { flex: 1 1 100%; }
+  #auto-switch-fields .form-row:not(.tier-row) > span:first-child, #auto-switch-fields .form-row > select { flex: 1 1 100%; }
+  .tier-row { flex-wrap: wrap; row-gap: 6px; }
+  .tier-pick, #auto-switch-fields .tier-row select { height: 30px; font-size: 13px; }
 }
 .joint-confirm-row { align-items: flex-start; margin-top: 10px; flex-wrap: nowrap; }
 .joint-confirm-row .switch { margin-left: auto; }

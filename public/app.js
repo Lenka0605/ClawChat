@@ -654,82 +654,134 @@ function tierModels(agent, limit) {
 
 const tierUnsupported = (agent) => baseOf(agent) === 'grok';
 
-function tierSummaryHtml(row) {
-  const summary = row.querySelector('[data-tier-summary]');
-  if (!summary) return;
-  const all = row.querySelector('[data-tier-all]')?.checked;
-  const boxes = [...row.querySelectorAll('[data-tier-model]')];
-  const n = boxes.filter((b) => b.checked).length;
-  const effortSel = row.querySelector('[data-tier-effort]');
-  const effort = effortSel?.value || '';
-  const modelText = all ? tr('全部模型') : n ? tr('已选 {n} 个模型', { n }) : tr('一个都没选');
-  const effortText = !effortSel ? tr('没有可调强度') : effort ? tr('最高 {label}', { label: EFFORT_LABEL[effort] || effort }) : tr('思考不限');
-  summary.textContent = `${modelText} · ${effortText}`;
-  const label = row.querySelector('[data-tier-models-label]');
-  if (label) label.textContent = modelText;
+// 「能换的模型」按钮上的字：全部 / 已选几个
+function tierPickLabel(row) {
+  const btn = row.querySelector('[data-tier-pick]');
+  if (!btn) return;
+  const n = row.dataset.models ? row.dataset.models.split('\n').length : 0;
+  btn.textContent = row.dataset.all === '1' ? tr('全部模型') : n ? tr('{n} 个模型', { n }) : tr('只用现在的模型');
 }
 
-// 一行：头像、名字、能换的模型（折叠多选）、思考强度最高到
+// 一行：头像和名字在左边，右边两个下拉框（能换的模型、思考强度最高到），和群设置里别的下拉框一个样子
 function autoTierRowHtml(agent, room) {
   const name = agentName(agent);
   const limit = room?.autoSwitch?.limits?.[agent] || null;
+  const head = `<span class="with-icon">${avatarHtml(agent)}<span>${esc(name)}</span></span>`;
   if (tierUnsupported(agent)) {
-    return `<div class="auto-tier-row unsupported" data-agent="${esc(agent)}">
-      <div class="auto-tier-top">${avatarHtml(agent)}
-        <div class="auto-tier-name"><b>${esc(name)}</b><small>${tr('暂不支持')}</small></div>
-      </div>
-      <div class="auto-tier-controls"><span class="tier-none">${tr('Grok 现在还不能自己换档：免费档多出来的那一轮很费额度。')}</span></div>
-    </div>`;
+    return `<div class="form-row tier-row unsupported" data-agent="${esc(agent)}" title="${esc(tr('Grok 现在还不能自己换档：免费档多出来的那一轮很费额度。'))}">${head}<span class="tier-none">${tr('暂不支持')}</span></div>`;
   }
   const models = tierModels(agent, limit);
   if (!models.length) {
-    return `<div class="auto-tier-row" data-agent="${esc(agent)}">
-      <div class="auto-tier-top">${avatarHtml(agent)}
-        <div class="auto-tier-name"><b>${esc(name)}</b><small>${tr('模型列表还没读到')}</small></div>
-      </div>
-      <div class="auto-tier-controls"><span class="tier-none">${tr('模型列表还没读到，先保留原来的设置。')}</span></div>
-    </div>`;
+    return `<div class="form-row tier-row" data-agent="${esc(agent)}" title="${esc(tr('模型列表还没读到，先保留原来的设置。'))}">${head}<span class="tier-none">${tr('模型列表还没读到')}</span></div>`;
   }
   const all = !limit || limit.models == null;
-  const chosen = new Set(all ? models.map((m) => m.id) : limit.models || []);
   const effort = limit?.effort || '';
   const efforts = tierEfforts(agent);
   // 已经存下的强度这次模型列表里没有（比如换了模型、程序暂时读不到）：也列出来，别把设置悄悄丢掉
   if (effort && !efforts.includes(effort)) efforts.push(effort);
-  efforts.sort((a, b) => TIER_EFFORT_ORDER.indexOf(a) - TIER_EFFORT_ORDER.indexOf(b));
-  const checkbox = (m) =>
-    `<label class="tier-model"><input type="checkbox" data-tier-model="${esc(m.id)}"${chosen.has(m.id) ? ' checked' : ''}${all ? ' disabled' : ''}>
-      <span>${esc(m.name)}${m.description ? `<small>${esc(m.description)}</small>` : ''}</span></label>`;
-  // 模型多的时候（Gemini 订阅里有好几家）按组排；组名直接用程序目录里的
-  const groups = [...new Set(models.filter((m) => m.group).map((m) => m.group))];
-  const loose = models.filter((m) => !m.group);
-  const grid = (list) => `<div class="tier-model-grid">${list.map(checkbox).join('')}</div>`;
-  const grouped = groups
-    .map((g) => `<div class="tier-model-group">${esc(g)}</div>${grid(models.filter((m) => m.group === g))}`)
-    .join('');
-  const modelLabel = all ? tr('全部模型') : chosen.size ? tr('已选 {n} 个模型', { n: chosen.size }) : tr('一个都没选');
-  return `<div class="auto-tier-row" data-agent="${esc(agent)}">
-    <div class="auto-tier-top">${avatarHtml(agent)}
-      <div class="auto-tier-name"><b>${esc(name)}</b><small data-tier-summary></small></div>
-    </div>
-    <div class="auto-tier-controls">
-      <details class="tier-models">
-        <summary><span>${tr('能换的模型')}</span><b data-tier-models-label>${esc(modelLabel)}</b></summary>
-        <div class="tier-model-menu">
-          <label class="tier-model tier-model-all"><input type="checkbox" data-tier-all${all ? ' checked' : ''}>
-            <span>${tr('全部模型')}<small>${tr('以后新出的也能换')}</small></span></label>
-          ${loose.length ? grid(loose) : ''}${grouped}
-        </div>
-      </details>
-      <label class="tier-effort-line"><span>${tr('思考强度最高到')}</span>${
-        efforts.length
-          ? `<select data-tier-effort><option value="">${tr('不限')}</option>${efforts
-              .map((id) => `<option value="${esc(id)}"${id === effort ? ' selected' : ''}>${esc(EFFORT_LABEL[id] || id)}</option>`)
-              .join('')}</select>`
-          : `<span class="tier-none">${tr('没有可调强度')}</span>`
-      }</label>
-    </div>
-  </div>`;
+  efforts.sort((x, y) => TIER_EFFORT_ORDER.indexOf(x) - TIER_EFFORT_ORDER.indexOf(y));
+  const effortSel = efforts.length
+    ? `<select data-tier-effort aria-label="${esc(tr('思考强度最高到'))}"><option value="">${tr('思考强度不限')}</option>${efforts
+        .map((id) => `<option value="${esc(id)}"${id === effort ? ' selected' : ''}>${esc(tr('最高到{label}', { label: EFFORT_LABEL[id] || id }))}</option>`)
+        .join('')}</select>`
+    : '';
+  return `<div class="form-row tier-row" data-agent="${esc(agent)}" data-all="${all ? 1 : 0}" data-models="${esc(all ? '' : (limit.models || []).join('\n'))}">${head}
+    <span class="tier-controls"><button type="button" class="tier-pick" data-tier-pick aria-haspopup="menu" aria-label="${esc(tr('能换的模型'))}"></button>${effortSel}</span></div>`;
+}
+
+// 「能换的模型」弹出菜单：和模型菜单一样的样式，打勾多选，点了不收起
+function closeTierMenu() {
+  const menu = $('#tier-menu');
+  if (!menu) return;
+  menu.remove();
+  document.querySelector('[data-tier-pick].open')?.classList.remove('open');
+}
+
+function renderTierMenu(menu, row) {
+  const agent = row.dataset.agent;
+  const room = S.editing ? roomById(S.editing) : null;
+  const models = tierModels(agent, room?.autoSwitch?.limits?.[agent]);
+  const all = row.dataset.all === '1';
+  const chosen = new Set(row.dataset.models ? row.dataset.models.split('\n') : []);
+  const item = (id, label, sub, on) => menuItemHtml(`type="button" data-tier-id="${esc(id)}"`, esc(label), sub, on, 'menuitemcheckbox');
+  const groups = [...new Set(models.map((m) => m.group || ''))];
+  let html = item('*', tr('全部模型'), tr('以后新出的也能换'), all) + '<div class="menu-sep"></div>';
+  for (const g of groups) {
+    if (g && groups.length > 1) html += `<div class="menu-section">${esc(g)}</div>`;
+    for (const m of models.filter((x) => (x.group || '') === g)) html += item(m.id, m.name, descForUi(m.description), all || chosen.has(m.id));
+  }
+  menu.innerHTML = html;
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if ($('#tier-menu') && !e.target.closest?.('#tier-menu, [data-tier-pick]')) closeTierMenu();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !$('#tier-menu')) return;
+  e.preventDefault(); // 只收起菜单，别把群设置也关了
+  e.stopPropagation();
+  const btn = document.querySelector('[data-tier-pick].open');
+  closeTierMenu();
+  btn?.focus();
+}, true);
+document.addEventListener('scroll', (e) => {
+  if ($('#tier-menu') && !(e.target instanceof Element && e.target.closest('#tier-menu'))) closeTierMenu();
+}, true);
+window.addEventListener('resize', () => closeTierMenu());
+
+function openTierMenu(btn) {
+  const open = btn.classList.contains('open');
+  closeTierMenu();
+  if (open) return;
+  const row = btn.closest('.tier-row');
+  const dlg = $('#dlg-room');
+  const menu = document.createElement('div');
+  menu.id = 'tier-menu';
+  menu.className = 'menu tier-menu';
+  menu.setAttribute('role', 'menu');
+  renderTierMenu(menu, row);
+  dlg.append(menu); // 放在弹窗里面：弹窗在最上层，放到外面会被盖住
+  btn.classList.add('open');
+  // 位置按弹窗的边来限（弹窗会裁掉伸出去的部分），上下左右各留 8px；量的时候先停掉入场动画（缩放会让量出来的位置偏几像素）
+  const box = dlg.getBoundingClientRect();
+  menu.style.animation = 'none';
+  menu.style.maxWidth = `${Math.max(180, box.width - 16)}px`;
+  menu.style.maxHeight = `${Math.max(160, box.height - 16)}px`;
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  const x = Math.max(box.left + 8, Math.min(r.right - w, box.right - w - 8));
+  const below = r.bottom + 4 + h <= box.bottom - 8;
+  const y = below ? r.bottom + 4 : Math.max(box.top + 8, r.top - 4 - h);
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  // 弹窗带毛玻璃时 fixed 是相对弹窗算的：量一下实际位置，差多少补多少
+  const got = menu.getBoundingClientRect();
+  menu.style.left = `${x - (got.left - x)}px`;
+  menu.style.top = `${y - (got.top - y)}px`;
+  menu.style.animation = '';
+  menu.addEventListener('click', (e) => {
+    const it = e.target.closest('[data-tier-id]');
+    if (!it) return;
+    e.preventDefault();
+    const id = it.dataset.tierId;
+    const ids = [...menu.querySelectorAll('[data-tier-id]')].map((el) => el.dataset.tierId).filter((x) => x !== '*');
+    let chosen = new Set(row.dataset.models ? row.dataset.models.split('\n') : []);
+    if (id === '*') {
+      row.dataset.all = row.dataset.all === '1' ? '0' : '1';
+      chosen = new Set(ids); // 取消「全部」时先保留全部勾着，再一个个去掉
+    } else {
+      if (row.dataset.all === '1') chosen = new Set(ids);
+      row.dataset.all = '0';
+      if (chosen.has(id)) chosen.delete(id);
+      else chosen.add(id);
+      if (ids.every((x) => chosen.has(x))) row.dataset.all = '1'; // 全勾上了就等于「全部模型」
+    }
+    row.dataset.models = row.dataset.all === '1' ? '' : [...chosen].join('\n');
+    renderTierMenu(menu, row);
+    tierPickLabel(row);
+    menu.querySelector(`[data-tier-id="${CSS.escape(id)}"]`)?.focus();
+  });
 }
 
 // 按最新的成员表补行（多开一位时）；已经有的行保留老板刚改的值
@@ -756,6 +808,7 @@ function syncAutoSwitchRows() {
 
 // 打开群设置时重画整块（只在打开 / 换群时调用，成员勾选变化只切显隐，不重置老板输入）
 function renderAutoSwitch(room) {
+  closeTierMenu();
   const section = $('#auto-switch-fields');
   if (!section) return;
   section.hidden = !room || !!room.joint;
@@ -781,34 +834,26 @@ function renderAutoSwitch(room) {
         </select></label>
     </div>
     <p class="hint">${tr('接到难活时，AI 会先回一行「[换档 模型 强度]」，ClawChat 用新档在同一个会话里重新开工，下一轮自动回到你设的档；换档时群里会写明。每位能换到哪一档在下面限制。')}</p>
-    <div class="auto-tier-list" id="auto-tier-list"></div>`;
+    <div class="group-box auto-tier-list" id="auto-tier-list"></div>`;
   $('#auto-mode').value = cfg.mode || 'auto';
   $('#auto-brief-effort').value = cfg.briefEffort ?? 'medium';
   ensureAutoSwitchRows(room);
-  for (const row of $('#auto-tier-list').children) tierSummaryHtml(row);
+  for (const row of $('#auto-tier-list').children) tierPickLabel(row);
   syncAutoSwitchRows();
-  $('#auto-tier-list').onchange = (e) => {
-    const row = e.target.closest('.auto-tier-row');
-    if (!row) return;
-    if (e.target.matches('[data-tier-all]')) {
-      const all = e.target.checked;
-      row.querySelectorAll('[data-tier-model]').forEach((b) => {
-        b.disabled = all;
-        if (all) b.checked = true;
-      });
-    }
-    tierSummaryHtml(row);
+  $('#auto-tier-list').onclick = (e) => {
+    const btn = e.target.closest('[data-tier-pick]');
+    if (btn) openTierMenu(btn);
   };
+  $('#auto-tier-list').onchange = () => fitSelects();
   fitSelects();
 }
 
 // 读取一行当前的值：undefined 表示这一行没有模型列表，保存时保持原样；null 表示这位不用记（Grok）
 function tierRowValue(row) {
   if (row.classList.contains('unsupported')) return null;
-  const allEl = row.querySelector('[data-tier-all]');
-  if (!allEl) return undefined;
+  if (!row.querySelector('[data-tier-pick]')) return undefined;
   return {
-    models: allEl.checked ? null : [...row.querySelectorAll('[data-tier-model]')].filter((b) => b.checked).map((b) => b.dataset.tierModel),
+    models: row.dataset.all === '1' ? null : row.dataset.models ? row.dataset.models.split('\n') : [],
     effort: row.querySelector('[data-tier-effort]')?.value || '',
   };
 }
@@ -817,7 +862,7 @@ function collectAutoSwitch(members) {
   const room = S.editing ? roomById(S.editing) : null;
   const limits = {};
   for (const a of members) {
-    const row = [...document.querySelectorAll('#auto-tier-list .auto-tier-row')].find((el) => el.dataset.agent === a);
+    const row = [...document.querySelectorAll('#auto-tier-list .tier-row')].find((el) => el.dataset.agent === a);
     if (!row) continue;
     const value = tierRowValue(row);
     if (value === null) continue; // Grok：服务端本来就不让它换，别写无用的限制
@@ -832,7 +877,7 @@ function collectAutoSwitch(members) {
 }
 
 function autoSwitchFormState() {
-  return [...document.querySelectorAll('#auto-tier-list .auto-tier-row')].map((row) => {
+  return [...document.querySelectorAll('#auto-tier-list .tier-row')].map((row) => {
     const value = tierRowValue(row);
     return {
       agent: row.dataset.agent,
@@ -5320,8 +5365,8 @@ function visionMarkHtml(vision) {
   return '';
 }
 
-function menuItemHtml(attrs, label, sub, checked) {
-  return `<button class="menu-item" role="menuitemradio" aria-checked="${checked}" ${attrs}><span class="menu-check">${checked ? CHECK_SVG : ''}</span><span class="menu-text"><span class="menu-label">${label}</span>${
+function menuItemHtml(attrs, label, sub, checked, role = 'menuitemradio') {
+  return `<button class="menu-item" role="${role}" aria-checked="${checked}" ${attrs}><span class="menu-check">${checked ? CHECK_SVG : ''}</span><span class="menu-text"><span class="menu-label">${label}</span>${
     sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
 }
 
@@ -7139,6 +7184,7 @@ function bind() {
     if (e.target.checked) askNotifyPermission();
   };
   $('#dlg-room').addEventListener('close', reportDragRegions);
+  $('#dlg-room').addEventListener('close', closeTierMenu);
   $('#btn-clone-add-text').textContent = tr('多开一位');
   $('#btn-clone-add').title = tr('在这个群里再多一位同账号的 AI，有自己的记忆和设置');
   $('#btn-clone-add').onclick = () => {

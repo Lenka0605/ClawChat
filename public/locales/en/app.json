@@ -344,5 +344,9 @@
   "模型列表还没读到": "Model list not available yet",
   "模型列表还没读到，先保留原来的设置。": "The model list isn't available yet; keeping the current settings.",
   "同意": "Approve",
-  "不用换": "No change"
+  "不用换": "No change",
+  "{n} 个模型": "{n} models",
+  "只用现在的模型": "Current model only",
+  "思考强度不限": "Any thinking effort",
+  "最高到{label}": "Up to {label}"
 }
