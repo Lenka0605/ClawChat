@@ -75,6 +75,34 @@ test('订阅：解析真实官方事件、步骤去重、以最终回复为准�
   assert.equal(next.captured.args[next.captured.args.indexOf('--conversation') + 1], 'native-id');
 });
 
+test('订阅：读写步骤显示具体文件，路径晚到也只显示一次', async () => {
+  const update = (step_index, tool_name, parameters, state = 'ACTIVE') => ({
+    event: 'step_update', step_update: { step_type: 'tool', step_index, tool_name, tool_info: { parameters }, state },
+  });
+  const outside = path.join(path.dirname(room.cwd), '其他项目', 'a.js');
+  const replay = [
+    { ...events[0], conversation_id: 'tool-paths' },
+    update(1, 'read_file', {}),
+    update(5, 'run_command', { CommandLine: 'npm test' }),
+    update(1, undefined, { Path: path.join(fs.realpathSync(room.cwd), 'src', 'a.js'), StartLine: 4 }),
+    update(1, 'read_file', {}, 'DONE'),
+    update(2, 'edit_file', { Path: outside, Target: '原文', Replacement: '替换内容' }),
+    update(3, 'write_file', { Path: '文档/新 文件.md', Content: '正文' }),
+    update(4, 'read_file', {}),
+    { event: 'result', result: { conversation_id: 'tool-paths', status: 'SUCCESS', response: '完成' } },
+  ];
+  const live = [];
+  const result = await runAntigravity({ room, prompt: '检查文件', onStep: (s) => live.push(s) }, runtime(replay)).done;
+  assert.deepEqual(live, [
+    { kind: 'read', text: path.join('src', 'a.js') },
+    { kind: 'run', text: 'npm test' },
+    { kind: 'edit', text: outside },
+    { kind: 'edit', text: '文档/新 文件.md' },
+    { kind: 'read', text: 'read_file' },
+  ]);
+  assert.deepEqual(result.steps, live);
+});
+
 test('订阅：分身使用最近文字另开会话，不能修改本体备份或混入私聊', async () => {
   const file = path.join(process.env.CLAWCHAT_HOME, 'gemini', 'antigravity', 'native-id.json');
   const before = fs.readFileSync(file, 'utf8');
