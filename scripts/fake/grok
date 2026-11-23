@@ -22,26 +22,168 @@ if (args[0] === 'models') {
   process.exit(0);
 }
 if (args[0] === 'update') { console.log('假的 Grok 已更新'); process.exit(0); }
-if (args[0] === 'agent' && args[1] === 'stdio') {
+if (args[0] === 'agent' && args.includes('stdio')) {
+  let rules;
+  let sid,
+    dir,
+    running = false,
+    insertions = [];
+  let model = args.includes('--model') ? arg('--model') : 'grok-4.7';
+  let effort = args.includes('--reasoning-effort') ? arg('--reasoning-effort') : 'low';
+  const config = () => [
+    { id: 'model', currentValue: model },
+    { id: 'reasoning_effort', currentValue: effort }
+  ];
+  const send = (value) => console.log(JSON.stringify({ jsonrpc: '2.0', ...value }));
+  const update = (update) => send({ method: 'session/update', params: { sessionId: sid, update } });
+  const tool = (name, rawInput) => update({ sessionUpdate: 'tool_call', toolCallId: crypto.randomUUID(), title: name, rawInput });
+  async function turn(msg) {
+    running = true;
+    const input = msg.params.prompt[0].text;
+    const profile = fs.readFileSync(path.join(home, 'requirements.toml'), 'utf8').match(/profile\s*=\s*"([^"]+)"/)[1];
+    if (process.env.FAKE_GROK_LOG)
+      fs.appendFileSync(
+        process.env.FAKE_GROK_LOG,
+        JSON.stringify({
+          args,
+          home,
+          profile,
+          input,
+          rules,
+          env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(?:GROK_|XAI_|ANTHROPIC_|OPENAI_)/i.test(k)))
+        }) + '\n'
+      );
+    fs.appendFileSync(path.join(dir, 'chat_history.jsonl'), JSON.stringify({ prompt: input }) + '\n');
+    update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '我先检查一下' } });
+    tool('read_file', { target_file: 'README.md' });
+    if (scenario === 'real-tools') {
+      tool('read_file', { target_file: path.join(process.cwd(), 'src/a.js') });
+      tool('write', { file_path: path.join(process.cwd(), 'notes/new.txt') });
+      tool('search_replace', { file_path: '/etc/outside.conf' });
+    }
+    if (scenario === 'stop-tree') {
+      const { spawn } = await import('node:child_process');
+      const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' });
+      fs.writeFileSync(process.env.FAKE_GROK_CHILD, String(child.pid));
+      child.unref();
+    }
+    if (['hang', 'stop-tree'].includes(scenario)) return;
+    if (scenario === 'quota-stderr') {
+      process.stderr.write('Insufficient credits: 402\n');
+      return;
+    }
+    if (scenario === 'crash') process.exit(2);
+    if (scenario === 'no-result') process.exit(0);
+    await new Promise((r) => setTimeout(r, 1000 * Number(process.env.FAKE_GROK_SECS ?? process.env.FAKE_SECS ?? 0.05)));
+    if (scenario === 'refresh') {
+      const auth = JSON.parse(fs.readFileSync(process.env.GROK_AUTH_PATH));
+      for (const v of Object.values(auth)) {
+        v.key = 'fake-refreshed-access';
+        v.refresh_token = 'fake-refreshed-token';
+      }
+      fs.writeFileSync(process.env.GROK_AUTH_PATH, JSON.stringify(auth));
+    }
+    const file = path.join(process.env.CLAWCHAT_HOME || '/tmp', 'fake-replies', 'grok.txt');
+    let text = /分身答应要做的事现在去做/.test(input) ? '[PASS]' : '（假的 Grok）做完了';
+    if (fs.existsSync(file)) {
+      text = fs.readFileSync(file, 'utf8');
+      fs.rmSync(file);
+    }
+    if (insertions.length) text += ' 收到插话 ' + insertions.length + ' 条';
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+    if (scenario === 'no-session-file') fs.rmSync(dir, { recursive: true, force: true });
+    running = false;
+    send({
+      id: msg.id,
+      result: {
+        stopReason: scenario === 'failure' ? 'cancelled' : 'end_turn',
+        _meta: { sessionId: sid, modelId: model, totalTokens: 138 }
+      }
+    });
+    if (scenario === 'crash-after-result') process.exit(2);
+  }
   const { createInterface } = await import('node:readline');
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line.trim()) continue;
     let msg;
-    try { msg = JSON.parse(line); } catch { continue; }
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      continue;
+    }
     if (msg.method === 'initialize') {
       console.log(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1 } }));
+    } else if (msg.method === '_x.ai/auth/info') {
+      if (!loggedIn || scenario === 'logged-out' || scenario === 'quota')
+        send({ id: msg.id, error: { code: -32001, message: scenario === 'quota' ? '429 weekly usage limit' : '401 not authenticated' } });
+      else send({ id: msg.id, result: { methodId: scenario === 'api-key' ? 'api_key' : 'cached_token', principalType: 'User' } });
+    } else if (msg.method === 'session/new' || msg.method === 'session/load') {
+      rules = msg.params._meta?.rules;
+      sid = msg.params.sessionId || msg.params._meta.sessionId;
+      dir = path.join(home, 'sessions', 'fake-workspace', sid);
+      if (msg.method === 'session/load' && !fs.existsSync(dir)) {
+        send({ id: msg.id, error: { code: -32002, message: 'session not found' } });
+        continue;
+      }
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ session_id: sid }));
+      send({
+        id: msg.id,
+        result: {
+          sessionId: scenario === 'wrong-session' ? crypto.randomUUID() : sid,
+          configOptions: config(),
+          _meta: { sessionId: sid }
+        }
+      });
+    } else if (msg.method === 'session/set_config_option') {
+      if (msg.params.configId === 'model') model = msg.params.value;
+      else effort = msg.params.value;
+      send({ id: msg.id, result: { configOptions: config() } });
+    } else if (msg.method === 'session/prompt') {
+      turn(msg).catch(() => process.exit(2));
+    } else if (msg.method === '_x.ai/interject') {
+      const text = msg.params.text;
+      if (!running || scenario === 'reject-steer') send({ id: msg.id, error: { code: -32002, message: 'No active turn' } });
+      else {
+        send({ id: msg.id, result: { result: { status: 'queued' } } });
+        if (scenario !== 'unread-steer') {
+          insertions.push(text);
+          const echo = {
+            sessionUpdate: 'user_message_chunk',
+            _meta: { interjection: true },
+            content: { type: 'text', _meta: { displayText: text } }
+          };
+          if (scenario === 'disk-steer') {
+            send({ method: '_x.ai/session/interjection', params: { sessionId: sid, interjectionId: msg.params.interjectionId, text } });
+            fs.appendFileSync(
+              path.join(dir, 'updates.jsonl'),
+              JSON.stringify({ method: 'session/update', params: { sessionId: sid, update: echo } }) + '\n'
+            );
+          } else update(echo);
+        }
+      }
+    } else if (msg.method === '_x.ai/session/info') {
+      send({ id: msg.id, result: { result: { sessionId: sid, context: { used: 138, total: 256000 } } } });
     } else if (msg.method === '_x.ai/billing') {
       if (!loggedIn) {
         console.log(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32001, message: 'not authenticated' } }));
       } else {
         const result = process.env.FAKE_GROK_BILLING
           ? JSON.parse(process.env.FAKE_GROK_BILLING)
-          : { config: { creditUsagePercent: 16, currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: new Date(Date.now() + 3 * 86400000).toISOString() }, prepaidBalance: { val: 0 } }, subscription_tier: 'SuperGrok' };
+          : {
+              config: {
+                creditUsagePercent: 16,
+                currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: new Date(Date.now() + 3 * 86400000).toISOString() },
+                prepaidBalance: { val: 0 }
+              },
+              subscription_tier: 'SuperGrok'
+            };
         console.log(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
       }
     }
   }
+  if (scenario === 'slow-close') await new Promise((r) => setTimeout(r, 5000));
   process.exit(0);
 }
 const emit = (value) => console.log(JSON.stringify(value));

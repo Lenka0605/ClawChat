@@ -96,7 +96,8 @@ test('Grok：付费 Key、配置覆盖和接口地址不继承；配置隔离、
   assert.equal(call.env.GROK_AUTH_PATH, authFile);
   assert.equal(call.env.GROK_DISABLE_API_KEY_AUTH, '1');
   assert.match(call.input, /记住暗号/);
-  assert.ok(call.args.includes('--no-subagents'));
+  assert.equal(call.env.GROK_SUBAGENTS, '0');
+  assert.ok(call.args.includes('--no-leader'));
 });
 
 test('Grok：续接记忆保持编号；只读分身复制记忆，原会话完全不变', async () => {
@@ -145,10 +146,11 @@ test('Grok：过程、实际模型和上下文用量正确；不用整轮累计�
   assert.equal(res.text, '（假的 Grok）做完了');
   assert.equal(res.model, 'grok-4.7');
   assert.ok(h.steps.some((s) => s.kind === 'read'));
+
   assert.ok(h.steps.some((s) => s.kind === 'think'));
   assert.equal(res.steps.filter((s) => s.kind === 'say').length, 0);
   assert.deepEqual(await sessionUsage('grok', res.session), { used: 138, window: 256000, images: 0, model: 'grok-4.7' });
-  assert.equal(h.steer, undefined);
+  assert.equal(await h.steer('已经收尾'), false);
 });
 
 test('Grok：未登录、额度耗尽、错误登录方式都及时结束，不切到 API、不重试', async () => {
@@ -195,7 +197,7 @@ test('Grok：附图路径不转成巨大启动参数；换模型和群规逐轮�
   assert.ok(call.input.includes(image));
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'grok-4.6');
   assert.equal(call.args[call.args.indexOf('--reasoning-effort') + 1], 'high');
-  assert.match(call.args[call.args.indexOf('--rules') + 1], /你是 Grok/);
+  assert.match(call.rules, /你是 Grok/);
 });
 
 test('Grok：已经做完但记忆未保存时不报失败重跑，由聊天记录恢复', async () => {
@@ -332,4 +334,39 @@ test('Grok 真实的工具字段：读（target_file）、新建（write）、�
     const shown = h.steps.filter((s) => (s.kind === 'read' || s.kind === 'edit') && s.text !== 'README.md').map((s) => `${s.kind}:${s.text}`);
     assert.deepEqual(shown, ['read:src/a.js', 'edit:notes/new.txt', 'edit:/etc/outside.conf']);
   } finally { delete process.env.FAKE_GROK_SCENARIO; }
+});
+
+test('Grok 插话在本轮读到后确认；收尾或只排队未读时留到下一轮', async () => {
+  for (const scenario of ['steer', 'disk-steer', 'reject-steer', 'unread-steer']) {
+    process.env.FAKE_GROK_SCENARIO = scenario;
+    const run = start();
+    await until(() => run.steps.some(s => s.kind === 'read'));
+    const delivered = ['steer', 'disk-steer'].includes(scenario);
+    assert.equal(await run.steer('补查文件 B'), delivered);
+    const result = await run.done;
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.text.includes('收到插话'), delivered);
+    assert.equal(await run.steer('收尾后的新话'), false);
+  }
+});
+
+test('Grok 握手时的插话等到开工，结果已确认后清理慢进程也只交付一次', async () => {
+  process.env.FAKE_GROK_SCENARIO = 'slow-close';
+  const run = start();
+  assert.equal(await run.steer('刚发完补一句'), true);
+  const result = await run.done;
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.text, /收到插话 1 条/);
+});
+
+test('Grok 新会话回错编号，只清自己刚创建的目录', async () => {
+  const o = { ...room, id: 'wrong-id-cleanup' };
+  const first = await start({ room: o }).done;
+  const home = calls().at(-1).home;
+  const group = path.dirname(path.dirname(findHistory(home, first.session)));
+  process.env.FAKE_GROK_SCENARIO = 'wrong-session';
+  const failed = await start({ room: o }).done;
+  assert.equal(failed.ok, false);
+  assert.equal(failed.session, null);
+  assert.deepEqual(fs.readdirSync(group), [first.session]);
 });
