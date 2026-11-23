@@ -525,6 +525,10 @@ html.icon-cursor .av-cursor { background-color: #f2f2ef; background-image: url("
 .chip-model { font-weight: 500; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .chip-effort { color: var(--muted); white-space: nowrap; }
 .chip-effort::before { content: "·"; margin-right: 5px; color: var(--faint); }
+.chip-ai {
+  flex: none; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent);
+  font-size: 9.5px; line-height: 16px; font-weight: 600; white-space: nowrap;
+}
 .chip-fast { display: inline-flex; align-items: center; gap: 2px; color: var(--fast); font-size: 11px; font-weight: 600; }
 .chip-chevron { color: var(--muted); flex: none; margin-left: auto; }
 /* ChatGPT 会话太重：橙点（8MB 以上）、红点（13MB 以上） */

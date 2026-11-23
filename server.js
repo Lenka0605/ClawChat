@@ -1127,8 +1127,10 @@ async function api(req, res, url, access = 'local') {
     if (!sub && method === 'PATCH') {
       const before = Object.keys(AGENTS).join();
       let patch;
+      let body;
       try {
-        patch = normalizeRoom(guestPatch || (await readBody(req)), false, room);
+        body = guestPatch || (await readBody(req));
+        patch = normalizeRoom(body, false, room);
       } catch (err) {
         pruneExtraMembers(before);
         throw err;
@@ -1157,8 +1159,21 @@ async function api(req, res, url, access = 'local') {
       // 什么时候生效（「，下一轮开始生效」这样的半句，拼在提示后面）
       const when = (a) => (hub.runs.has(hub.key(room.id, a)) ? tr('，它手上这一轮做完后开始生效') : tr('，下一轮开始生效'));
       for (const a of switched) hub.notice(room.id, tr('{name} 换成了 {model}{when}', { name: AGENTS[a].name, model: modelName(a, patch.models[a]), when: when(a) }));
+      // 老板手动改了谁的模型或思考强度：以老板选的为准，它自己选的档作废
+      // resetAiTier：老板在顶栏菜单里手动选了（哪怕选的就是原来那一档），或点了「恢复成我设的」，也清掉。
+      // 群设置窗口保存时不带这一项：它每次都带上所有人的模型，带了就清的话，改个群名都会把 AI 自选的档冲掉
+      const reset = Array.isArray(body.resetAiTier) ? body.resetAiTier.filter((a) => AGENTS[a]) : [];
+      for (const a of new Set([...switched, ...effortSwitched, ...reset])) hub.clearTier(room.id, a);
       for (const a of effortSwitched) hub.notice(room.id, tr('{name} 的思考强度换成了「{effort}」{when}', { name: AGENTS[a].name, effort: effortName(a, patch.efforts[a]), when: when(a) }));
       for (const a of fastSwitched) hub.notice(room.id, tr('{name} 换成了{speed}{when}', { name: AGENTS[a].name, speed: fastName(a, room.fast[a], room.models?.[a]), when: when(a) }));
+      // 私聊里手动改了谁的模型或思考强度：同样以老板选的为准
+      if (patch.dmSettings) {
+        for (const a of room.members) {
+          const was = dmBefore[a];
+          const now = dmRoom(room, a);
+          if (was && ((was.models[a] || '') !== (now.models?.[a] || '') || (was.efforts[a] || '') !== (now.efforts?.[a] || ''))) hub.clearTier(room.id, a);
+        }
+      }
       if (patch.dmSettings && room.members.length > 1) {
         for (const a of room.members) {
           const was = dmBefore[a];
@@ -1288,8 +1303,9 @@ async function api(req, res, url, access = 'local') {
     }
     // 老板回 AI 的换档申请：ok 为真就按它要的档重开这一轮，否则按原来的档
     if (sub === 'switch' && method === 'POST') {
-      const { agent, ok } = await readBody(req);
-      if (!hub.answerSwitch(room.id, String(agent || ''), !!ok)) return send(res, 409, { error: tr('这个换档申请已经过期了') });
+      const { agent, ok, seq } = await readBody(req);
+      // 必须带上点的是哪一条申请：旧页面（不带编号）一律当过期，免得答到别的申请头上
+      if (!Number.isInteger(seq) || !hub.answerSwitch(room.id, String(agent || ''), !!ok, seq)) return send(res, 409, { error: tr('这个换档申请已经过期了') });
       return send(res, 200, { ok: true });
     }
     // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。by 是老板选的谁来交代情况（某位 AI、self 它自己看记录、boss 老板自己来）

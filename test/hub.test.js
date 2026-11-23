@@ -2015,19 +2015,19 @@ const fakeTiers = (agent, room) => ({
   effort: room.efforts?.[agent] || '',
 });
 
-test('换档：AI 回 [换档 …] 不发到群里，同一个会话按新档重开这一轮，下一轮回到原来的档', async () => {
+test('换档：AI 回 [换档 …] 不发到群里，同一个会话按新档重开这一轮，之后一直用，老板手动改了才回到老板选的', async () => {
   const store = new Store();
   const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '[换档 opus xhigh] 要改核心代码' : '做完了'));
   const hub = new Hub(store, { run, tiers: fakeTiers });
   const room = newRoom(store, { members: ['claude'], efforts: { claude: 'medium' } });
   hub.postUserMessage(room.id, '改一下核心');
   await settle(hub);
-  assert.match(calls[0].prompt, /换档：你现在用的是 Sonnet·中/);
+  assert.match(calls[0].prompt, /选档：你现在用的是 Sonnet·中/);
   assert.equal(calls[1].room.models.claude, 'opus');
   assert.equal(calls[1].room.efforts.claude, 'xhigh');
   assert.equal(calls[1].session, 'claude-session'); // 接着同一个会话
   assert.match(calls[1].prompt, /已经按你说的换成 Opus·超高/);
-  assert.doesNotMatch(calls[1].prompt, /换档：/); // 重开的这一轮不再让它换
+  assert.doesNotMatch(calls[1].prompt, /选档：/); // 重开的这一轮不再让它换
   const msgs = store.getMessages(room.id);
   assert.ok(!msgs.some((m) => /\[换档/.test(m.text || '')));
   assert.ok(msgs.some((m) => m.from === 'system' && /Claude 换成 Opus·超高 来做这件事（要改核心代码）/.test(m.text)));
@@ -2035,8 +2035,49 @@ test('换档：AI 回 [换档 …] 不发到群里，同一个会话按新档重
   assert.equal(store.getRoom(room.id).models.claude, '', '群设置不动');
   hub.postUserMessage(room.id, '再看看');
   await settle(hub);
-  assert.equal(calls[2].room.models.claude, '');
-  assert.equal(calls[2].room.efforts.claude, 'medium');
+  assert.equal(calls[2].room.models.claude, 'opus', '自己选的档一直用');
+  assert.equal(calls[2].room.efforts.claude, 'xhigh');
+  hub.clearTier(room.id, 'claude'); // 老板手动改了模型
+  hub.postUserMessage(room.id, '再来');
+  await settle(hub);
+  assert.equal(calls[3].room.models.claude, '');
+  assert.equal(calls[3].room.efforts.claude, 'medium');
+});
+
+test('换档：回复最后一行写 [换档 …]，这一轮照常发出去（去掉那一行），下一轮起换', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '难活做完了\n[换档 sonnet low]' : '好'));
+  const hub = new Hub(store, { run, tiers: fakeTiers });
+  const room = newRoom(store, { members: ['claude'], models: { claude: 'opus' }, efforts: { claude: 'high' } });
+  hub.postUserMessage(room.id, '干活');
+  await settle(hub);
+  assert.equal(calls.length, 1, '不重开');
+  const msgs = store.getMessages(room.id);
+  assert.ok(msgs.some((m) => m.from === 'claude' && m.text === '难活做完了'));
+  assert.ok(msgs.some((m) => m.from === 'system' && /Claude 接下来换成 Sonnet·低/.test(m.text)));
+  hub.postUserMessage(room.id, '闲聊一句');
+  await settle(hub);
+  assert.equal(calls[1].room.models.claude, 'sonnet');
+  assert.equal(calls[1].room.efforts.claude, 'low');
+  assert.match(calls[1].prompt, /你现在用的是 Sonnet·低/);
+});
+
+test('换档：先问我时，下一轮起换的申请点了同意才换，不重开这一轮', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '做完了\n[换档 sonnet low]' : '好'));
+  const hub = new Hub(store, { run, tiers: fakeTiers });
+  const room = newRoom(store, { members: ['claude'], autoSwitch: { mode: 'ask' } });
+  hub.postUserMessage(room.id, '干活');
+  await settle(hub);
+  hub.postUserMessage(room.id, '再来'); // 又开工了，申请不作废
+  await settle(hub);
+  assert.equal(calls[1].room.models.claude, '');
+  assert.ok(hub.answerSwitch(room.id, 'claude', true));
+  await settle(hub);
+  assert.equal(calls.length, 2, '不重开');
+  hub.postUserMessage(room.id, '第三件');
+  await settle(hub);
+  assert.equal(calls[2].room.models.claude, 'sonnet');
 });
 
 test('换档：超出老板设的上限就不换，按原来的档接着做', async () => {
@@ -2055,7 +2096,7 @@ test('换档：超出老板设的上限就不换，按原来的档接着做', as
 
 test('换档：要老板点头的，先发申请；同意后按新档重开，不同意按原来的档', async () => {
   const store = new Store();
-  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 || n === 3 ? '[换档 opus high]' : '好'));
+  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '[换档 opus high]' : n === 3 ? '[换档 sonnet low]' : '好'));
   const hub = new Hub(store, { run, tiers: fakeTiers });
   const room = newRoom(store, { members: ['claude'], autoSwitch: { mode: 'ask' } });
   hub.postUserMessage(room.id, '干活');
@@ -2072,7 +2113,7 @@ test('换档：要老板点头的，先发申请；同意后按新档重开，�
   await settle(hub);
   assert.ok(hub.answerSwitch(room.id, 'claude', false));
   await settle(hub);
-  assert.equal(calls[3].room.models.claude, '');
+  assert.equal(calls[3].room.models.claude, 'opus', '没同意就还用上次同意的档');
   assert.match(calls[3].prompt, /老板没同意换档/);
 });
 
@@ -2084,7 +2125,7 @@ test('换档：老板关掉以后不提换档，回的 [换档 …] 照常发出
   hub.postUserMessage(room.id, '干活');
   await settle(hub);
   assert.equal(calls.length, 1);
-  assert.doesNotMatch(calls[0].prompt, /换档：/);
+  assert.doesNotMatch(calls[0].prompt, /选档：/);
 });
 
 test('换档：给同事交代情况时模型不变、思考强度降到「中」；本来就更低的不动', () => {
@@ -2141,4 +2182,23 @@ test('换档：等答复时又轮到它，提示里说换档没成；等答复�
   await settle(hub);
   assert.match(calls[2].prompt, /被老板按了「停止」/);
   assert.doesNotMatch(calls[2].prompt, /没等到老板答复/);
+});
+
+test('换档：先问我时新申请替换旧申请，旧的按钮灰掉；按旧申请的编号答复算过期，不会答到新申请头上', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '做完了\n[换档 sonnet low]' : n === 2 ? '[换档 opus high]' : '好'));
+  const hub = new Hub(store, { run, tiers: fakeTiers });
+  const room = newRoom(store, { members: ['claude'], autoSwitch: { mode: 'ask' } });
+  hub.postUserMessage(room.id, '干活');
+  await settle(hub);
+  const a = store.getMessages(room.id).at(-1);
+  hub.postUserMessage(room.id, '核心改动');
+  await settle(hub);
+  const b = store.getMessages(room.id).find((m) => m.action?.type === 'switch' && m.seq !== a.seq);
+  assert.ok(store.getMessages(room.id).some((m) => m.switchOf === a.seq && /被新的申请替换了/.test(m.text)));
+  assert.equal(hub.answerSwitch(room.id, 'claude', false, a.seq), false);
+  assert.ok(hub.answerSwitch(room.id, 'claude', true, b.seq));
+  await settle(hub);
+  assert.equal(calls.at(-1).room.models.claude, 'opus');
+  assert.equal(store.getRoom(room.id).aiTiers.claude.model, 'opus');
 });

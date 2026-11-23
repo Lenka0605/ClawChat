@@ -348,5 +348,14 @@
   "{n} 个模型": "{n} models",
   "只用现在的模型": "Current model only",
   "思考强度不限": "Any thinking effort",
-  "最高到{label}": "Up to {label}"
+  "最高到{label}": "Up to {label}",
+  "按活的难易自己选模型和思考强度": "AI picks its own model and thinking effort for each task",
+  "要不要让 AI 自己选档": "Let the AI pick its own model and effort?",
+  "每位 AI 按活的难易自己选档：简单的用便宜快的，难的用强的。选好后一直用，直到它再换；你在「模型」里手动改了，就从你选的开始。换档时群里会写明，每位能换到哪一档在下面限制。": "Each AI picks a model and thinking effort to fit the task: cheap and fast for simple work, stronger for hard work. Its choice sticks until it switches again; if you change the model yourself, it starts from your choice. Every switch is noted in the chat, and you can limit how high each AI may go below.",
+  "不换，一直用我设的档": "Off: always use my settings",
+  "AI 自选": "AI pick",
+  "{name}：{model}，AI 自选，现在在用": "{name}: {model} (AI pick, in use now)",
+  "AI 自选：现在实际用 {tier}（你设的是 {own}）。手动选一个，就恢复成你设的。": "AI pick: actually using {tier} (you set {own}). Pick one manually to go back to your setting.",
+  "恢复成我设的（{tier}）": "Back to my setting ({tier})",
+  "{name} 恢复成你设的档": "{name} is back to your setting"
 }

@@ -165,5 +165,9 @@
   "不换档，{name} 按原来的档接着做": "No switch: {name} continues on the current setting",
   "{name} 的换档申请没等到答复，先按原来的档接着干": "{name}'s switch request got no answer; continuing on the current setting",
   "换档设置不对": "Invalid model-switch settings",
-  "这个换档申请已经过期了": "This switch request has expired"
+  "这个换档申请已经过期了": "This switch request has expired",
+  "已同意，{name} 接下来用 {tier}": "Approved: {name} will use {tier} from now on",
+  "{name} 想在接下来换成 {tier}": "{name} would like to switch to {tier} from now on",
+  "{name} 接下来换成 {tier}": "{name} switches to {tier} from now on",
+  "{name} 的上一条换档申请被新的申请替换了": "{name}'s previous switch request was replaced by a newer one"
 }

@@ -817,13 +817,13 @@ function renderAutoSwitch(room) {
     return;
   }
   const cfg = room.autoSwitch || {};
-  section.innerHTML = `<h3>${tr('AI 自己换档')} <small>${tr('难活自己升档，做完回到你设的档')}</small></h3>
+  section.innerHTML = `<h3>${tr('AI 自己换档')} <small>${tr('按活的难易自己选模型和思考强度')}</small></h3>
     <div class="group-box">
-      <label class="form-row"><span>${tr('怎么做')}<small>${tr('遇到难活要不要自己升档')}</small></span>
+      <label class="form-row"><span>${tr('怎么做')}<small>${tr('要不要让 AI 自己选档')}</small></span>
         <select id="auto-mode" name="autoMode">
           <option value="auto">${tr('自己换，不用问我（默认）')}</option>
           <option value="ask">${tr('先问我')}</option>
-          <option value="off">${tr('不换，用我设的档')}</option>
+          <option value="off">${tr('不换，一直用我设的档')}</option>
         </select></label>
       <label class="form-row"><span>${tr('交代情况时用')}<small>${tr('同事换了新会话，请它重新交代时；模型不变')}</small></span>
         <select id="auto-brief-effort" name="autoBriefEffort">
@@ -833,7 +833,7 @@ function renderAutoSwitch(room) {
           <option value="high">${esc(EFFORT_LABEL.high)}</option>
         </select></label>
     </div>
-    <p class="hint">${tr('接到难活时，AI 会先回一行「[换档 模型 强度]」，ClawChat 用新档在同一个会话里重新开工，下一轮自动回到你设的档；换档时群里会写明。每位能换到哪一档在下面限制。')}</p>
+    <p class="hint">${tr('每位 AI 按活的难易自己选档：简单的用便宜快的，难的用强的。选好后一直用，直到它再换；你在「模型」里手动改了，就从你选的开始。换档时群里会写明，每位能换到哪一档在下面限制。')}</p>
     <div class="group-box auto-tier-list" id="auto-tier-list"></div>`;
   $('#auto-mode').value = cfg.mode || 'auto';
   $('#auto-brief-effort').value = cfg.briefEffort ?? 'medium';
@@ -2549,7 +2549,7 @@ function renderShell() {
   $('#model-switch').classList.toggle('many', !dm && room.members.length > 2);
   setHtml(
     $('#model-switch'),
-    (dm ? [dm] : room.members).map((a) => modelChipHtml(a, dm ? dmView(room, a) : room)).join('') +
+    (dm ? [dm] : room.members).map((a) => modelChipHtml(a, convRoom(conv, a))).join('') +
       // 顶栏一行放不下时（窄窗口 + 成员多）只显示这一个按钮，点开是成员和各自的模型
       (!dm && group ? `<button class="model-chip model-more" data-model-more aria-haspopup="menu" title="${esc(tr('成员和模型'))}"><span class="chip-stack">${room.members.slice(0, 3).map((a) => avatarHtml(a)).join('')}</span><span class="chip-model">${tr('模型')}</span>${CHEVRON_SVG}</button>` : ''),
   );
@@ -3013,7 +3013,8 @@ async function answerSwitch(agent, ok, btn) {
   const buttons = [...(box?.querySelectorAll('[data-switch-agent]') || [])];
   for (const b of buttons) b.disabled = true;
   try {
-    await api('POST', `/api/rooms/${conv.roomId}/switch`, { agent, ok });
+    const seq = Number(btn.closest('[data-switch-ask]')?.dataset.switchAsk);
+    await api('POST', `/api/rooms/${conv.roomId}/switch`, { agent, ok, ...(Number.isInteger(seq) ? { seq } : {}) });
   } catch (err) {
     toast(err.message);
     if (err.status !== 409) for (const b of buttons) b.disabled = false;
@@ -5271,8 +5272,38 @@ function dmView(room, agent) {
   return { ...room, models: pick(room.models, o.model), efforts: pick(room.efforts, o.effort), fast: pick(room.fast, o.fast) };
 }
 
-// 当前会话里这一位实际用的设置：私聊里看私聊的，群里看群的
-const convRoom = (conv, agent) => (conv.dm ? dmView(conv.room, agent) : conv.room);
+// AI 自己选的档（room.aiTiers）：老板手动改过、模式关掉、或者超出老板设的范围，就不算数
+// ownerRoom 是老板设的档（私聊里是 dmSettings 那份），用来判断 AI 选的型号是不是当前模型
+function aiTierFor(room, agent, ownerRoom = room) {
+  const t = room?.aiTiers?.[agent];
+  if (!t?.model || (room.autoSwitch?.mode || 'auto') === 'off') return null;
+  const lim = room.autoSwitch?.limits?.[agent] || {};
+  const owner = ownerRoom.models?.[agent] || '';
+  const models = (S.engines[AGENT_ENGINE[agent]]?.models || []).filter((m) => m.id && m.id !== 'auto');
+  const m = models.find((x) => x.id === t.model);
+  if (!m) return null;
+  if (Array.isArray(lim.models) && !lim.models.includes(m.id) && m.id !== owner) return null;
+  const cap = TIER_EFFORT_ORDER.indexOf(lim.effort || '');
+  let effort = t.effort || '';
+  if (effort) {
+    const allowed = effortsFor(agent, m.id);
+    if (!allowed.length) effort = ''; // 这个模型没有思考强度，服务端也会按空处理
+    else if (!allowed.includes(effort) || (cap >= 0 && TIER_EFFORT_ORDER.indexOf(effort) > cap)) return null;
+  }
+  return { model: m.id, effort, name: t.name || m.name || m.id };
+}
+
+function withAiTier(room, agent, ownerRoom = room) {
+  const t = aiTierFor(room, agent, ownerRoom);
+  if (!t) return room;
+  return { ...room, models: { ...room.models, [agent]: t.model }, efforts: { ...room.efforts, [agent]: t.effort } };
+}
+
+// 当前会话里这一位实际用的设置：私聊里看私聊的，群里看群的；AI 自己选了档就用它
+const convRoom = (conv, agent) => {
+  const owner = conv.dm ? dmView(conv.room, agent) : conv.room;
+  return withAiTier(owner, agent, owner);
+};
 
 // 改设置：在私聊里只改私聊那份（群里不变），在群里改群的
 function settingsPatch(conv, agent, field, value) {
@@ -5301,11 +5332,26 @@ async function resetDmSettings(agent) {
   renderShell();
 }
 
+// 菜单里的「恢复成我设的」：不动模型和思考强度，只叫服务端把 AI 自选档清掉
+async function resetAiTier(agent) {
+  const conv = currentConv();
+  if (!conv) return;
+  try {
+    await patchSettings(conv, { resetAiTier: [agent] });
+    toast(tr('{name} 恢复成你设的档', { name: agentName(agent) }));
+  } catch (err) {
+    toast(err.message);
+  }
+  $('#model-switch')._html = null;
+  renderShell();
+}
+
 async function switchEffort(agent, id) {
   const conv = currentConv();
   if (!conv) return;
   try {
-    await patchSettings(conv, settingsPatch(conv, agent, 'effort', id));
+    // 从顶栏菜单手动选的：即使选的正好是老板原来那档，也要清掉 AI 自选档
+    await patchSettings(conv, { ...settingsPatch(conv, agent, 'effort', id), resetAiTier: [agent] });
     toast(tr('{name} 的思考强度换成了「{level}」，下一轮生效{scope}', { name: agentName(agent), level: id ? EFFORT_LABEL[id] || id : tr('默认'), scope: scopeText(conv) }));
   } catch (err) {
     toast(err.message);
@@ -5337,7 +5383,15 @@ function effortShortName(agent, modelId, id) {
   return def ? EFFORT_LABEL[def] || def : '';
 }
 
+// 「Haiku · 低」这样的展示文字
+function tierLabelFor(agent, room) {
+  const model = room.models?.[agent] || '';
+  const effort = effortShortName(agent, model, room.efforts?.[agent]);
+  return `${modelShortName(agent, model)}${effort ? ` · ${tr('思考 {level}', { level: effort })}` : ''}`;
+}
+
 function modelChipHtml(a, room) {
+  const ai = aiTierFor(room, a, room);
   const model = room.models?.[a] || '';
   const effort = effortShortName(a, model, room.efforts?.[a]);
   const fast = !!room.fast?.[a] && fastSpeed(a, model) !== null;
@@ -5346,12 +5400,12 @@ function modelChipHtml(a, room) {
     ? `<span class="chip-warn${level > 1 ? ' bad' : ''}" title="${esc(tr('会话里存了约 {size}MB 图片，越来越慢，点开换新会话', { size: (sessionImages(room.id, a) / 1048576).toFixed(1) }))}"></span>`
     : '';
   // 提示里写清楚现在用的是哪个模型（窄窗口下按钮只剩头像，靠这个也知道是谁、什么模型）
-  const tip = tr('{name}：{model}，下一轮生效', {
-    name: agentName(a),
-    model: `${modelShortName(a, model)}${effort ? ` · ${tr('思考 {level}', { level: effort })}` : ''}`,
-  });
+  const tip = ai
+    ? tr('{name}：{model}，AI 自选，现在在用', { name: agentName(a), model: tierLabelFor(a, room) })
+    : tr('{name}：{model}，下一轮生效', { name: agentName(a), model: tierLabelFor(a, room) });
   return `<button class="model-chip" data-menu="${esc(a)}" aria-haspopup="menu" title="${esc(tip)}">${avatarHtml(a)}<span class="chip-model">${esc(modelShortName(a, model))}</span>${
-    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
+    effort ? `<span class="chip-effort">${esc(effort)}</span>` : ''}${ai ? `<span class="chip-ai">${tr('AI 自选')}</span>` : ''}${
+    fast ? `<span class="chip-fast">${BOLT_SVG}${tr('快速')}</span>` : ''}${warn}${CHEVRON_SVG}</button>`;
 }
 
 // 模型能不能看图的小标记：true 能看（眼睛）、false 看不了（眼睛划掉）、null 还不确定（淡一点的眼睛）。
@@ -5377,7 +5431,9 @@ const descForUi = (s) => (I18N.lang === 'zh' ? hasCjk(s) : s && !hasCjk(s)) ? s 
 function openModelMenu(agent, chip) {
   const conv = currentConv();
   if (!conv) return;
-  const room = convRoom(conv, agent);
+  const owner = conv.dm ? dmView(conv.room, agent) : conv.room;
+  const ai = aiTierFor(conv.room, agent, owner);
+  const room = withAiTier(owner, agent, owner);
   const cur = room.models?.[agent] || '';
   const opts = modelOptions(agent);
   if (cur && !opts.some((o) => o.id === cur)) opts.push({ id: cur, name: tr('{name}（自定义）', { name: cur }) });
@@ -5390,6 +5446,13 @@ function openModelMenu(agent, chip) {
   if (conv.dm) {
     html += `<div class="menu-note">${SCOPE_ICON}${tr('在这里切换只改私聊，群里的设置不变')}</div>`;
     if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', tr('恢复成和群聊一样'), '', false) + '<div class="menu-sep"></div>';
+  }
+  if (ai) {
+    html += `<div class="menu-note">${SCOPE_ICON}${tr('AI 自选：现在实际用 {tier}（你设的是 {own}）。手动选一个，就恢复成你设的。', {
+      tier: tierLabelFor(agent, room),
+      own: tierLabelFor(agent, owner),
+    })}</div>`;
+    html += menuItemHtml('data-pick-owner', tr('恢复成我设的（{tier}）', { tier: tierLabelFor(agent, owner) }), '', false) + '<div class="menu-sep"></div>';
   }
   html += `<div class="menu-section">${tr('模型')}</div>`;
   // 有分组的（Gemini 订阅里的 Gemini、Claude…）：每组前面加个小标题
@@ -5442,6 +5505,7 @@ function pickFromMenu(item) {
   closeModelMenu();
   if (item.dataset.pickModel !== undefined) switchModel(agent, item.dataset.pickModel);
   else if (item.dataset.pickEffort !== undefined) switchEffort(agent, item.dataset.pickEffort);
+  else if (item.dataset.pickOwner !== undefined) resetAiTier(agent);
   else if (item.dataset.pickReset !== undefined) resetDmSettings(agent);
   else if (item.dataset.pickFresh !== undefined) freshAgent(agent, null);
   else if (item.dataset.pickFast !== undefined) {
@@ -6345,7 +6409,8 @@ async function switchModel(agent, id, custom = false) {
     return;
   }
   try {
-    await patchSettings(conv, { ...settingsPatch(conv, agent, 'model', id), custom: custom ? [agent] : [] });
+    // 从顶栏菜单手动选的：即使选的正好是老板原来那档，也要清掉 AI 自选档
+    await patchSettings(conv, { ...settingsPatch(conv, agent, 'model', id), custom: custom ? [agent] : [], resetAiTier: [agent] });
     const name = modelOptions(agent).find((o) => o.id === id)?.name || id;
     toast(tr('{name} 已切换到 {model}，下一轮生效{scope}', { name: agentName(agent), model: name, scope: scopeText(conv) }));
   } catch (err) {
@@ -7105,7 +7170,7 @@ function bind() {
         const room = conv.room;
         openCtxMenu(
           room.members.map((a) => ({
-            label: `${agentLabel(a)} · ${modelShortName(a, room.models?.[a] || '')}${room.efforts?.[a] ? ` · ${EFFORT_LABEL[room.efforts[a]] || room.efforts[a]}` : ''}`,
+            label: `${agentLabel(a)} · ${tierLabelFor(a, convRoom(conv, a))}${aiTierFor(room, a, room) ? ` · ${tr('AI 自选')}` : ''}`,
             icon: avatarHtml(a),
             act: () => openModelMenu(a, modelMore),
           })),
