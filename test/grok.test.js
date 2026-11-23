@@ -322,3 +322,14 @@ test('Grok 查额度在先时，任务等查询进程退出；排队期间可以
   assert.equal((await run.done).ok, true);
   assert.equal(calls().length, before + 1);
 });
+
+test('Grok 真实的工具字段：读（target_file）、新建（write）、改（search_replace）都显示路径，项目内相对、项目外完整', async () => {
+  process.env.FAKE_GROK_SCENARIO = 'real-tools';
+  try {
+    const h = start();
+    const res = await h.done;
+    assert.ok(res.ok);
+    const shown = h.steps.filter((s) => (s.kind === 'read' || s.kind === 'edit') && s.text !== 'README.md').map((s) => `${s.kind}:${s.text}`);
+    assert.deepEqual(shown, ['read:src/a.js', 'edit:notes/new.txt', 'edit:/etc/outside.conf']);
+  } finally { delete process.env.FAKE_GROK_SCENARIO; }
+});

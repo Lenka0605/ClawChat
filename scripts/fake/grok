@@ -70,6 +70,15 @@ if (scenario === 'quota') {
   const model = args.includes('--model') ? arg('--model') : 'grok-4.7';
   emit({ type: 'system', subtype: 'init', session_id: scenario === 'wrong-session' ? crypto.randomUUID() : id, model, apiKeySource: scenario === 'api-key' ? 'user' : 'oauth' });
   emit({ type: 'assistant', message: { model, content: [{ type: 'thinking', thinking: '我先检查一下' }, { type: 'tool_use', name: 'read_file', input: { path: 'README.md' } }] } });
+  // 真的 Grok 的工具名和字段（老板电脑上实测）：读 read_file{target_file}、新建 write{file_path}、改 search_replace{file_path}
+  if (scenario === 'real-tools') {
+    const cwd = process.cwd();
+    emit({ type: 'assistant', message: { model, content: [
+      { type: 'tool_use', name: 'read_file', input: { target_file: path.join(cwd, 'src/a.js'), offset: 1, limit: 20 } },
+      { type: 'tool_use', name: 'write', input: { file_path: path.join(cwd, 'notes/new.txt'), content: 'hi' } },
+      { type: 'tool_use', name: 'search_replace', input: { file_path: '/etc/outside.conf', old_string: 'a', new_string: 'b' } },
+    ] } });
+  }
   if (scenario === 'hang' || scenario === 'stop-tree') {
     if (scenario === 'stop-tree') {
       const { spawn } = await import('node:child_process');
