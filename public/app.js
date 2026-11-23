@@ -162,7 +162,7 @@ function detectIcons(bust = '') {
 function trackChrome() {
   const chat = $('#chat');
   const sync = () => {
-    const stay = nearBottom();
+    const stay = nearBottom() && !liveAnchor(); // 正在看展开的过程时不拽到最底下
     chat.style.setProperty('--head-h', `${$('#room-head').offsetHeight}px`);
     chat.style.setProperty('--composer-h', `${$('#composer').offsetHeight}px`);
     if (stay) scrollToBottom();
@@ -3058,10 +3058,65 @@ function restoreLiveScroll(saved) {
   });
 }
 
+// 展开着过程在看的时候，别的 AI 一有进展「正在干活」整块重画，页面会跳（手机 Safari 没有滚动锚定，电脑上整块替换也会让锚定失效）：
+// 重画前记下正在看的那张展开卡片在屏幕上的位置，重画后把页面挪回去，让它原地不动
+function liveAnchor() {
+  if (!S.liveHold) return null; // 只在老板正在看展开的过程时钉住（点了展开、或者展开着往上翻）
+  const sc = $('#scroller');
+  const view = sc.getBoundingClientRect();
+  for (const ol of document.querySelectorAll('#live .live-steps.open')) {
+    const card = ol.closest('[data-live-card]');
+    const r = card?.getBoundingClientRect();
+    if (r && r.bottom > view.top && r.top < view.bottom) return { key: card.dataset.liveCard, top: r.top };
+  }
+  return null;
+}
+
+// 把那张展开的卡片挪回原来在屏幕上的位置
+function holdLiveAnchor(anchor) {
+  if (!anchor) return;
+  const card = [...document.querySelectorAll('#live [data-live-card]')].find((el) => el.dataset.liveCard === anchor.key);
+  if (!card) return;
+  const sc = $('#scroller');
+  const delta = card.getBoundingClientRect().top - anchor.top;
+  if (Math.abs(delta) >= 1) {
+    sc.scrollTop += delta;
+    // 已经贴在最底下、下面没内容可滚了（比如上面插进一条回复、下面那张卡片同时收走）：底下临时垫一段空白，让卡片能停在原处。
+    // 卡片收起来或者干完了就把空白撤掉（renderLive 里）
+    const left = card.getBoundingClientRect().top - anchor.top;
+    if (left >= 1) {
+      const pad = liveSpacer();
+      pad.style.height = `${(parseFloat(pad.style.height) || 0) + left}px`;
+      sc.scrollTop += left;
+    }
+  }
+  S.pinned = false; // 正在看展开的过程：别被拽到最底下（自己滚到底以后照常跟着走）
+}
+
+// 不再钉住：切换聊天、自己发消息、自己滑到最底下。底下垫的空白一起撤掉，恢复跟着最新进展走
+function releaseLiveHold() {
+  S.liveHold = false;
+  const pad = $('#live-spacer');
+  if (pad) pad.style.height = '0px';
+}
+
+function liveSpacer() {
+  let pad = $('#live-spacer');
+  if (!pad) {
+    pad = document.createElement('div');
+    pad.id = 'live-spacer';
+    pad.setAttribute('aria-hidden', 'true');
+    $('#live').after(pad);
+  }
+  return pad;
+}
+
 function renderLive() {
   const conv = currentConv();
   const runs = conv ? convRuns(conv) : [];
   const scrolls = saveLiveScroll();
+  const anchor = liveAnchor();
+
   $('#live').innerHTML = runs
     .map((r) => {
       const key = liveKey(r);
@@ -3081,7 +3136,7 @@ function renderLive() {
       // 干活时也显示用的哪个模型、思考强度（和做完的回复同一个样子；跟随默认的显示默认的那个）
       const effortName = effortShortName(r.agent, r.model || '', r.effort || '');
       const liveModel = [modelShortName(r.agent, r.model || ''), effortName ? tr('思考 {level}', { level: effortName }) : ''].filter(Boolean).join(' · ');
-      return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}${liveModel ? `<span class="msg-model">${esc(liveModel)}</span>` : ''}</div>
+      return `<div class="msg agent live from-${esc(baseOf(r.agent))}${enter}" data-live-card="${esc(key)}">${avatarHtml(r.agent)}<div class="msg-body"><div class="msg-name">${esc(agentLabel(r.agent))}${sideTag}${liveModel ? `<span class="msg-model">${esc(liveModel)}</span>` : ''}</div>
         <div class="bubble"><div class="live-head"><span class="typing"><i></i><i></i><i></i></span>
         <span>${r.side ? (groupSide ? tr('本体在私聊里忙，分身先来回一句') : r.peer ? tr('正在回复 {name}', { name: agentName(r.peer) }) : tr('正在回复你')) : compacting(key) ? tr('正在整理记忆') : tr('正在干活')} · <span class="elapsed" data-start="${r.startedAt}">${fmtDur(Date.now() - r.startedAt)}</span></span>
         ${toggle}${
@@ -3095,6 +3150,9 @@ function renderLive() {
     })
     .join('') + queuedHtml(conv);
   restoreLiveScroll(scrolls);
+  // 没有展开的过程了（收起来、干完了、换了聊天）：之前为了让卡片停住垫的空白撤掉
+  if (!$('#live .live-steps.open') && $('#live-spacer')) $('#live-spacer').style.height = '0px';
+  holdLiveAnchor(anchor);
   renderStopControls(conv);
   syncToolsRow();
 }
@@ -3248,7 +3306,7 @@ function scrollToBottom() {
 }
 
 function keepBottom(fn) {
-  const near = nearBottom();
+  const near = nearBottom() && !liveAnchor(); // 正在看展开的过程：新消息来了也不把页面拽走
   fn();
   if (near) scrollToBottom();
 }
@@ -3557,6 +3615,7 @@ window.addEventListener('popstate', (e) => {
 });
 
 async function openConv(key, { keepFocus = false, stayList = false, fromHistory = false } = {}) {
+  releaseLiveHold();
   const c = parseKey(key);
   if (!c || !roomById(c.roomId)) return;
   if (!stayList) enterMobileChat(key, { fromHistory }); // 手机上点开聊天就切到聊天页；启动时留在列表
@@ -3906,7 +3965,17 @@ function connect() {
   let dropped = false;
   es.onmessage = (e) => {
     try {
+      // 别的 AI 有进展、干完插进一条回复：消息列表、「正在干活」都可能变高，展开着看的那张卡片会被推走。
+      // 处理前记下它的位置，处理完（以及接下来两帧里还在排版的）都挪回原处
+      const anchor = liveAnchor();
       handleEvent(JSON.parse(e.data));
+      if (anchor) {
+        holdLiveAnchor(anchor);
+        requestAnimationFrame(() => {
+          holdLiveAnchor(anchor);
+          requestAnimationFrame(() => holdLiveAnchor(anchor));
+        });
+      }
     } catch (err) {
       console.error(err);
     }
@@ -4246,6 +4315,7 @@ async function sendMessage() {
   const conv = currentConv();
   const el = $('#input');
   if (!conv || $('#btn-send').disabled) return;
+  releaseLiveHold(); // 自己发了消息：回到最底下跟着走
   askNotifyPermission();
   // 先把要发的内容和归属定下来：下面等「最新一段」回来的时候，可能已经切去别的聊天、在那边打字了
   const raw = el.value;
@@ -6999,8 +7069,40 @@ function bind() {
   });
   // 消息列表变高了（比如图片慢慢加载出来）：原来贴着最底下的话（自己往上翻了就不算），继续贴着最底下
   $('#scroller').addEventListener('scroll', () => (S.pinned = nearBottom()), { passive: true });
+  // 老板自己滑页面：往上翻离开最底就钉住展开的卡片；只有这次是往下滑、页面真的往下走了、走到了最底才解除。
+  // 过程列表里面的滚动、点击不算（会冒泡到这里），光点一下、或者本来就在最底也不算。
+  // 滚轮动画、手机的惯性滑动在松手以后还会滚一会，这段时间里滚到底也算
+  let gesture = null; // { from: 开始时的位置, down: 是不是往下滑, y: 手指按下的位置, until: 到什么时候还算这次滑动 }
+  const inSteps = (e) => !!e.target.closest?.('.live-steps');
+  const checkHold = () => {
+    const sc = $('#scroller');
+    const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 4;
+    if (atBottom) {
+      if (gesture?.down && sc.scrollTop > gesture.from) releaseLiveHold();
+    } else if ($('#live .live-steps.open')) S.liveHold = true;
+  };
+  const later = () => setTimeout(() => gesture && checkHold(), 150);
+  $('#scroller').addEventListener('wheel', (e) => {
+    if (inSteps(e)) return;
+    const now = Date.now();
+    if (!gesture || now > gesture.until) gesture = { from: $('#scroller').scrollTop };
+    gesture.down = e.deltaY > 0;
+    gesture.until = now + 1200;
+    later();
+  }, { passive: true });
+  $('#scroller').addEventListener('touchstart', (e) => {
+    gesture = inSteps(e) ? null : { from: $('#scroller').scrollTop, y: e.touches?.[0]?.clientY ?? 0, down: false, until: Infinity };
+  }, { passive: true });
+  $('#scroller').addEventListener('touchend', (e) => {
+    if (!gesture || gesture.y === undefined || inSteps(e)) return;
+    const y = e.changedTouches?.[0]?.clientY ?? gesture.y;
+    gesture.down = y < gesture.y - 8; // 手指往上推 = 页面往下走
+    gesture.until = Date.now() + 1500;
+    later();
+  }, { passive: true });
+  $('#scroller').addEventListener('scroll', () => gesture && Date.now() < gesture.until && checkHold(), { passive: true });
   $('#messages').addEventListener('load', (e) => e.target.tagName === 'IMG' && S.pinned && scrollToBottom(), true);
-  new ResizeObserver(() => requestAnimationFrame(() => S.pinned && scrollToBottom())).observe($('#messages'));
+  new ResizeObserver(() => requestAnimationFrame(() => S.pinned && !liveAnchor() && scrollToBottom())).observe($('#messages'));
   $('#model-menu').addEventListener('click', (e) => {
     const item = e.target.closest('.menu-item');
     if (item) pickFromMenu(item);
@@ -7051,7 +7153,10 @@ function bind() {
     if (t) {
       const k = t.dataset.liveToggle;
       if (S.liveOpen.has(k)) S.liveOpen.delete(k);
-      else S.liveOpen.add(k);
+      else {
+        S.liveOpen.add(k);
+        S.liveHold = true; // 点开就是要看：钉住这张卡片
+      }
       S.liveAnimate = k;
       renderLive();
       S.liveAnimate = null;
