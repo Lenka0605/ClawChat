@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
-import { Hub, dmRoom } from './lib/hub.js';
+import { Hub, dmRoom, EFFORT_ORDER } from './lib/hub.js';
 import { AGENTS, runAgent, IS_WIN, setupPath, detectEngines, probeModel, updateEngine, deepseekModels, providerModelsFor, sessionUsage, addExtraMember, removeExtraMember, ensureExtraMember, installEngine, INSTALLERS, loginEngine, LOGINS, readCodexRateLimits, readGrokRateLimits, readGeminiRateLimits } from './lib/agents.js';
 import { PROVIDERS, providerKey, validApiBase, ensureApiBridge } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
@@ -32,7 +32,7 @@ setLang(readConfig().uiLang); // 界面上次用的语言（系统通知、群�
 const store = new Store();
 // 联合群里对方的成员（remote）不在本机跑：交给联合群的任务队列，由对方的 ClawChat 来领
 // 联合群里本机的 AI 走 joint.guarded：按老板定的权限档跑，对方叫它动手前先问老板
-const hub = new Hub(store, { run: (id, opts) => (AGENTS[id]?.remote ? joint.host.run(id, opts) : opts.room?.joint ? joint.guarded(opts.room.id, id, opts, opts.messages) : runAgent(id, opts)) });
+const hub = new Hub(store, { tiers: (agent, room) => agentTiers(agent, room), run: (id, opts) => (AGENTS[id]?.remote ? joint.host.run(id, opts) : opts.room?.joint ? joint.guarded(opts.room.id, id, opts, opts.messages) : runAgent(id, opts)) });
 const clients = new Set();
 const remoteClients = new Set(); // 其中从手机（经 Tailscale）连进来的：关掉手机访问时马上断开
 const joint = setupJoint({ store, hub, runAgent, port: PORT, appVersion: JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version, publicHost });
@@ -154,6 +154,15 @@ function fastFor(agent, modelId) {
   if (agent !== 'gpt') return '';
   const e = engines.codex || {};
   return e.models?.find((m) => m.id === (modelId || e.defaultModel))?.fast || '';
+}
+
+// AI 自己换档用：这一位能用的模型（程序的模型列表）和各自的思考强度，这一轮本来用的是哪个
+// Grok 先不让换：老板是免费档，申请换档多出来的那一轮光系统提示就约 3.6 万 token
+function agentTiers(agent, room) {
+  if (engineOf(agent) === 'grok') return null;
+  const e = engines[engineOf(agent)] || {};
+  const models = (e.models || []).filter((m) => m.id && m.id !== 'auto').map((m) => ({ id: m.id, name: m.name || m.id, efforts: effortsFor(agent, m.id) }));
+  return { models, model: room.models?.[agent] || e.defaultModel || '', effort: room.efforts?.[agent] || '' };
 }
 
 function fastName(agent, on, modelId) {
@@ -309,6 +318,33 @@ function normalizeRoom(body, creating, room = null) {
       }
     }
     out.fast = fast;
+  }
+  // AI 自己换档：mode 是 auto（自己换）| ask（先问老板）| off（不换）；limits 是每位能换的模型（null = 都行）和思考强度上限（'' = 不限）；
+  // briefEffort 是给换了新会话的同事交代情况时用的思考强度（'' = 跟平时一样）
+  if (body.autoSwitch !== undefined) {
+    const v = body.autoSwitch || {};
+    const cur = { ...ROOM_DEFAULTS.autoSwitch, ...room?.autoSwitch };
+    const next = { ...cur, limits: { ...cur.limits } };
+    if (v.mode !== undefined) {
+      if (!['auto', 'ask', 'off'].includes(v.mode)) throw httpError(400, tr('换档设置不对'));
+      next.mode = v.mode;
+    }
+    if (v.briefEffort !== undefined) {
+      if (!['', 'low', 'medium', 'high'].includes(v.briefEffort)) throw httpError(400, tr('换档设置不对'));
+      next.briefEffort = v.briefEffort;
+    }
+    for (const [a, lim] of Object.entries(v.limits || {})) {
+      if (!AGENTS[a]) continue;
+      if (!lim) {
+        delete next.limits[a];
+        continue;
+      }
+      const models = Array.isArray(lim.models) ? [...new Set(lim.models.map((m) => String(m).trim().slice(0, 80)).filter(Boolean))].slice(0, 100) : null;
+      const effort = String(lim.effort || '').trim();
+      if (effort && !EFFORT_ORDER.includes(effort)) throw httpError(400, tr('换档设置不对'));
+      next.limits[a] = { models, effort };
+    }
+    out.autoSwitch = next;
   }
   // 私聊里单独的设置：{ dmSettings: { gpt: { effort: 'low' } } } 只改这几项，{ gpt: null } 恢复成跟着群里
   if (body.dmSettings !== undefined) {
@@ -1248,6 +1284,12 @@ async function api(req, res, url, access = 'local') {
     if (sub === 'stop' && method === 'POST') {
       const { agent, only } = await readBody(req);
       hub.stop(room.id, AGENTS[agent] ? agent : undefined, ['side', 'main'].includes(only) ? only : null);
+      return send(res, 200, { ok: true });
+    }
+    // 老板回 AI 的换档申请：ok 为真就按它要的档重开这一轮，否则按原来的档
+    if (sub === 'switch' && method === 'POST') {
+      const { agent, ok } = await readBody(req);
+      if (!hub.answerSwitch(room.id, String(agent || ''), !!ok)) return send(res, 409, { error: tr('这个换档申请已经过期了') });
       return send(res, 200, { ok: true });
     }
     // 换新会话：正在干活就把这一轮换个新会话重来；空着就直接换。by 是老板选的谁来交代情况（某位 AI、self 它自己看记录、boss 老板自己来）

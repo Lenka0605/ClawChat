@@ -86,7 +86,11 @@ async function api(method, url, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || tr('请求失败（{status}）', { status: res.status }));
+  if (!res.ok) {
+    const err = new Error(data.error || tr('请求失败（{status}）', { status: res.status }));
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -622,6 +626,222 @@ function effortSelectHtml(agent, modelId, current, attrs = '') {
 }
 
 const CUSTOM_MODEL = '__custom__';
+
+// ---------------- AI 自己换档 ----------------
+// 群设置里每位能换的模型、思考强度上限。服务端用的是 lib/hub.js 的 EFFORT_ORDER；这里按同样的顺序排
+const TIER_EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
+// 这位能选的思考强度（模型列表里各模型支持的合在一起）；Claude 的强度在程序级别，不在每个模型里
+function tierEfforts(agent) {
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  const set = new Set(e.efforts || []);
+  for (const m of e.models || []) for (const x of m.efforts || []) set.add(x);
+  return TIER_EFFORT_ORDER.filter((x) => set.has(x));
+}
+
+// 这位能换的模型：程序模型列表 + 已经保存过、但这次没读到的（自定义模型）；不含「默认」的 auto
+function tierModels(agent, limit) {
+  const e = S.engines[AGENT_ENGINE[agent]] || {};
+  const known = (e.models || [])
+    .filter((m) => m.id && m.id !== 'auto')
+    .map((m) => ({ id: m.id, name: m.name || m.id, group: m.group || '', description: m.description || '' }));
+  const have = new Set(known.map((m) => m.id));
+  const extra = (Array.isArray(limit?.models) ? limit.models : [])
+    .filter((id) => !have.has(id))
+    .map((id) => ({ id, name: tr('{name}（自定义）', { name: id }), group: '', description: '' }));
+  return [...known, ...extra];
+}
+
+const tierUnsupported = (agent) => baseOf(agent) === 'grok';
+
+function tierSummaryHtml(row) {
+  const summary = row.querySelector('[data-tier-summary]');
+  if (!summary) return;
+  const all = row.querySelector('[data-tier-all]')?.checked;
+  const boxes = [...row.querySelectorAll('[data-tier-model]')];
+  const n = boxes.filter((b) => b.checked).length;
+  const effortSel = row.querySelector('[data-tier-effort]');
+  const effort = effortSel?.value || '';
+  const modelText = all ? tr('全部模型') : n ? tr('已选 {n} 个模型', { n }) : tr('一个都没选');
+  const effortText = !effortSel ? tr('没有可调强度') : effort ? tr('最高 {label}', { label: EFFORT_LABEL[effort] || effort }) : tr('思考不限');
+  summary.textContent = `${modelText} · ${effortText}`;
+  const label = row.querySelector('[data-tier-models-label]');
+  if (label) label.textContent = modelText;
+}
+
+// 一行：头像、名字、能换的模型（折叠多选）、思考强度最高到
+function autoTierRowHtml(agent, room) {
+  const name = agentName(agent);
+  const limit = room?.autoSwitch?.limits?.[agent] || null;
+  if (tierUnsupported(agent)) {
+    return `<div class="auto-tier-row unsupported" data-agent="${esc(agent)}">
+      <div class="auto-tier-top">${avatarHtml(agent)}
+        <div class="auto-tier-name"><b>${esc(name)}</b><small>${tr('暂不支持')}</small></div>
+      </div>
+      <div class="auto-tier-controls"><span class="tier-none">${tr('Grok 现在还不能自己换档：免费档多出来的那一轮很费额度。')}</span></div>
+    </div>`;
+  }
+  const models = tierModels(agent, limit);
+  if (!models.length) {
+    return `<div class="auto-tier-row" data-agent="${esc(agent)}">
+      <div class="auto-tier-top">${avatarHtml(agent)}
+        <div class="auto-tier-name"><b>${esc(name)}</b><small>${tr('模型列表还没读到')}</small></div>
+      </div>
+      <div class="auto-tier-controls"><span class="tier-none">${tr('模型列表还没读到，先保留原来的设置。')}</span></div>
+    </div>`;
+  }
+  const all = !limit || limit.models == null;
+  const chosen = new Set(all ? models.map((m) => m.id) : limit.models || []);
+  const effort = limit?.effort || '';
+  const efforts = tierEfforts(agent);
+  // 已经存下的强度这次模型列表里没有（比如换了模型、程序暂时读不到）：也列出来，别把设置悄悄丢掉
+  if (effort && !efforts.includes(effort)) efforts.push(effort);
+  efforts.sort((a, b) => TIER_EFFORT_ORDER.indexOf(a) - TIER_EFFORT_ORDER.indexOf(b));
+  const checkbox = (m) =>
+    `<label class="tier-model"><input type="checkbox" data-tier-model="${esc(m.id)}"${chosen.has(m.id) ? ' checked' : ''}${all ? ' disabled' : ''}>
+      <span>${esc(m.name)}${m.description ? `<small>${esc(m.description)}</small>` : ''}</span></label>`;
+  // 模型多的时候（Gemini 订阅里有好几家）按组排；组名直接用程序目录里的
+  const groups = [...new Set(models.filter((m) => m.group).map((m) => m.group))];
+  const loose = models.filter((m) => !m.group);
+  const grid = (list) => `<div class="tier-model-grid">${list.map(checkbox).join('')}</div>`;
+  const grouped = groups
+    .map((g) => `<div class="tier-model-group">${esc(g)}</div>${grid(models.filter((m) => m.group === g))}`)
+    .join('');
+  const modelLabel = all ? tr('全部模型') : chosen.size ? tr('已选 {n} 个模型', { n: chosen.size }) : tr('一个都没选');
+  return `<div class="auto-tier-row" data-agent="${esc(agent)}">
+    <div class="auto-tier-top">${avatarHtml(agent)}
+      <div class="auto-tier-name"><b>${esc(name)}</b><small data-tier-summary></small></div>
+    </div>
+    <div class="auto-tier-controls">
+      <details class="tier-models">
+        <summary><span>${tr('能换的模型')}</span><b data-tier-models-label>${esc(modelLabel)}</b></summary>
+        <div class="tier-model-menu">
+          <label class="tier-model tier-model-all"><input type="checkbox" data-tier-all${all ? ' checked' : ''}>
+            <span>${tr('全部模型')}<small>${tr('以后新出的也能换')}</small></span></label>
+          ${loose.length ? grid(loose) : ''}${grouped}
+        </div>
+      </details>
+      <label class="tier-effort-line"><span>${tr('思考强度最高到')}</span>${
+        efforts.length
+          ? `<select data-tier-effort><option value="">${tr('不限')}</option>${efforts
+              .map((id) => `<option value="${esc(id)}"${id === effort ? ' selected' : ''}>${esc(EFFORT_LABEL[id] || id)}</option>`)
+              .join('')}</select>`
+          : `<span class="tier-none">${tr('没有可调强度')}</span>`
+      }</label>
+    </div>
+  </div>`;
+}
+
+// 按最新的成员表补行（多开一位时）；已经有的行保留老板刚改的值
+function ensureAutoSwitchRows(room) {
+  const list = $('#auto-tier-list');
+  if (!list || !room) return;
+  const have = new Set();
+  for (const a of AGENT_IDS) {
+    have.add(a);
+    if (![...list.children].some((el) => el.dataset.agent === a)) list.insertAdjacentHTML('beforeend', autoTierRowHtml(a, room));
+  }
+  for (const el of [...list.children]) if (!have.has(el.dataset.agent)) el.remove();
+}
+
+// 只显示这个群里勾上的成员；勾选框还没保存的新成员也先显示
+function syncAutoSwitchRows() {
+  const list = $('#auto-tier-list');
+  if (!list) return;
+  const section = $('#auto-switch-fields');
+  if (!section || section.hidden) return;
+  const members = AGENT_IDS.filter((a) => formField(fieldName('member', a))?.checked);
+  for (const el of list.children) el.hidden = !members.includes(el.dataset.agent);
+}
+
+// 打开群设置时重画整块（只在打开 / 换群时调用，成员勾选变化只切显隐，不重置老板输入）
+function renderAutoSwitch(room) {
+  const section = $('#auto-switch-fields');
+  if (!section) return;
+  section.hidden = !room || !!room.joint;
+  if (section.hidden) {
+    section.innerHTML = '';
+    return;
+  }
+  const cfg = room.autoSwitch || {};
+  section.innerHTML = `<h3>${tr('AI 自己换档')} <small>${tr('难活自己升档，做完回到你设的档')}</small></h3>
+    <div class="group-box">
+      <label class="form-row"><span>${tr('怎么做')}<small>${tr('遇到难活要不要自己升档')}</small></span>
+        <select id="auto-mode" name="autoMode">
+          <option value="auto">${tr('自己换，不用问我（默认）')}</option>
+          <option value="ask">${tr('先问我')}</option>
+          <option value="off">${tr('不换，用我设的档')}</option>
+        </select></label>
+      <label class="form-row"><span>${tr('交代情况时用')}<small>${tr('同事换了新会话，请它重新交代时；模型不变')}</small></span>
+        <select id="auto-brief-effort" name="autoBriefEffort">
+          <option value="">${tr('跟平时一样')}</option>
+          <option value="low">${esc(EFFORT_LABEL.low)}</option>
+          <option value="medium">${esc(EFFORT_LABEL.medium)}</option>
+          <option value="high">${esc(EFFORT_LABEL.high)}</option>
+        </select></label>
+    </div>
+    <p class="hint">${tr('接到难活时，AI 会先回一行「[换档 模型 强度]」，ClawChat 用新档在同一个会话里重新开工，下一轮自动回到你设的档；换档时群里会写明。每位能换到哪一档在下面限制。')}</p>
+    <div class="auto-tier-list" id="auto-tier-list"></div>`;
+  $('#auto-mode').value = cfg.mode || 'auto';
+  $('#auto-brief-effort').value = cfg.briefEffort ?? 'medium';
+  ensureAutoSwitchRows(room);
+  for (const row of $('#auto-tier-list').children) tierSummaryHtml(row);
+  syncAutoSwitchRows();
+  $('#auto-tier-list').onchange = (e) => {
+    const row = e.target.closest('.auto-tier-row');
+    if (!row) return;
+    if (e.target.matches('[data-tier-all]')) {
+      const all = e.target.checked;
+      row.querySelectorAll('[data-tier-model]').forEach((b) => {
+        b.disabled = all;
+        if (all) b.checked = true;
+      });
+    }
+    tierSummaryHtml(row);
+  };
+  fitSelects();
+}
+
+// 读取一行当前的值：undefined 表示这一行没有模型列表，保存时保持原样；null 表示这位不用记（Grok）
+function tierRowValue(row) {
+  if (row.classList.contains('unsupported')) return null;
+  const allEl = row.querySelector('[data-tier-all]');
+  if (!allEl) return undefined;
+  return {
+    models: allEl.checked ? null : [...row.querySelectorAll('[data-tier-model]')].filter((b) => b.checked).map((b) => b.dataset.tierModel),
+    effort: row.querySelector('[data-tier-effort]')?.value || '',
+  };
+}
+
+function collectAutoSwitch(members) {
+  const room = S.editing ? roomById(S.editing) : null;
+  const limits = {};
+  for (const a of members) {
+    const row = [...document.querySelectorAll('#auto-tier-list .auto-tier-row')].find((el) => el.dataset.agent === a);
+    if (!row) continue;
+    const value = tierRowValue(row);
+    if (value === null) continue; // Grok：服务端本来就不让它换，别写无用的限制
+    if (value === undefined) {
+      const old = room?.autoSwitch?.limits?.[a];
+      if (old) limits[a] = old;
+      continue;
+    }
+    limits[a] = value.models === null && !value.effort ? null : value; // 全都不限 = 不用记
+  }
+  return { mode: $('#auto-mode')?.value || 'auto', briefEffort: $('#auto-brief-effort')?.value ?? 'medium', limits };
+}
+
+function autoSwitchFormState() {
+  return [...document.querySelectorAll('#auto-tier-list .auto-tier-row')].map((row) => {
+    const value = tierRowValue(row);
+    return {
+      agent: row.dataset.agent,
+      models: value && value !== null ? value.models : null,
+      effort: value && value !== null ? value.effort : '',
+      hidden: row.hidden,
+    };
+  });
+}
 
 // ---------------- GPT 快速模式 ----------------
 // Codex 的 Fast：官方文档（developers.openai.com/codex/speed）写的是按标准速度的 2.5 倍消耗订阅额度，另买的点数按 2 倍。
@@ -2493,12 +2713,14 @@ function messageHtml(roomId, m, prev, conv) {
       ? `<button class="notice-action" data-fresh="${esc(m.action.agent)}">${esc(tr('给 {name} 换新会话', { name: agentName(m.action.agent) }))}</button>`
       : m.action?.type === 'forward'
         ? `<button class="notice-action" data-forward="${m.action.seq}"${forwarded ? ' disabled' : ''}>${forwarded ? tr('已发到群里') : tr('发到群里')}</button>`
-        : m.action?.type === 'resume'
-          ? resumeButton(roomId, m)
-          : m.action?.type === 'install'
-            ? installButtonHtml('notice-action')
-            : '';
-    return `${sep}<div class="notice"><span>${esc(m.text)}</span>${act}</div>`;
+        : m.action?.type === 'switch'
+          ? switchActionHtml(m, conv)
+          : m.action?.type === 'resume'
+            ? resumeButton(roomId, m)
+            : m.action?.type === 'install'
+              ? installButtonHtml('notice-action')
+              : '';
+    return `${sep}<div class="notice"${m.action?.type === 'switch' ? ` data-switch-ask="${m.seq}"` : ''}><span>${esc(m.text)}</span>${act}</div>`;
   }
   const d = new Date(m.ts);
   const full = `${fmtDate(d, true)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -2712,6 +2934,17 @@ function resumeButton(roomId, m) {
   return `<button class="notice-action" data-resume="${esc(m.action.agents.join(','))}"${done ? ' disabled' : ''}>${done ? tr('已经接着做了') : esc(tr('让 {names} 接着做', { names }))}</button>`;
 }
 
+// 「先问我」模式：AI 想换档，群里发一条带「同意 / 不用换」的提示。
+// 后面有一条消息的 switchOf 等于这条的 seq，说明已经处理过（同意、不换、申请作废），按钮灰掉
+function switchActionHtml(m, conv) {
+  const answered = (S.messages.get(conv.key) || []).some((x) => x.switchOf === m.seq);
+  const agent = m.action.agent;
+  return `<div class="notice-actions">
+    <button class="notice-action" data-switch-agent="${esc(agent)}" data-switch-ok="1"${answered ? ' disabled' : ''}>${tr('同意')}</button>
+    <button class="notice-action" data-switch-agent="${esc(agent)}" data-switch-ok="0"${answered ? ' disabled' : ''}>${tr('不用换')}</button>
+  </div>`;
+}
+
 // 上次退出时被打断的活：点一下让它们接着做
 async function resumeAgents(btn) {
   const conv = currentConv();
@@ -2724,6 +2957,21 @@ async function resumeAgents(btn) {
   } catch (err) {
     btn.disabled = false;
     toast(err.message);
+  }
+}
+
+// 「先问我」的换档申请：同意就按新档重开这一轮，不同意就按原来的档。申请过期（409）时按钮也灰掉
+async function answerSwitch(agent, ok, btn) {
+  const conv = currentConv();
+  if (!conv) return;
+  const box = btn.closest('.notice') || btn.parentElement;
+  const buttons = [...(box?.querySelectorAll('[data-switch-agent]') || [])];
+  for (const b of buttons) b.disabled = true;
+  try {
+    await api('POST', `/api/rooms/${conv.roomId}/switch`, { agent, ok });
+  } catch (err) {
+    toast(err.message);
+    if (err.status !== 409) for (const b of buttons) b.disabled = false;
   }
 }
 
@@ -3809,6 +4057,12 @@ function onMessage(roomId, m) {
     $('#messages').appendChild(tpl.content);
     if (near) scrollToBottom();
     updateToBottom();
+  }
+  // 换档申请已经有答复了（同意 / 不用换 / 作废）：把那条提示里的按钮灰掉
+  if (m.switchOf) {
+    document.querySelectorAll(`#messages [data-switch-ask="${m.switchOf}"] [data-switch-agent]`).forEach((b) => {
+      b.disabled = true;
+    });
   }
   if (m.from !== 'user' && m.from !== 'system') {
     const focused = document.hasFocus();
@@ -6068,6 +6322,11 @@ function syncMemberFields() {
   const hint = $('#member-hint');
   hint.innerHTML = memberHintHtml(members);
   hint.hidden = !hint.textContent.trim();
+  // 自己换档那一块：多开了成员就补一行；勾选变化只切显隐，不重置已经填的值
+  if (S.editing && !$('#auto-switch-fields')?.hidden) {
+    ensureAutoSwitchRows(roomById(S.editing));
+    syncAutoSwitchRows();
+  }
   return members;
 }
 
@@ -6226,6 +6485,7 @@ function openDialog(room, preset = null) {
   folderSel.value = room?.folder && S.folders.some((f) => f.id === room.folder) ? room.folder : '';
   fillModelOptions(room);
   syncMemberFields();
+  renderAutoSwitch(room);
   $('#form-error').hidden = true;
   roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
@@ -6246,7 +6506,7 @@ function blurInDialog(dlg) {
 // 群设置里填的东西（名字、成员、模型、收纳组……），用来看打开以后有没有改过。
 // 表单里带 name 的控件 FormData 会自动带上；不带 name 的（比如收纳组下拉框）要在这里手动补，以后加控件别漏了
 function roomFormSnapshot() {
-  return JSON.stringify([...new FormData($('#room-form'))].concat([['folder', $('#set-folder').value]]));
+  return JSON.stringify([...new FormData($('#room-form'))].concat([['folder', $('#set-folder').value], ['autoSwitch', autoSwitchFormState()]]));
 }
 
 async function submitDialog(e) {
@@ -6273,6 +6533,7 @@ async function submitDialog(e) {
   // 保存前先记下原来有哪些成员：改个群名、换个设置不该反复问「要不要装 Claude Code」
   const before = S.editing ? roomById(S.editing)?.members || [] : [];
   const jointRoom = S.editing ? roomById(S.editing) : null;
+  if (jointRoom && !jointRoom.joint) body.autoSwitch = collectAutoSwitch(members);
   btn.disabled = true;
   try {
     if (jointRoom?.joint) {
@@ -6846,6 +7107,8 @@ function bind() {
     if (jump) jumpTo(Number(jump.dataset.jump));
     const resume = e.target.closest('[data-resume]');
     if (resume && !resume.disabled) resumeAgents(resume);
+    const sw = e.target.closest('[data-switch-agent]');
+    if (sw && !sw.disabled) answerSwitch(sw.dataset.switchAgent, sw.dataset.switchOk === '1', sw);
     const fresh = e.target.closest('[data-fresh]');
     if (fresh) freshAgent(fresh.dataset.fresh, fresh, $('#dlg-room').open ? S.editing : currentConv()?.roomId);
   });
@@ -8049,6 +8312,8 @@ function syncJointFields(room) {
   formField('name').disabled = guest;
   document.querySelectorAll('#dlg-room .members input').forEach((el) => { el.disabled = guest; });
   $('#group-fields').hidden = guest;
+  const auto = $('#auto-switch-fields');
+  if (auto) auto.hidden = !room || !!joint;
   if (!joint) return void ($('#member-sub').textContent = tr('只选一位就是单聊'));
   $('#joint-peer').textContent = joint.peerName || tr('等对方加入…');
   $('#joint-self-name').textContent = joint.selfName || tr('我');
