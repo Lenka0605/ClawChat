@@ -485,7 +485,7 @@ test('运行进程隔离：本体崩溃后清掉脱离进程组且持有管道�
       if(m.method==='thread/start')send({id:m.id,result:{thread:{id:'process-'+process.pid}}});
       if(m.method==='turn/start'){
         const mode=m.params.input[0].text;
-        const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:mode==='crash'?['ignore',1,2]:'ignore'});
+        const c=spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{detached:true,stdio:mode==='running'?'ignore':['ignore',1,2]});
         fs.writeFileSync(path.join(m.params.cwd,mode+'.pid'),String(c.pid));
         if(mode==='crash')process.exit(2);
         send({id:m.id,result:{turn:{id:'pt'}}});

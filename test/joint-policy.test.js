@@ -64,6 +64,10 @@ test('审批：同意了才按指定文件夹跑；不同意、等的时候被�
   const ask = events.find((e) => e.type === 'joint-approval');
   assert.equal(ask.folder, proj);
   assert.equal(ask.from, '小王');
+  for (const invalid of [undefined, null, 'false', 'true', 0, 1]) {
+    assert.throws(() => p.decide(ask.approvalId, invalid), (e) => e.status === 400);
+    assert.equal(p.list()[0].approvalId, ask.approvalId);
+  }
   p.decide(ask.approvalId, true);
   await h1.done;
   assert.equal(calls[0].jointMode, 'folder');

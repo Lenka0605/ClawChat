@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Store, ROOM_DEFAULTS, DATA_DIR, saveConfig, readConfig, recovered } from './lib/store.js';
@@ -608,44 +609,111 @@ const VIEW_WEB = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jp
 const VIEW_DOWNLOAD = new Set(['application/vnd.android.package-archive']);
 const VIEW_CONVERT = new Set(['.heic', '.heif', '.tif', '.tiff', '.psd', '.jp2', '.tga', '.dng', '.cr2', '.nef', '.arw']);
 const VIEW_MAX = 1024 * 1024 * 1024; // 音视频最大 1 GB；图片、PDF 另外限 100 MB
-const VIEW_CACHE = path.join(os.tmpdir(), 'clawchat-view');
-// 不管什么格式，这些地方的文件都不给看：登录凭据、钥匙串、ClawChat 自己的数据（聊天上传的图片除外）
-function viewBlocked(file) {
-  const home = os.homedir();
-  const under = (p, base) => p === base || p.startsWith(base + path.sep);
-  let real = file;
-  try { real = fs.realpathSync(file); } catch {}
-  const deny = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex', '.grok', '.cursor', '.gemini', 'Library/Keychains', 'Library/Cookies']
-    .map((p) => path.join(home, p)).concat(['/Library/Keychains', '/private/etc', '/private/var/db']);
-  if (deny.some((d) => under(real, d))) return true;
-  if (under(real, DATA_DIR) && !real.split(path.sep).includes('uploads')) return true;
-  return false;
-}
-async function viewableFile(file) {
-  const ext = path.extname(file).toLowerCase();
-  const stat = fs.statSync(file);
-  if (!stat.isFile()) return null;
-  if (VIEW_WEB[ext]) {
-    const media = /^(video|audio)\//.test(VIEW_WEB[ext]) || VIEW_DOWNLOAD.has(VIEW_WEB[ext]);
-    if (stat.size > (media ? VIEW_MAX : 100 * 1024 * 1024)) return { tooBig: true };
-    return { file, type: VIEW_WEB[ext], size: stat.size };
+let viewCache;
+function viewCacheDir() {
+  if (!viewCache) {
+    viewCache = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-view-')));
+    process.once('exit', () => { try { fs.rmSync(viewCache, { recursive: true, force: true }); } catch {} });
   }
-  if (!VIEW_CONVERT.has(ext) || IS_WIN || stat.size > 300 * 1024 * 1024) return null;
-  // 转好的放在临时目录里，按「路径 + 修改时间 + 大小」认，原图改了会重新转
-  fs.mkdirSync(VIEW_CACHE, { recursive: true, mode: 0o700 });
-  const key = crypto.createHash('sha256').update(`${file}|${stat.mtimeMs}|${stat.size}`).digest('hex').slice(0, 32);
-  const out = path.join(VIEW_CACHE, `${key}.jpg`);
+  return viewCache;
+}
+const converting = new Map();
+
+function underViewRoot(file, root) {
+  const rel = path.relative(root, file);
+  return !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep);
+}
+
+// Mac 上也可能是忽略大小写的卷。目录拒绝规则保守比较，通行证允许的范围仍按真实路径判断。
+function underProtectedRoot(file, root) {
+  if (process.platform === 'darwin') return underViewRoot(file.normalize('NFD').toLowerCase(), root.normalize('NFD').toLowerCase());
+  return underViewRoot(file, root);
+}
+
+// 同时检查请求路径和实际文件，数据目录只开放本群真正上传的图片。
+function inspectViewPath(file, roomId) {
+  let real;
+  try { real = fs.realpathSync(file); } catch {
+    throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
+  }
+  const data = fs.realpathSync(DATA_DIR);
+  const denied = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex', '.grok', '.cursor', '.gemini', 'Library/Keychains', 'Library/Cookies']
+    .map((p) => path.join(os.homedir(), p)).concat(['/Library/Keychains', '/private/etc', '/private/var/db']);
+  const blocked = () => httpError(403, tr('这个位置的文件不能在手机上打开'));
+  for (const dir of denied) {
+    if (underProtectedRoot(file, dir)) throw blocked();
+    let base;
+    try { base = fs.realpathSync(dir); } catch (err) {
+      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') continue;
+      throw blocked();
+    }
+    if (underProtectedRoot(real, base)) throw blocked();
+  }
+  if (viewCache && underProtectedRoot(real, viewCache)) throw blocked();
+  const name = path.basename(file);
+  if (underProtectedRoot(real, data) || underProtectedRoot(file, DATA_DIR)) {
+    if (!roomId || !UPLOAD_NAME_RE.test(name) || real !== path.join(data, 'rooms', roomId, 'uploads', name)) throw blocked();
+  }
+  const stat = fs.statSync(real);
+  if (!stat.isFile()) throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
+  return { file: real, stat, size: stat.size };
+}
+
+// 实际发送或转码时绑定已经检查过的文件；路径中途被换掉便结束这次读取。
+function openViewSource(v) {
+  const fd = fs.openSync(v.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+  try {
+    const now = fs.fstatSync(fd);
+    if (!now.isFile() || now.dev !== v.stat.dev || now.ino !== v.stat.ino || now.size !== v.size || fs.realpathSync(v.file) !== v.file) {
+      throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
+    }
+    return fd;
+  } catch (err) {
+    fs.closeSync(fd);
+    throw err;
+  }
+}
+
+async function convertViewImage(v, out, pixels) {
+  const tmpDir = fs.mkdtempSync(path.join(path.dirname(out), 'convert-'));
+  try {
+    const src = path.join(tmpDir, 'source' + path.extname(v.file));
+    const dst = path.join(tmpDir, 'result.jpg');
+    await pipeline(fs.createReadStream(v.file, { fd: openViewSource(v), end: v.size - 1 }), fs.createWriteStream(src, { flags: 'wx', mode: 0o600 }));
+    await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', String(pixels), src, '--out', dst]);
+    fs.renameSync(dst, out);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function viewableFile(file, roomId) {
+  const v = inspectViewPath(file, roomId);
+  const ext = path.extname(v.file).toLowerCase();
+  const type = VIEW_WEB[ext];
+  if (!type && (!VIEW_CONVERT.has(ext) || IS_WIN)) return null;
+  if (!v.size) return { empty: true };
+  if (type) {
+    const media = /^(video|audio)\//.test(type) || VIEW_DOWNLOAD.has(type);
+    if (v.size > (media ? VIEW_MAX : 100 * 1024 * 1024)) return { tooBig: true };
+    return { ...v, type };
+  }
+  if (v.size > 300 * 1024 * 1024) return { tooBig: true };
+  return cachedViewImage(v, 4096);
+}
+
+async function cachedViewImage(v, pixels) {
+  const key = crypto.createHash('sha256').update(JSON.stringify([pixels, v.file, v.stat.dev, v.stat.ino, v.stat.ctimeMs, v.stat.mtimeMs, v.size])).digest('hex');
+  const out = path.join(viewCacheDir(), key + '.jpg');
   if (!fs.existsSync(out)) {
-    const tmp = `${out}.${process.pid}.tmp.jpg`;
-    try {
-      await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', '4096', file, '--out', tmp]);
-      fs.renameSync(tmp, out);
-    } catch {
-      fs.rmSync(tmp, { force: true });
+    if (!converting.has(out)) converting.set(out, convertViewImage(v, out, pixels).finally(() => converting.delete(out)));
+    try { await converting.get(out); } catch (err) {
+      if (err.status) throw err;
       return null;
     }
   }
-  return { file: out, type: 'image/jpeg', size: fs.statSync(out).size };
+  const stat = fs.lstatSync(out);
+  return { file: out, type: 'image/jpeg', stat, size: stat.size };
 }
 // ---- 在手机上看 AI 做的网页（.html）----
 // 网页里常有脚本，还会引用同目录的 css、js、图片。做法：点开时发一张临时通行证，只认这个网页所在的文件夹，
@@ -665,9 +733,9 @@ function siteGrant(file, only = false) {
   const now = Date.now();
   for (const [k, g] of SITE_GRANTS) if (now - g.at > SITE_TTL) SITE_GRANTS.delete(k);
   while (SITE_GRANTS.size >= 100) SITE_GRANTS.delete(SITE_GRANTS.keys().next().value);
-  const root = fs.realpathSync(path.dirname(file));
+  const root = path.dirname(file); // 调用方已经核过真实路径；发证时沿用这份结果
   const token = crypto.randomBytes(18).toString('base64url');
-  SITE_GRANTS.set(token, { root, at: now, only: only ? fs.realpathSync(file) : null });
+  SITE_GRANTS.set(token, { root, at: now, only: only ? file : null });
   return `/site/${token}/${encodeURIComponent(path.basename(file))}`;
 }
 // 路径里有没有以点开头的一段（.git、.env、.ssh…）：按真实路径逐级看，编码过的斜杠、符号链接都绕不过去
@@ -699,13 +767,13 @@ function serveSite(req, res, url) {
   if (!rel || !rel.length || rel.some((s) => !s || s.startsWith('.') || s.includes('/') || s.includes('\\') || s.includes('\0'))) return notFound();
   const file = path.join(g.root, ...rel);
   const type = SITE_TYPES[path.extname(file).toLowerCase()];
-  let real;
-  try { real = fs.realpathSync(file); } catch { return notFound(); }
-  if (!type || !real.startsWith(g.root + path.sep) || hasHiddenPart(path.relative(g.root, real)) || viewBlocked(real) || (g.only && real !== g.only)) return notFound();
-  const stat = fs.statSync(real);
-  if (!stat.isFile() || stat.size > 200 * 1024 * 1024) return notFound();
-  const cors = /\.(m?js|css)$/i.test(real) ? { 'access-control-allow-origin': 'null' } : {};
-  return sendViewable(req, res, { file: real, type, size: stat.size }, path.basename(real), { ...head, ...cors });
+  let v;
+  try { v = inspectViewPath(file); } catch { return notFound(); }
+  const real = v.file;
+  if (!type || SITE_TYPES[path.extname(real).toLowerCase()] !== type || !underViewRoot(real, g.root)
+    || hasHiddenPart(path.relative(g.root, real)) || (g.only && real !== g.only) || v.size > 200 * 1024 * 1024) return notFound();
+  const cors = type.startsWith('font/') || /\.(m?js|css)$/i.test(real) ? { 'access-control-allow-origin': 'null' } : {};
+  return sendViewable(req, res, { ...v, type }, path.basename(real), { ...head, ...cors });
 }
 
 // 支持 Range：iPhone 的 Safari 放视频一定要分段读
@@ -719,6 +787,7 @@ function sendViewable(req, res, v, name, extra = null) {
       : "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
     'content-disposition': `${VIEW_DOWNLOAD.has(v.type) ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
   };
+  let range;
   const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
   if (m && (m[1] || m[2])) {
     let start = m[1] ? Number(m[1]) : Math.max(0, v.size - Number(m[2]));
@@ -728,12 +797,19 @@ function sendViewable(req, res, v, name, extra = null) {
       res.writeHead(416, { 'content-range': `bytes */${v.size}` });
       return res.end();
     }
-    res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${v.size}`, 'content-length': end - start + 1 });
-    return fs.createReadStream(v.file, { start, end }).pipe(res);
+    range = { start, end };
+    headers['content-range'] = `bytes ${start}-${end}/${v.size}`;
   }
-  res.writeHead(200, { ...headers, 'content-length': v.size });
-  if (req.method === 'HEAD') return res.end();
-  return fs.createReadStream(v.file).pipe(res);
+  headers['content-length'] = range ? range.end - range.start + 1 : v.size;
+  const fd = openViewSource(v);
+  if (req.method === 'HEAD' || !v.size) {
+    fs.closeSync(fd);
+    res.writeHead(range ? 206 : 200, headers);
+    return res.end();
+  }
+  const stream = fs.createReadStream(v.file, { fd, start: range?.start ?? 0, end: range?.end ?? v.size - 1 });
+  res.writeHead(range ? 206 : 200, headers);
+  return pipeline(stream, res).catch(() => res.destroy());
 }
 
 const enginesUpdating = new Map(); // 程序 -> 正在进行的那次更新
@@ -1122,7 +1198,7 @@ async function api(req, res, url, access = 'local') {
       if (!sub && method === 'PATCH') {
         const body = await readBody(req);
         guestPatch = Object.fromEntries(['models', 'efforts', 'fast', 'folder'].filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
-      } else if (method !== 'GET' && method !== 'DELETE' && !['read', 'draft'].includes(sub)) return send(res, 400, { error: tr('联合群里不能这样操作') });
+      } else if (method !== 'GET' && !(method === 'HEAD' && sub === 'view') && method !== 'DELETE' && !['read', 'draft'].includes(sub)) return send(res, 400, { error: tr('联合群里不能这样操作') });
     }
     if (!sub && method === 'PATCH') {
       const before = Object.keys(AGENTS).join();
@@ -1290,11 +1366,10 @@ async function api(req, res, url, access = 'local') {
     if (sub === 'uploads' && parts[3] && method === 'GET') {
       const name = parts[3];
       if (!UPLOAD_NAME_RE.test(name)) return send(res, 404, { error: 'not found' });
-      return fs.readFile(path.join(store.uploadsDir(room.id), name), (err, data) => {
-        if (err) return send(res, 404, { error: 'not found' });
-        res.writeHead(200, { 'content-type': MIME[path.extname(name)], 'cache-control': 'private, max-age=31536000, immutable' });
-        res.end(data);
-      });
+      const v = inspectViewPath(path.join(store.uploadsDir(room.id), name), room.id);
+      const expected = path.join(fs.realpathSync(DATA_DIR), 'rooms', room.id, 'uploads', name);
+      if (v.file !== expected) return send(res, 404, { error: 'not found' });
+      return sendViewable(req, res, { ...v, type: MIME[path.extname(name)] }, name, { 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' });
     }
     if (sub === 'stop' && method === 'POST') {
       const { agent, only } = await readBody(req);
@@ -1304,6 +1379,7 @@ async function api(req, res, url, access = 'local') {
     // 老板回 AI 的换档申请：ok 为真就按它要的档重开这一轮，否则按原来的档
     if (sub === 'switch' && method === 'POST') {
       const { agent, ok, seq } = await readBody(req);
+      if (typeof ok !== 'boolean') return send(res, 400, { error: tr('换档设置不对') }); // 只认真正的 true / false，别把别的值当成同意
       // 必须带上点的是哪一条申请：旧页面（不带编号）一律当过期，免得答到别的申请头上
       if (!Number.isInteger(seq) || !hub.answerSwitch(room.id, String(agent || ''), !!ok, seq)) return send(res, 409, { error: tr('这个换档申请已经过期了') });
       return send(res, 200, { ok: true });
@@ -1340,7 +1416,14 @@ async function api(req, res, url, access = 'local') {
     if (sub === 'resume' && method === 'POST') {
       const { agents } = await readBody(req);
       const list = (Array.isArray(agents) ? agents : []).filter((a) => AGENTS[a] && room.members.includes(a));
-      for (const a of list) hub.wake(room.id, a);
+      // 排在它后面的（依次回答的下一位）也接着叫
+      const st = store.getState(room.id);
+      const after = st.resumeThen || {};
+      for (const a of list) {
+        hub.wake(room.id, a, (after[a] || []).filter((b) => room.members.includes(b)));
+        delete after[a];
+      }
+      store.saveState(room.id);
       return send(res, 200, { ok: true });
     }
     // 把某位在私聊里的回复转到群里（老板点了「发到群里」）
@@ -1372,9 +1455,9 @@ async function api(req, res, url, access = 'local') {
       const body = await readBody(req);
       const file = await roomFile(room, body.path, Array.isArray(body.near) ? body.near : []);
       if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
-      if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) return send(res, 415, { error: tr('只有 .html 网页可以这样打开') });
-      const real = fs.realpathSync(file);
-      if (viewBlocked(real) || hiddenFromHome(real)) return send(res, 403, { error: tr('这个位置的网页不能在手机上打开（它所在的文件夹太大，或者放着登录凭据）') });
+      const { file: real } = inspectViewPath(file, room.id);
+      if (!/\.html?$/i.test(real) || !/\.html?$/i.test(file)) return send(res, 415, { error: tr('只有 .html 网页可以这样打开') });
+      if (hiddenFromHome(real)) return send(res, 403, { error: tr('这个位置的网页不能在手机上打开（它所在的文件夹太大，或者放着登录凭据）') });
       // 同目录的 css、js、图片只在网页就放在这个群的项目文件夹里时一起开放；别处（桌面、临时目录…）只开放网页本身
       let cwd = '';
       try { cwd = fs.realpathSync(room.cwd); } catch {}
@@ -1388,9 +1471,12 @@ async function api(req, res, url, access = 'local') {
     if (sub === 'view' && (method === 'GET' || method === 'HEAD')) {
       const file = await roomFile(room, url.searchParams.get('path'), url.searchParams.getAll('near'));
       if (!file) return send(res, 404, { error: tr('找不到这个文件，可能已经被移走或删掉了') });
-      if (viewBlocked(file)) return send(res, 403, { error: tr('这个位置的文件不能在手机上打开') });
-      const v = await viewableFile(file);
+      const v = await viewableFile(file, room.id);
       if (!v) return send(res, 415, { error: tr('手机上只能看图片、PDF、音视频和下载安卓安装包，这个文件请到电脑上打开') });
+      if (v.empty) {
+        res.setHeader('x-clawchat-error', 'empty_file');
+        return send(res, 422, { error: tr('文件是空的'), code: 'empty_file' });
+      }
       if (v.tooBig) return send(res, 413, { error: tr('文件太大了，请到电脑上打开') });
       return sendViewable(req, res, v, path.basename(file));
     }
@@ -1399,12 +1485,18 @@ async function api(req, res, url, access = 'local') {
       const site = req.headers['sec-fetch-site'];
       if (site && !['same-origin', 'none'].includes(site)) return send(res, 403, { error: 'forbidden' });
       const file = await roomFile(room, url.searchParams.get('path'), url.searchParams.getAll('near'));
-      const type = file && PREVIEW_MIME[path.extname(file).toLowerCase()];
-      if (!type) return send(res, 404, { error: 'not found' });
-      const stat = fs.statSync(file);
-      if (!stat.isFile() || stat.size > 50 * 1024 * 1024) return send(res, 404, { error: 'not found' });
-      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-      return fs.createReadStream(file).pipe(res);
+      if (!file) return send(res, 404, { error: 'not found' });
+      const v = inspectViewPath(file, room.id);
+      const type = PREVIEW_MIME[path.extname(v.file).toLowerCase()];
+      if (!type || v.size > 50 * 1024 * 1024) return send(res, 404, { error: 'not found' });
+      // 消息列表自动加载的预览要限流量；大图只发送缩小的版本。
+      let preview = { ...v, type };
+      if (v.size > 256 * 1024) {
+        const pixels = url.searchParams.get('size') === 'hover' ? 800 : 384;
+        preview = IS_WIN ? null : await cachedViewImage(v, pixels);
+      }
+      if (!preview) return send(res, 404, { error: 'not found' });
+      return sendViewable(req, res, preview, path.basename(v.file), { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
     }
   }
   return send(res, 404, { error: tr('没有这个接口') });
@@ -1475,7 +1567,8 @@ const server = http.createServer(async (req, res) => {
       return serveSite(req, res, url);
     }
     if (url.pathname.startsWith('/api/')) {
-      if (req.method !== 'GET' && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
+      const viewHead = req.method === 'HEAD' && /^\/api\/rooms\/[^/]+\/view$/.test(url.pathname);
+      if (req.method !== 'GET' && !viewHead && req.headers['x-clawchat'] !== '1') return send(res, 403, { error: 'forbidden' });
       // 读的接口也不让别的网站借浏览器来调（比如触发重新打包、刷新用量）：浏览器会标出跨站请求。
       // 没有这个头的（安卓 App 的后台连接、命令行工具）照常放行。
       // same-site 也要拦：端口不算在「站点」里，本机别的端口上的网页（随便哪个开发服务器）对我们来说就是 same-site
@@ -1562,19 +1655,39 @@ let refreshedAt = 0;
 // 读到账号的模型列表以后，把群里存的老写法换成「模型 + 思考强度」，实际用的模型不变（群设置和私聊里的都换）
 function migrateGeminiModels() {
   if (engines.gemini?.cli !== 'agy') return;
-  const fix = (models = {}, efforts = {}) => {
-    const shown = agyShown(models.gemini);
-    if (!models.gemini || shown.model === models.gemini) return null;
-    return { models: { ...models, gemini: shown.model }, efforts: { ...efforts, gemini: efforts.gemini || shown.effort } };
-  };
+  const geminiIds = Object.keys(AGENTS).filter((a) => engineOf(a) === 'gemini');
   for (const room of store.listRooms()) {
     const patch = {};
-    const main = fix(room.models, room.efforts);
-    if (main) Object.assign(patch, main);
+    const nextModels = { ...room.models };
+    const nextEfforts = { ...room.efforts };
+    let mainChanged = false;
+    for (const id of geminiIds) {
+      const m = nextModels[id];
+      const shown = m ? agyShown(m) : null;
+      if (shown && shown.model !== m) {
+        nextModels[id] = shown.model;
+        nextEfforts[id] = nextEfforts[id] || shown.effort;
+        mainChanged = true;
+      }
+    }
+    if (mainChanged) {
+      patch.models = nextModels;
+      patch.efforts = nextEfforts;
+    }
     // 私聊里单独设的：存的是 { model, effort }
-    const ds = room.dmSettings?.gemini;
-    const shown = ds?.model ? agyShown(ds.model) : null;
-    if (shown && shown.model !== ds.model) patch.dmSettings = { ...room.dmSettings, gemini: { ...ds, model: shown.model, effort: ds.effort || shown.effort } };
+    if (room.dmSettings) {
+      const nextDm = { ...room.dmSettings };
+      let dmChanged = false;
+      for (const id of geminiIds) {
+        const ds = nextDm[id];
+        const shown = ds?.model ? agyShown(ds.model) : null;
+        if (shown && shown.model !== ds.model) {
+          nextDm[id] = { ...ds, model: shown.model, effort: ds.effort || shown.effort };
+          dmChanged = true;
+        }
+      }
+      if (dmChanged) patch.dmSettings = nextDm;
+    }
     if (Object.keys(patch).length) store.updateRoom(room.id, patch);
   }
 }

@@ -1043,7 +1043,7 @@ test('卡住时「换新会话重来」：丢掉旧会话，带上最近记录�
   await tick();
   const retried = calls[2];
   assert.equal(retried.session, null);
-  assert.match(retried.prompt, /会话太重了/);
+  assert.match(retried.prompt, /老板给你换成了一个新会话/);
   assert.match(retried.prompt, /出一张海报/);
   assert.match(retried.prompt, /火星计划/);
   assert.ok(store.getMessages(room.id).some((m) => m.from === 'system' && /换成了新会话/.test(m.text)));
@@ -1085,7 +1085,7 @@ test('GPT 换新会话后，上一个给它派活的 Claude 先把情况重新�
   const fresh = calls.at(-1);
   assert.equal(fresh.agent, 'gpt');
   assert.equal(fresh.session, null);
-  assert.match(fresh.prompt, /会话太重了/);
+  assert.match(fresh.prompt, /老板给你换成了一个新会话/);
   assert.match(fresh.prompt, /Claude\] @GPT 情况是：海报要中英两张/);
   fresh.finish('收到，接着做');
   await settle(hub);
@@ -1104,7 +1104,7 @@ test('空闲时手动换新会话：有派活的 AI 就请它交代；没有就�
   hub.postUserMessage(room.id, '@GPT 继续');
   await settle(hub);
   assert.equal(calls.at(-1).session, null);
-  assert.match(calls.at(-1).prompt, /会话太重了/);
+  assert.match(calls.at(-1).prompt, /老板给你换成了一个新会话/);
   // Claude 派过活之后再换：请 Claude 交代
   hub.postUserMessage(room.id, '@Claude 让 GPT 做第二版');
   await settle(hub);
@@ -1164,7 +1164,7 @@ test('换新会话时老板选谁来交代：选了别的 AI 就请它；选「�
   const resumed = calls.at(-1);
   assert.equal(resumed.agent, 'gpt');
   assert.equal(resumed.session, null);
-  assert.match(resumed.prompt, /会话太重了/);
+  assert.match(resumed.prompt, /老板给你换成了一个新会话/);
   assert.match(resumed.prompt, /做第二张[\s\S]*竖版/);
   // 干活时选 DeepSeek 来交代：停下这一轮，先叫 DeepSeek，交代完 GPT 接着干
   assert.equal(hub.resetAgent(room.id, 'gpt', 'deepseek'), 'restarted');
@@ -2201,4 +2201,190 @@ test('换档：先问我时新申请替换旧申请，旧的按钮灰掉；按�
   await settle(hub);
   assert.equal(calls.at(-1).room.models.claude, 'opus');
   assert.equal(store.getRoom(room.id).aiTiers.claude.model, 'opus');
+});
+
+// ---------------- 2026-11-24 查出来的几处 ----------------
+
+const hangRunner = () => {
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    const call = { agent, prompt: opts.prompt, side: !!opts.side, finish: (text) => resolve({ ok: true, text, steps: [], session: `${agent}-s` }) };
+    calls.push(call);
+    // 被停以后进程不马上退：kill 只记一下，等测试里手动结束
+    return { done, kill: () => { call.killed = true; } };
+  };
+  return { run, calls };
+};
+
+test('按了停止、进程还没退干净就重启：按停止的规矩记，重启后不自动接着做', async () => {
+  const store = new Store();
+  const { run } = hangRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '把数据库全删了重建');
+  await tick();
+  hub.stop(room.id, 'claude');
+  hub.restarting = true;
+  hub.shutdown();
+  const state = store.getState(room.id);
+  assert.ok(state.stopped?.claude, '记成被停了');
+  assert.ok(!state.interrupted?.claude, '不算被打断');
+  assert.equal(state.cursors.claude, 0, '读取进度不退回');
+});
+
+test('依次回答时重启：接着做的那位做完，排在后面的照常被叫到', async () => {
+  const store = new Store();
+  const { run } = hangRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { defaultTarget: 'sequential' });
+  hub.postUserMessage(room.id, '你俩依次看一下');
+  await tick();
+  hub.restarting = true;
+  hub.shutdown();
+  const store2 = new Store();
+  const { run: run2, calls } = fakeRunner((agent) => `${agent} 看完了`);
+  const hub2 = new Hub(store2, { run: run2 });
+  hub2.noticeInterrupted();
+  await settle(hub2);
+  assert.deepEqual(calls.map((c) => c.agent), ['claude', 'gpt']);
+});
+
+test('第一轮（还没有会话）就按停止：下一轮也告诉它被停了', async () => {
+  const store = new Store();
+  const r = hangRunner();
+  const hub = new Hub(store, { run: r.run });
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '把数据库全删了重建');
+  await tick();
+  hub.stop(room.id, 'claude');
+  r.calls[0].finish('');
+  await settle(hub);
+  hub.postUserMessage(room.id, '你好');
+  await tick();
+  assert.match(r.calls[1].prompt, /被老板按了「停止」/);
+  assert.match(r.calls[1].prompt, /把数据库全删了重建/);
+});
+
+test('新建的群还没有 AI 说过话：老板 @ 了一位、接着补一句不带 @ 的，只给那一位，不叫醒全群', async () => {
+  const store = new Store();
+  const r = hangRunner();
+  const hub = new Hub(store, { run: r.run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@Claude 做件事');
+  await tick();
+  hub.postUserMessage(room.id, '顺便再看下这个');
+  await tick();
+  assert.deepEqual(r.calls.map((c) => c.agent), ['claude']);
+  assert.deepEqual(store.getMessages(room.id).at(-1).to, ['claude']);
+});
+
+test('插进去的话它没来得及处理就结束了：读取进度退回，下一轮再交给它', async () => {
+  const store = new Store();
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    calls.push({ prompt: opts.prompt, finish: (extra) => resolve({ ok: true, text: '做完了', steps: [], session: 's1', ...extra }) });
+    return { done, kill() {}, steer: () => true };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '先做这件');
+  await tick();
+  hub.postUserMessage(room.id, '顺便看下日志');
+  await tick();
+  calls[0].finish({ steerLost: true });
+  await tick();
+  await tick();
+  assert.equal(calls.length, 2, '下一轮再来');
+  assert.match(calls[1].prompt, /顺便看下日志/);
+  calls[1].finish();
+  await settle(hub);
+});
+
+test('只停分身（老板私聊的回复）：本体之后不把那条私聊当新活接着做，而是知道被停了', async () => {
+  const store = new Store();
+  const r = hangRunner();
+  const hub = new Hub(store, { run: r.run });
+  const room = newRoom(store);
+  hub.postUserMessage(room.id, '@Claude 群里这件');
+  await tick();
+  hub.postUserMessage(room.id, '顺便把生产库的表删了', [], 'claude');
+  await tick();
+  const side = r.calls.find((c) => c.side);
+  assert.ok(side);
+  hub.stop(room.id, 'claude', 'side');
+  side.finish('');
+  await tick();
+  r.calls[0].finish('群里这件做完了');
+  await tick();
+  await tick();
+  const next = r.calls.filter((c) => !c.side)[1];
+  if (next) {
+    assert.match(next.prompt, /被老板按了「停止」/);
+    next.finish('[PASS]');
+  }
+  await settle(hub);
+  hub.postUserMessage(room.id, '@Claude 下一件');
+  await tick();
+  const last = r.calls.at(-1);
+  assert.ok(next || /被老板按了「停止」/.test(last.prompt), '告诉它被停了');
+  last.finish('好');
+  await settle(hub);
+});
+
+test('删掉成员时，它自己选的档、能换到哪一档也一起清掉', () => {
+  const store = new Store();
+  const hub = new Hub(store, { run: fakeRunner(() => '').run, tiers: fakeTiers });
+  const room = newRoom(store, { members: ['claude', 'gpt'], aiTiers: { gpt: { model: 'opus', effort: 'xhigh' } }, autoSwitch: { mode: 'auto', limits: { gpt: { models: null, effort: 'high' } } } });
+  hub.forgetMember('gpt');
+  const after = store.getRoom(room.id);
+  assert.ok(!after.aiTiers?.gpt);
+  assert.ok(!after.autoSwitch.limits?.gpt);
+});
+
+test('插话：连插两批，第一批做完、第二批没做完：只把第二批再交给它', async () => {
+  const store = new Store();
+  const calls = [];
+  const run = (agent, opts) => {
+    let resolve;
+    const done = new Promise((r) => (resolve = r));
+    calls.push({ prompt: opts.prompt, finish: (extra) => resolve({ ok: true, text: '做完了', steps: [], session: 's1', ...extra }) });
+    return { done, kill() {}, steer: () => true };
+  };
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { members: ['claude'] });
+  hub.postUserMessage(room.id, '先做这件');
+  await tick();
+  hub.postUserMessage(room.id, '插话 A');
+  await tick();
+  hub.postUserMessage(room.id, '插话 B');
+  await tick();
+  calls[0].finish({ steerLost: { done: 1 } });
+  await tick();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(calls[1].prompt, /插话 A/);
+  assert.match(calls[1].prompt, /插话 B/);
+  calls[1].finish();
+  await settle(hub);
+});
+
+test('依次回答时退出（不是重启），老板点「让它接着做」：后面那位也接着被叫到', async () => {
+  const store = new Store();
+  const { run } = hangRunner();
+  const hub = new Hub(store, { run });
+  const room = newRoom(store, { defaultTarget: 'sequential' });
+  hub.postUserMessage(room.id, '你俩依次看一下');
+  await tick();
+  hub.shutdown();
+  const store2 = new Store();
+  const { run: run2, calls } = fakeRunner((agent) => `${agent} 看完了`);
+  const hub2 = new Hub(store2, { run: run2 });
+  hub2.noticeInterrupted();
+  await settle(hub2);
+  assert.equal(calls.length, 0, '退出应用打断的不自动开工');
+  assert.deepEqual(store2.getState(room.id).resumeThen?.claude, ['gpt']);
 });

@@ -90,19 +90,42 @@ test('转接器：两个工具调用交错着发过来，各自拼完整、校�
   assert.equal(lastBody.tools[0].function.name, 'Bash');
 });
 
-test('转接器：工具参数被截断、参数不是合法 JSON、调了没给过的工具：都报错，不交出去执行', async () => {
+test('转接器：工具参数不是合法 JSON：报错，不交出去执行', async () => {
   const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
-  script = (req, res) => sse(res, [delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'Bash', arguments: '{"command":"rm -rf /tmp/x' } }] }), delta({}, 'length')]);
-  let r = await call({ tools });
-  assert.ok(r.events.some((e) => e.type === 'error'));
-  assert.ok(!r.events.some((e) => e.content_block?.type === 'tool_use'));
-  assert.ok(!r.events.some((e) => e.type === 'message_stop'), '出错时不能再发正常结束');
   script = (req, res) => sse(res, [delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'Bash', arguments: '{"command":' } }] }), delta({}, 'tool_calls')]);
-  r = await call({ tools });
+  const r = await call({ tools });
   assert.ok(r.events.some((e) => e.type === 'error'));
+  assert.ok(!r.events.some((e) => e.type === 'message_stop'), '出错时不能再发正常结束');
+});
+
+test('转接器：输出到上限被截断：不完整的工具调用丢掉、已有文字交出去、stop_reason 是 max_tokens（不能报 5xx 让 Claude Code 反复重发）', async () => {
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }];
+  script = (req, res) => sse(res, [delta({ content: '先说一半' }), delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'Bash', arguments: '{"command":"rm -rf /tmp/x' } }] }), delta({}, 'length')]);
+  const r = await call({ tools });
+  assert.ok(!r.events.some((e) => e.type === 'error'));
+  assert.ok(!r.events.some((e) => e.content_block?.type === 'tool_use'), '被截断的工具调用不能执行');
+  assert.equal(r.events.find((e) => e.type === 'message_delta').delta.stop_reason, 'max_tokens');
+});
+
+test('转接器：模型调了没给过的工具：原样交出去，由 Claude Code 回「没有这个工具」，不整轮报错', async () => {
   script = (req, res) => sse(res, [delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'Evil', arguments: '{}' } }] }), delta({}, 'tool_calls')]);
-  r = await call({ tools });
-  assert.ok(r.events.some((e) => e.type === 'error'));
+  const r = await call({ tools: [{ name: 'Bash', input_schema: { type: 'object' } }] });
+  assert.ok(!r.events.some((e) => e.type === 'error'));
+  assert.equal(r.events.find((e) => e.content_block?.type === 'tool_use').content_block.name, 'Evil');
+});
+
+test('转接器：平台并行调用不写 index（或全写 0）：按不同的 id 分开收，不拼成一个', async () => {
+  script = (req, res) => sse(res, [
+    delta({ tool_calls: [{ index: 0, id: 'call_a', function: { name: 'Bash', arguments: '{"command":"ls"}' } }] }),
+    delta({ tool_calls: [{ index: 0, id: 'call_b', function: { name: 'Read', arguments: '{"file_path":"/a"}' } }] }),
+    delta({ tool_calls: [{ id: 'call_c', function: { name: 'Read', arguments: '{"file_path":"/b"}' } }] }),
+    delta({}, 'tool_calls'),
+  ]);
+  const tools = [{ name: 'Bash', input_schema: { type: 'object' } }, { name: 'Read', input_schema: { type: 'object' } }];
+  const r = await call({ tools });
+  assert.ok(!r.events.some((e) => e.type === 'error'));
+  assert.deepEqual(r.events.filter((e) => e.content_block?.type === 'tool_use').map((e) => e.content_block.id), ['call_a', 'call_b', 'call_c']);
+  assert.deepEqual(r.events.filter((e) => e.delta?.type === 'input_json_delta').map((e) => JSON.parse(e.delta.partial_json)), [{ command: 'ls' }, { file_path: '/a' }, { file_path: '/b' }]);
 });
 
 test('转接器：中途断流、200 里夹着错误：都不当成正常说完', async () => {
@@ -122,6 +145,9 @@ test('转接器：平台报 401、余额不足（哪怕报成 400）时把状态
   const r = await call({});
   assert.equal(r.status, 402);
   assert.equal(JSON.parse(r.text).error.type, 'billing_error');
+  // 429 限流的文字里碰巧有 subscription：还是 429，不能改成致命的 402
+  script = (req, res) => { res.writeHead(429, { 'content-type': 'application/json' }); res.end('{"error":{"message":"subscription rate limit, slow down"}}'); };
+  assert.equal((await call({})).status, 429);
 });
 
 test('转接器：平台不接受 reasoning_effort（比如千问）时去掉重试一次', async () => {

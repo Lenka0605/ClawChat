@@ -32,7 +32,7 @@ for (const file of ['codex-cli.mjs', 'codex-app-server.mjs']) {
 for (const name of ['claude', 'codex', 'grok', 'cursor-agent', 'gemini', 'agy']) {
   const capture = `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({name:${JSON.stringify(name)}, args:process.argv.slice(2), env:Object.fromEntries(${JSON.stringify(secretKeys)}.filter(k=>process.env[k]!==undefined).map(k=>[k,process.env[k]]))})+'\\n');`;
   const body = name === 'claude'
-    ? `process.stdin.once('data',()=>{console.log(JSON.stringify({type:'result',subtype:'success',result:'假的完成',session_id:'fake-session'}));process.stdin.resume();});`
+    ? `process.stdin.once('data',()=>{console.log(JSON.stringify({type:'result',subtype:'success',result:'假的完成',session_id:process.argv.includes('missing-id') ? undefined : 'fake-session'}));process.stdin.resume();});`
     : name === 'codex' ? `await import('./codex-cli.mjs');`
       : fs.readFileSync(new URL(`../scripts/fake/${name}`, import.meta.url), 'utf8').replace(/^#!.*\n/, '').replace("import fs from 'node:fs';", '');
   fs.writeFileSync(path.join(bin, `${name}.mjs`), `${capture}\n${body}`);
@@ -40,7 +40,7 @@ for (const name of ['claude', 'codex', 'grok', 'cursor-agent', 'gemini', 'agy'])
   fs.writeFileSync(path.join(bin, `${name}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0${name}.mjs" %*\r\n`);
 }
 const { runAgent, claudeArgs, loginEngine, probeModel } = await import('../lib/agents.js');
-const { ensureApiBridge } = await import('../lib/providers.js');
+const { ensureApiBridge, setProviderModels } = await import('../lib/providers.js');
 const { stopApiBridge } = await import('../lib/api-bridge.js');
 const { grokEnv } = await import('../lib/grok.js');
 const { cursorEnv } = await import('../lib/cursor.js');
@@ -150,4 +150,28 @@ test('AI 环境：登录和模型探测也不重新继承整份环境', async ()
   const result = await probeModel('deepseek', 'fake-model');
   assert.ok(result.ok, result.error);
   checkEnv('deepseek', calls().at(-1).env);
+});
+
+test('Claude Code 续会话核对编号；分身允许获得新编号', async () => {
+  const opts = { room: { cwd: root, permission: 'readonly' }, prompt: '继续', onStep() {} };
+  const same = await runAgent('claude', { ...opts, session: 'fake-session' }).done;
+  assert.equal(same.ok, true);
+  const wrong = await runAgent('claude', { ...opts, session: 'previous-session' }).done;
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.sessionMismatch, true);
+  assert.equal(wrong.session, 'previous-session');
+  const missing = await runAgent('claude', { ...opts, session: 'missing-id' }).done;
+  assert.equal(missing.sessionMismatch, true);
+  const side = await runAgent('claude', { ...opts, side: true, session: 'previous-session' }).done;
+  assert.equal(side.ok, true);
+});
+
+test('DeepSeek 默认思考强度按开工时的模型目录记录', async () => {
+  setProviderModels('deepseek', [{ id: 'fixture', defaultEffort: 'high' }]);
+  const room = { cwd: root, models: { deepseek: 'fixture' }, permission: 'readonly' };
+  const handle = runAgent('deepseek', { room, prompt: '假测试', onStep() {} });
+  setProviderModels('deepseek', [{ id: 'fixture', defaultEffort: 'low' }]);
+  const result = await handle.done;
+  assert.equal(result.ok, true);
+  assert.equal(result.effort, 'high');
 });

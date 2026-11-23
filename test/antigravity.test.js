@@ -12,7 +12,7 @@ process.env.FAKE_SECS = '0.01';
 delete process.env.GEMINI_API_KEY;
 const fake = fileURLToPath(new URL('../scripts/fake/', import.meta.url));
 process.env.PATH = `${fake}${path.delimiter}${process.env.PATH}`;
-const { runAntigravity, antigravityArgs, antigravityUsage, agyState } = await import('../lib/antigravity.js');
+const { runAntigravity, antigravityArgs, antigravityUsage, agyState, agyShown } = await import('../lib/antigravity.js');
 agyState.version = '1.4.10-fake';
 const { runGemini, detectGemini } = await import('../lib/gemini.js');
 const { saveConfig, Store } = await import('../lib/store.js');
@@ -63,7 +63,8 @@ test('订阅：解析真实官方事件、步骤去重、以最终回复为准�
   assert.equal(result.ok, true);
   assert.equal(result.text, '完成');
   assert.equal(result.session, 'agy:native-id');
-  assert.equal(result.model, 'gemini-4-argon-high');
+  assert.equal(result.model, 'gemini-4-argon');
+  assert.equal(result.effort, 'high');
   assert.deepEqual(result.steps, [{ kind: 'say', text: '先检查' }, { kind: 'run', text: 'npm test' }]);
   assert.equal(JSON.parse(rt.captured.opts.input).message.content, '@Claude\n正文');
   assert.equal(rt.captured.opts.env.GEMINI_API_KEY, '');
@@ -148,6 +149,28 @@ test('订阅：实际假进程经 Hub 收发，退出重开后沿用原生会话
   const side = await runAgent('gemini', { room, session, side: true, prompt: '私聊独有内容' }).done;
   assert.equal(side.ok, true); assert.notEqual(side.session, session);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('订阅：中途插话写进同一个进程，它做完手上这一轮接着做，两轮的回复都发出来；收尾后再插话由 hub 排到下一轮', { skip: process.platform === 'win32' }, async () => {
+  const prev = process.env.FAKE_SECS;
+  process.env.FAKE_SECS = '0.3';
+  try {
+    const handle = runAgent('gemini', { room, prompt: '先做这件' });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(handle.steer('插一句：顺便看下日志'), true);
+    const res = await handle.done;
+    assert.equal(res.ok, true);
+    assert.match(res.text, /做完了/);
+    assert.match(res.text, /收到插话/);
+    assert.equal(handle.steer('太晚了'), false);
+    const file = path.join(process.env.CLAWCHAT_HOME, 'fake-agy', `${res.session.slice(4)}.json`);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).slice(-2).map((t) => t.slice(-10)), ['先做这件'.slice(-10), '插一句：顺便看下日志'.slice(-10)]);
+    const side = runAgent('gemini', { room, session: res.session, side: true, prompt: '分身' });
+    assert.equal(side.steer('分身不收插话'), false);
+    await side.done;
+  } finally {
+    process.env.FAKE_SECS = prev;
+  }
 });
 
 test('agy 版本太旧：检测时标成不能用、每轮直接提示升级；后台运行放宽超时', async () => {
@@ -283,7 +306,59 @@ test('订阅：拿不到模型列表时也不把不带档位的型号交给 agy�
     agyState.models = [{ id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }, { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' }];
     assert.equal(agyModelId({ models: {}, efforts: { gemini: 'high' } }), 'gemini-3.8-flash-high', '默认 + 高');
     assert.equal(agyModelId({ models: {}, efforts: {} }), 'gemini-3.8-flash-medium', '默认 + 默认');
+    // agyState.models 为空时，agyShown 也按家族拆出思考强度，不误拆单档型号
+    agyState.models = null;
+    assert.deepEqual(agyShown('gemini-4-hydrogen-high'), { model: 'gemini-4-hydrogen', effort: 'high' });
+    assert.deepEqual(agyShown('claude-opus-5-5-medium'), { model: 'claude-opus-5-5', effort: 'medium' });
+    assert.deepEqual(agyShown('gpt-oss-120b-medium'), { model: 'gpt-oss-120b-medium', effort: '' });
   } finally {
     agyState.models = before;
+  }
+});
+
+test('订阅：断线挽救没收到新 usage 时保留上轮上下文用量；分身断线不影响本体 cutSessions', async () => {
+  const { antigravityUsage } = await import('../lib/antigravity.js');
+  const prevVersion = agyState.version;
+  agyState.version = '1.5.12';
+  const runEvents = (events, code, stderr = '', extra = {}) => runAntigravity(
+    { room: { cwd: root, permission: 'project' }, prompt: '测试', ...extra },
+    {
+      which: () => '/usr/bin/agy',
+      spawnJsonl: (_b, _a, { onEvent }) => ({
+        done: Promise.resolve().then(() => { for (const ev of events) onEvent(ev); return { code, stderr }; }),
+        kill() {},
+        end() {},
+      }),
+    },
+  ).done;
+  try {
+    const r1 = await runEvents([
+      { event: 'init', conversation_id: 'conv-audit-1', init: { model: 'gemini-4-hydrogen-high' } },
+      { event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, text_delta: '完成', usage: { input_tokens: 4000, output_tokens: 200 } } },
+      { event: 'result', result: { conversation_id: 'conv-audit-1', status: 'SUCCESS', response: '完成' } },
+    ], 0);
+    assert.equal(antigravityUsage(r1.session).used, 4200);
+    // 本体断线挽救，本轮没收到新 s.usage：保留上轮 4200，同时 cutSessions 记下本体会话
+    const r2 = await runEvents([
+      { event: 'init', conversation_id: 'conv-audit-1', init: { model: 'gemini-4-hydrogen-high' } },
+      { event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, text_delta: '半截结论' } },
+    ], 1, 'The stream was interrupted', { session: r1.session });
+    assert.equal(r2.ok, true);
+    assert.equal(antigravityUsage(r2.session).used, 4200, '保留上一轮的上下文用量');
+    // 分身断线挽救：不触发接连中断，也不清除本体 cutSessions 标记
+    const rSide = await runEvents([
+      { event: 'init', conversation_id: 'side-conv-1', init: { model: 'gemini-4-hydrogen-high' } },
+      { event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, text_delta: '分身半句' } },
+    ], 1, 'The stream was interrupted', { session: r1.session, side: true });
+    assert.equal(rSide.ok, true);
+    assert.equal(rSide.resetSession, undefined);
+    // 本体紧接着再次纯断线：仍能正确触发 sessionMismatch 自动换会话
+    const r3 = await runEvents([
+      { event: 'init', conversation_id: 'conv-audit-1', init: { model: 'gemini-4-hydrogen-high' } },
+    ], 1, 'The stream was interrupted', { session: r1.session });
+    assert.equal(r3.ok, false);
+    assert.equal(r3.sessionMismatch, true);
+  } finally {
+    agyState.version = prevVersion;
   }
 });

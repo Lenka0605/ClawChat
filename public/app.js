@@ -255,7 +255,7 @@ function showFilePreview(el) {
       box.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - h - 8)}px`;
     };
     img.onerror = () => hideFilePreview();
-    img.src = `/api/rooms/${conv.roomId}/preview?path=${encodeURIComponent(file)}${nearPaths(el).map((p) => `&near=${encodeURIComponent(p)}`).join('')}`;
+    img.src = previewUrl(conv.roomId, file, nearPaths(el)) + '&size=hover';
   }, 150);
 }
 
@@ -279,7 +279,9 @@ async function revealFile(file, near = []) {
 // ---------------- 手机上看电脑里的文件 ----------------
 // 人不在这台电脑前（手机、平板，或者从别的电脑经 Tailscale 打开）时，点路径「在访达里显示」是在家里那台 Mac 上弹，
 // 这边什么也看不到：图片就地全屏看，PDF、音视频新开一页看。电脑上照旧在访达里显示。
-const VIEW_IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico|heic|heif|tiff?|psd|dng|cr2|nef|arw)$/i;
+const VIEW_IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico|heic|heif|tiff?|psd|jp2|tga|dng|cr2|nef|arw)$/i;
+// 手机缩略图只走轻量的 /preview；它只认识这几种，别的格式要看就点路径，别在消息列表里拉几十 MB 原图
+const VIEW_THUMB_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
 const VIEW_MEDIA_RE = /\.(pdf|mp4|mov|m4v|webm|mp3|m4a|wav)$/i;
 const viewHere = () => !isLocalHost() || !finePointer();
 
@@ -287,16 +289,25 @@ function viewUrl(roomId, file, near = []) {
   return `/api/rooms/${roomId}/view?path=${encodeURIComponent(file)}${near.map((p) => `&near=${encodeURIComponent(p)}`).join('')}`;
 }
 
+// 缩略图专用：只走轻量预览接口，别把手机流量花在几十 MB 的原图上
+function previewUrl(roomId, file, near = []) {
+  return `/api/rooms/${roomId}/preview?path=${encodeURIComponent(file)}${near.map((p) => `&near=${encodeURIComponent(p)}`).join('')}`;
+}
+
 // 接口出错时返回 { error }（中文的原因：敏感位置、找不到、太大、类型不支持），读出来给老板看
 async function viewError(url) {
   try {
     const r = await fetch(url, { headers: { Range: 'bytes=0-0' } });
     if (r.ok) return '';
+    // 0 字节文件用 Range 取一段会得到 416；说清楚，别显示成「打不开」
+    if (r.status === 416) return tr('文件是空的');
     return (await r.json().catch(() => null))?.error || tr('打不开这个文件');
   } catch {
     return tr('连不上电脑，请检查网络');
   }
 }
+
+const blockedWindowText = () => tr('浏览器拦住了新窗口，请在浏览器设置里允许弹出窗口，再点一次');
 
 function openFileRef(ref) {
   const conv = currentConv();
@@ -313,7 +324,7 @@ function openFileRef(ref) {
     api('POST', `/api/rooms/${conv.roomId}/site`, { path: file, near })
       .then(({ url: page }) => {
         if (w) w.location.href = page;
-        else location.href = page;
+        else toast(blockedWindowText(), 5000);
       })
       .catch((err) => {
         w?.close();
@@ -341,7 +352,7 @@ function openFileRef(ref) {
     viewError(url).then((err) => {
       if (!err) {
         if (w) w.location.href = url;
-        else location.href = url;
+        else toast(blockedWindowText(), 5000);
         return;
       }
       w?.close();
@@ -352,15 +363,22 @@ function openFileRef(ref) {
   toast(tr('这个文件在电脑上，手机上只能看图片、网页、PDF、音视频和下载安卓安装包'), 5000);
 }
 
+// 缩略图加载失败过：30 秒内别反复重试（并发预览失败、文件暂时读不到时，不要每 120ms 撞一次）
+const refThumbFailed = new Map(); // `${roomId}\n${path}` -> 时间
+const REF_THUMB_RETRY = 30000;
+
 // AI 回复里提到的图片：手机上在气泡下面直接排一行小图（最多 4 张），不用去点路径。过程里的路径不加
 function syncRefThumbs() {
   const conv = currentConv();
+  const now = Date.now();
+  for (const [k, at] of refThumbFailed) if (now - at > REF_THUMB_RETRY) refThumbFailed.delete(k);
   for (const bubble of document.querySelectorAll('#chat .msg.agent:not(.live) > .msg-body > .bubble')) {
     const old = bubble.nextElementSibling?.classList.contains('ref-thumbs') ? bubble.nextElementSibling : null;
     const refs = [];
     if (conv && viewHere()) {
       for (const r of bubble.querySelectorAll('.file-ref[data-checked="1"]:not(.missing)')) {
-        if (VIEW_IMAGE_RE.test(r.dataset.path) && !refs.some((x) => x.dataset.path === r.dataset.path)) refs.push(r);
+        // 只给预览接口认得的格式做缩略图；HEIC、PSD、RAW 这类点开再看，别在这里拉大图
+        if (VIEW_THUMB_RE.test(r.dataset.path) && !refThumbFailed.has(`${conv.roomId}\n${r.dataset.path}`) && !refs.some((x) => x.dataset.path === r.dataset.path)) refs.push(r);
       }
     }
     const list = refs.slice(0, 4);
@@ -376,10 +394,14 @@ function syncRefThumbs() {
       img.loading = 'lazy';
       img.alt = r.dataset.path.split('/').pop();
       img.title = img.alt;
+      img.dataset.path = r.dataset.path;
       img.dataset.view = viewUrl(conv.roomId, r.dataset.path, nearPaths(r));
-      img.src = img.dataset.view;
+      img.src = previewUrl(conv.roomId, r.dataset.path, nearPaths(r));
       img.onerror = () => {
+        refThumbFailed.set(`${conv.roomId}\n${r.dataset.path}`, Date.now());
         img.remove();
+        // 把这张从这一排的 key 里去掉：否则下次 sync 看到 key 还对，会一直跳过、永远不重画
+        box.dataset.key = [...box.querySelectorAll('img')].map((x) => x.dataset.path).join('\n');
         if (!box.children.length) box.remove();
       };
       box.append(img);
@@ -6554,8 +6576,48 @@ function fillModelRow(a) {
   if (baseOf(a) === 'gpt') refreshSpeedField();
 }
 
+// 群设置分页：成员 / 常规 / 模型 / 记忆 / 联合群。只是把已有的段落分页显示，保存时整张表单一起提交
+const ROOM_TAB_LABEL = { members: tr('成员'), general: tr('常规'), model: tr('模型'), memory: tr('记忆'), joint: tr('联合群') };
+let roomTab = 'members';
+
+function roomTabPages(room) {
+  const pages = ['members', 'general', 'model'];
+  if (room) pages.push('memory');
+  if (room?.joint) pages.push('joint');
+  return pages;
+}
+
+function applyRoomTab() {
+  for (const el of document.querySelectorAll('#dlg-room [data-room-page]')) el.classList.toggle('page-hidden', el.dataset.roomPage !== roomTab);
+  document.querySelectorAll('#room-tabs [data-room-tab]').forEach((b) => {
+    const on = b.dataset.roomTab === roomTab;
+    b.setAttribute('aria-selected', String(on));
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function renderRoomTabs(room) {
+  const nav = $('#room-tabs');
+  if (!nav) return;
+  const pages = roomTabPages(room);
+  if (!pages.includes(roomTab)) roomTab = 'members';
+  nav.innerHTML = pages
+    .map((p) => `<button type="button" role="tab" data-room-tab="${p}" aria-selected="${p === roomTab}" aria-checked="${p === roomTab}">${esc(ROOM_TAB_LABEL[p])}</button>`)
+    .join('');
+  nav.querySelectorAll('[data-room-tab]').forEach((b) => {
+    b.onclick = () => {
+      roomTab = b.dataset.roomTab;
+      renderRoomTabs(room);
+      $('#dlg-room .sheet-body').scrollTop = 0;
+      nav.querySelector(`[data-room-tab="${roomTab}"]`)?.focus();
+    };
+  });
+  applyRoomTab();
+}
+
 function openDialog(room, preset = null) {
   S.editing = room ? room.id : null;
+  roomTab = 'members';
   const d = room || { ...S.defaults, name: '', cwd: '', members: preset || defaultMembers() };
   // 联合群里的成员一般用「节点:成员」的 key 存，自己这边的 id 从 jointMembers 里取
   const ownMembers = room?.joint && room.jointMembers?.length ? room.jointMembers.filter((m) => m.mine).map((m) => m.agentId) : d.members;
@@ -6596,6 +6658,7 @@ function openDialog(room, preset = null) {
   fillModelOptions(room);
   syncMemberFields();
   renderAutoSwitch(room);
+  renderRoomTabs(room);
   $('#form-error').hidden = true;
   roomFormSnapshot.saved = roomFormSnapshot(); // 记下打开时的样子：换新会话后，没改过别的就顺手把窗口关掉
   $('#dlg-room').showModal();
@@ -6603,8 +6666,10 @@ function openDialog(room, preset = null) {
   $('#dlg-room .sheet-body').scrollTop = 0; // 上次滚到底下关掉的：再打开（尤其是新建）从头显示成员和名字
   reportDragRegions();
   // 手机上不自动聚焦名字：一打开群设置就弹键盘，挡住大半个窗口；窗口自己拿焦点（showModal 会把焦点给第一个输入框）
-  if (finePointer()) formField('name').focus();
-  else blurInDialog($('#dlg-room'));
+  if (finePointer()) {
+    // 名字在「常规」页：停在别的页时不要把焦点丢给看不见的输入框
+    (roomTab === 'general' ? formField('name') : $('#room-tabs [aria-checked="true"]'))?.focus();
+  } else blurInDialog($('#dlg-room'));
 }
 
 // 手指点的设备上，弹窗打开时别让输入框拿到焦点（不然键盘会弹出来）：把焦点交给弹窗本身
@@ -6748,7 +6813,7 @@ function openLightbox(src, opts = {}) {
     img.hidden = false;
     if (opts.name) {
       // 转过格式的（HEIC 等）存下来是 JPEG，扩展名跟着改
-      const jpeg = /\.(heic|heif|tiff?|psd|dng|cr2|nef|arw)$/i.test(opts.name);
+      const jpeg = /\.(heic|heif|tiff?|psd|jp2|tga|dng|cr2|nef|arw)$/i.test(opts.name);
       save.href = src;
       save.download = jpeg ? opts.name.replace(/\.[^.]+$/, '.jpg') : opts.name;
       save.hidden = false;
@@ -7416,11 +7481,13 @@ function bind() {
     insertMention(who === 'all' ? ALL_WORD : agentName(who), el);
   });
   // 文件路径：悬停看缩略图、点一下在访达里显示。挂在 #scroller 上，「正在干活」气泡（#live）里的过程也算
-  $('#scroller').addEventListener('mouseover', (e) => {
+  $('#scroller').addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;
     const ref = e.target.closest('.file-ref');
     if (ref && !ref.contains(e.relatedTarget)) showFilePreview(ref);
   });
-  $('#scroller').addEventListener('mouseout', (e) => {
+  $('#scroller').addEventListener('pointerout', (e) => {
+    if (e.pointerType === 'touch') return;
     const ref = e.target.closest('.file-ref');
     if (ref && !ref.contains(e.relatedTarget)) hideFilePreview();
   });

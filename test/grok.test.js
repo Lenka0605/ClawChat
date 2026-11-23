@@ -27,7 +27,7 @@ fs.writeFileSync(authFile, JSON.stringify({ 'https://auth.x.ai::test-client': { 
 const configFile = path.join(process.env.GROK_HOME, 'config.toml');
 fs.writeFileSync(configFile, '[model.grok-4.7]\napi_key = "paid-key"\nbase_url = "http://must-not-connect.invalid"\n');
 const { runAgent, sessionUsage, AGENTS, BASE_AGENTS } = await import('../lib/agents.js');
-const { grokEnv, grokApiKeyWarning, parseGrokModels, grokArgs, grokError, detectGrok, removeGrokHome } = await import('../lib/grok.js');
+const { grokEnv, grokApiKeyWarning, parseGrokModels, grokArgs, grokError, detectGrok, removeGrokHome, readGrokUsage } = await import('../lib/grok.js');
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 afterEach(() => { delete process.env.FAKE_GROK_SCENARIO; delete process.env.FAKE_GROK_LOGGED_OUT; });
 const room = { cwd: root, permission: 'project', models: { grok: 'grok-4.7' }, efforts: { grok: 'low' } };
@@ -305,4 +305,20 @@ test('Grok：新文件所有提示都有英文，占位符一致', () => {
     const holes = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort();
     assert.deepEqual(holes(dict[m[1]]), holes(m[1]));
   }
+});
+
+test('Grok 查额度在先时，任务等查询进程退出；排队期间可以停止', async () => {
+  let close;
+  const done = new Promise((resolve) => { close = resolve; });
+  const quota = readGrokUsage({ bin: 'fake', spawnJsonl: () => ({ done, write: () => true, end() {}, kill() {} }) });
+  const before = calls().length;
+  const aborted = start();
+  const run = start();
+  aborted.kill();
+  assert.equal(calls().length, before);
+  close();
+  await quota;
+  assert.equal((await aborted.done).ok, false);
+  assert.equal((await run.done).ok, true);
+  assert.equal(calls().length, before + 1);
 });

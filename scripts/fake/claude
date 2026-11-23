@@ -8,6 +8,9 @@ INFILE="$(mktemp -t fake-claude-in)"
 exec 3<&0 # 后台命令的标准输入会被换成 /dev/null：先另存一份
 cat <&3 > "$INFILE" &
 SID="fake-$(date +%s)-$$-$RANDOM" # 带上进程号和随机数：同一秒开好几个（多开成员）也不会撞号
+# 普通续聊（--resume 编号）沿用传进来的编号，和真的 Claude Code 一样；联调续聊、会话编号核对时用；FAKE_CLAUDE_NEW_SID=1 时仍每轮换新编号
+FORK=""; for x in "$@"; do [ "$x" = "--fork-session" ] && FORK=1; done # 分身（--fork-session）和真的一样开新编号
+prev=""; for x in "$@"; do [ "$prev" = "--resume" ] && [ -z "$FAKE_CLAUDE_NEW_SID" ] && [ -z "$FORK" ] && SID="$x"; prev="$x"; done
 # 联调用：记下这一轮在哪个目录跑、用的模型和思考强度、带了哪些限制参数（看联合群文件夹档的 cwd 和沙盒参数有没有生效）
 { printf '%s\tcwd=%s\t' "$(date +%T)" "$(pwd -P)"; prev=""; for x in "$@"; do case "$prev" in --model|--effort) printf '%s=%s ' "${prev#--}" "$x";; esac; case "$x" in --restricted|--tools|--permission-mode|acceptEdits|dontAsk|--settings) printf '%s ' "$x";; esac; prev="$x"; done; echo; } >> "${CLAWCHAT_HOME:-/tmp}/fake-claude-runs.log" 2>/dev/null || true
 echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$SID\",\"model\":\"claude-fake\"}"

@@ -69,13 +69,20 @@ if (value('--conversation')) {
   try { messages = JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch { process.stderr.write('找不到假 agy 的历史会话\n'); process.exit(1); }
 }
-const input = JSON.parse(fs.readFileSync(0, 'utf8').trim());
-if (input.event !== 'user' || typeof input.message?.content !== 'string') process.exit(1);
-messages.push(input.message.content);
+// 和真 agy 一样：stdin 一行一条消息，每条跑一轮；stdin 关了、手上的都做完就退出（中途插话会在跑的时候再写一条）
 emit({ event: 'init', conversation_id: sid, init: { model: value('--model') } });
-await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
-// 提示词里出现「分身答应要做的事现在去做」（分身已经替它回过话）时照做；群聊每轮结尾那句「没有要说的就只回 [PASS]」不在此列，照常回「做完了」
-const response = /分身答应要做的事现在去做/.test(input.message.content) ? '[PASS]' : '（假的 Gemini 订阅）做完了';
-fs.writeFileSync(file, JSON.stringify(messages), { mode: 0o600 });
-emit({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, state: 'DONE', text_delta: response, usage: { input_tokens: 100, output_tokens: 10 } } });
-emit({ event: 'result', result: { conversation_id: sid, status: 'SUCCESS', response, usage: { input_tokens: 100, output_tokens: 10, thinking_tokens: 0 } } });
+const { createInterface } = await import('node:readline');
+let n = 0;
+for await (const raw of createInterface({ input: process.stdin })) {
+  if (!raw.trim()) continue;
+  const input = JSON.parse(raw);
+  if (input.event !== 'user' || typeof input.message?.content !== 'string') process.exit(1);
+  messages.push(input.message.content);
+  emit({ event: 'step_update', step_update: { step_type: 'user_input', step_index: n++ } });
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(process.env.FAKE_SECS || 0.1)) * 1000));
+  // 提示词里出现「分身答应要做的事现在去做」（分身已经替它回过话）时照做；群聊每轮结尾那句「没有要说的就只回 [PASS]」不在此列，照常回「做完了」
+  const response = /分身答应要做的事现在去做/.test(input.message.content) ? '[PASS]' : messages.length > 1 && n > 1 ? '（假的 Gemini 订阅）收到插话' : '（假的 Gemini 订阅）做完了';
+  fs.writeFileSync(file, JSON.stringify(messages), { mode: 0o600 });
+  emit({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: n++, state: 'DONE', text_delta: response, usage: { input_tokens: 100, output_tokens: 10 } } });
+  emit({ event: 'result', result: { conversation_id: sid, status: 'SUCCESS', response, usage: { input_tokens: 100, output_tokens: 10, thinking_tokens: 0 } } });
+}

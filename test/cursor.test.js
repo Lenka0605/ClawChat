@@ -139,6 +139,11 @@ test('Cursor：没登录、额度用完、找不到记忆都给出能看懂的�
   assert.match(c.error, /session not found/);
   assert.equal(c.session, '11111111-1111-1111-1111-111111111111');
   assert.match(cursorError('Warning: The provided API key is invalid.'), /cursor-agent login/);
+  // 不是额度、登录问题的：别当成额度用完或登录过期
+  assert.doesNotMatch(cursorError('(node:1) MaxListenersExceededWarning: Possible leak, 11 listeners exceeded'), /额度|登录/);
+  assert.doesNotMatch(cursorError('at /x/y.js:401:12'), /登录/);
+  assert.doesNotMatch(cursorError('x'), /额度/);
+  assert.match(cursorError('Error: You have exceeded your usage limit (429)'), /额度/);
   process.env.FAKE_CURSOR_SCENARIO = 'crash';
   const d = await start().done;
   assert.equal(d.ok, false);

@@ -1,4 +1,7 @@
 {
+  "文件是空的": "The file is empty",
+  "Claude Code 未能确认原会话编号": "Claude Code could not confirm the original session ID",
+  "审批结果必须是布尔值": "The approval decision must be true or false",
   "图片太大了（最大 25MB）": "The image is too large (max 25 MB)",
   "只支持图片（PNG、JPG、GIF、WebP、HEIC）": "Only images are supported (PNG, JPG, GIF, WebP, HEIC)",
   "这种图片格式（比如 HEIC）在 Windows 上转换不了，请先另存成 JPG 或 PNG 再发": "This image format (such as HEIC) can't be converted on Windows. Save it as JPG or PNG first, then send it.",
@@ -169,5 +172,6 @@
   "已同意，{name} 接下来用 {tier}": "Approved: {name} will use {tier} from now on",
   "{name} 想在接下来换成 {tier}": "{name} would like to switch to {tier} from now on",
   "{name} 接下来换成 {tier}": "{name} switches to {tier} from now on",
-  "{name} 的上一条换档申请被新的申请替换了": "{name}'s previous switch request was replaced by a newer one"
+  "{name} 的上一条换档申请被新的申请替换了": "{name}'s previous switch request was replaced by a newer one",
+  "中途插的话那一轮没做完：{error}": "The turn for the message you added mid-task didn't finish: {error}"
 }

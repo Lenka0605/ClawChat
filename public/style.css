@@ -922,6 +922,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.22); }
 dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: column; max-height: calc(100vh - 56px); }
 .sheet-head { padding: 16px 20px 10px; flex: none; }
 .sheet-head h2 { margin: 0; font-size: 14px; font-weight: 600; text-align: center; }
+/* 群设置 / 新建聊天的分页：macOS 分段控件 */
+/* 切页签时内容高度会变，弹窗从顶部固定住，别整个窗口上下跳 */
+#dlg-room { margin-top: max(28px, calc((100dvh - 820px) / 2)); margin-bottom: auto; }
+#dlg-room .sheet-head { display: grid; gap: 10px; justify-items: center; }
+.room-tabs { width: 100%; max-width: 380px; overflow-x: auto; scrollbar-width: none; }
+.room-tabs::-webkit-scrollbar { display: none; }
+.room-tabs button { min-height: 25px; font-size: 12px; padding-left: 8px; padding-right: 8px; }
+@media (max-width: 480px) {
+  .room-tabs button { font-size: 11px; padding-left: 4px; padding-right: 4px; }
+}
+@media (max-width: 360px) {
+  .room-tabs button { font-size: 10.5px; padding-left: 3px; padding-right: 3px; }
+}
+.page-hidden { display: none !important; }
 .sheet-body { padding: 4px 20px 16px; overflow-y: auto; flex: 1; min-height: 0; display: grid; gap: 16px; align-content: start; grid-template-columns: minmax(0, 1fr); }
 .sheet-foot { padding: 12px 20px 14px; border-top: 0.5px solid var(--line); flex: none; display: grid; gap: 8px; }
 .form-section { display: grid; gap: 6px; }
@@ -1763,7 +1777,8 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
   .form-row > span:first-child { min-width: 0; }
   .form-row > .row, .form-row > input:not([type="checkbox"]) { flex: 1 1 100%; max-width: 100%; }
   .form-row > select { flex: 1 1 auto; min-width: 0; max-width: 100%; }
-  .form-row > .model-pair { flex: 1 1 100%; min-width: 0; }
+  .form-row > .model-pair { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .model-pair select { min-width: 0; max-width: 100%; }
   .row-value { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .search-key { display: none; }
 
@@ -1982,6 +1997,7 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 
 /* ---------- 群设置：AI 自己换档 ---------- */
 #auto-switch-fields { min-width: 0; max-width: 100%; }
+#auto-switch-fields .group-box, #auto-switch-fields .form-row { min-width: 0; max-width: 100%; }
 #auto-switch-fields h3 { overflow-wrap: anywhere; }
 #auto-switch-fields .group-box select { max-width: 260px; }
 #auto-switch-fields .form-row > span:first-child { display: grid; gap: 1px; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }

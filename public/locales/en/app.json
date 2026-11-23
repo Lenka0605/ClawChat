@@ -357,5 +357,11 @@
   "{name}：{model}，AI 自选，现在在用": "{name}: {model} (AI pick, in use now)",
   "AI 自选：现在实际用 {tier}（你设的是 {own}）。手动选一个，就恢复成你设的。": "AI pick: actually using {tier} (you set {own}). Pick one manually to go back to your setting.",
   "恢复成我设的（{tier}）": "Back to my setting ({tier})",
-  "{name} 恢复成你设的档": "{name} is back to your setting"
+  "{name} 恢复成你设的档": "{name} is back to your setting",
+  "成员": "Members",
+  "常规": "General",
+  "记忆": "Memory",
+  "联合群": "Joint chat",
+  "文件是空的": "The file is empty",
+  "浏览器拦住了新窗口，请在浏览器设置里允许弹出窗口，再点一次": "The browser blocked the new window. Allow pop-ups in your browser settings and try again."
 }

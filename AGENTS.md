@@ -60,7 +60,7 @@ ClawChat 是本地 AI 群聊：用户 + Claude（Claude Code）+ ChatGPT（Codex
 - **签名**：`scripts/sign-app.sh` 用 `~/.clawchat/signing` 里的自签名证书，这样每次升级后不用重新授权。不要把 `build-app.sh` 改回 `codesign --sign -`。
 - **ChatGPT 速度档**：`codexArgs` 每次都明确传参（标准档 `-c features.fast_mode=false`），因为用户的 config.toml 里可能写了别的档位。
 - **私聊**：`dm` 字段只表示用户和某位 AI 的私聊；AI 之间的私聊用 `pm`，`pmIn` 记这条放在谁的私聊里（整段对话只显示在被找的那一位的私聊里）。可见范围看 hub 的 `visibleTo`。用户说「私聊没回」时，先查那条私聊之后它的回复带不带 `dm`。
-- **中途插话**：AI 正在干活时，老板或同事在同一个场合（群里 / 老板的私聊）又给它发消息，直接塞进它这一轮（Claude Code 写进 stream-json 的 stdin，ChatGPT 用 app-server 的 `turn/steer`），不用等它干完。AI 之间私下找它、场合对不上的，照旧开分身或排队。插话要等回执的，收到了才推进读取进度。
+- **中途插话**：AI 正在干活时，老板或同事在同一个场合（群里 / 老板的私聊）又给它发消息，直接塞进它这一轮（Claude Code 写进 stream-json 的 stdin，ChatGPT 用 app-server 的 `turn/steer`；Gemini 订阅的 agy 也是 stream-json 一行一条，但它做完手上这一轮才接着做插进来的那条，每条各回一个 result，写了几条就等几个 result 再关 stdin），不用等它干完。AI 之间私下找它、场合对不上的，照旧开分身或排队。插话要等回执的，收到了才推进读取进度。
 - **不 @ 时默认接着上一位**（`room.defaultTarget = 'last'`）。以前默认大家同时开工，经常刚发出去就得停掉不该开工的那几位。
 - **重启**：用户点更新或重启时打断的活，下次启动自动接着做；有人在干活时可以等干完再重启（server 的 `pendingRestart`）。
 - **DeepSeek**：用 `claude -p` 跑，`ANTHROPIC_BASE_URL` 换成 DeepSeek 的 Anthropic 兼容接口，`CLAUDE_CONFIG_DIR` 单独指向 `~/.clawchat/deepseek/claude-home`。Key 不对（401）或余额不足（402）时 Claude Code 会重试很久，所以看到 `api_retry` 就直接结束这一轮。

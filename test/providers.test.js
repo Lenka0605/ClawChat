@@ -8,7 +8,7 @@ import path from 'node:path';
 process.env.CLAWCHAT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-providers-'));
 process.env.GLM_API_KEY = 'test-glm-key';
 const { saveConfig } = await import('../lib/store.js');
-const { PROVIDERS, providerKey, providerEnv, providerModel, providerModelArg, providerModels } = await import('../lib/providers.js');
+const { PROVIDERS, providerKey, providerEnv, providerModel, providerModelArg, providerModels, setProviderModels } = await import('../lib/providers.js');
 
 const ds = PROVIDERS.deepseek;
 const glm = PROVIDERS.glm;
@@ -58,4 +58,16 @@ test('模型目录：在线读不到时用内置清单', () => {
   assert.deepEqual(providerModels(glm).map((m) => m.id), ['glm-5.3', 'glm-5.2']);
   assert.equal(providerModel(glm, 'glm-5.3').name, 'GLM-5.3');
   assert.equal(providerModel(glm, '不存在的模型'), null);
+});
+
+test('API 平台：换了接口地址，旧平台的在线模型目录不再用；窗口比 20 万小的模型让 Claude Code 按平台的窗口压缩', () => {
+  const api = PROVIDERS.api;
+  saveConfig({ apiBase: 'https://old.example/v1' });
+  setProviderModels('api', [{ id: 'old-model', name: 'old', context: 128000 }]);
+  assert.equal(providerModel(api, 'old-model')?.id, 'old-model');
+  assert.equal(providerEnv(api, 'old-model').CLAUDE_CODE_AUTO_COMPACT_WINDOW, String(Math.floor(128000 * 0.9)));
+  saveConfig({ apiBase: 'https://new.example/v1' });
+  assert.equal(providerModel(api, 'old-model'), null, '换了平台，旧目录作废');
+  assert.equal(api.defaultModel, '', '默认型号也不能再取旧平台的');
+  saveConfig({ apiBase: '' });
 });

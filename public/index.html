@@ -196,9 +196,9 @@
 
     <dialog id="dlg-room" class="sheet">
     <form id="room-form" method="dialog">
-      <header class="sheet-head"><h2 id="dlg-title">新建聊天</h2></header>
+      <header class="sheet-head"><h2 id="dlg-title">新建聊天</h2><nav id="room-tabs" class="segmented room-tabs" role="tablist"></nav></header>
       <div class="sheet-body">
-        <section class="form-section">
+        <section class="form-section" id="member-fields" data-room-page="members">
           <h3>成员 <small id="member-sub">只选一位就是单聊</small></h3>
           <div class="members">
             <label class="member"><input type="checkbox" name="memberClaude" checked><span class="avatar av-claude"></span><span class="member-name">Claude<small>Anthropic</small></span><span class="check-mark"></span></label>
@@ -218,7 +218,7 @@
             <button type="button" class="secondary" id="btn-joint-join-open">加入联合群</button>
           </div>
         </section>
-        <section class="form-section">
+        <section class="form-section" id="basic-fields" data-room-page="general">
           <h3>基本信息</h3>
           <div class="group-box">
             <label class="form-row"><span>名字</span><input name="name" maxlength="40" placeholder="比如：今天争取不加班" autocomplete="off"></label>
@@ -230,7 +230,7 @@
           </div>
           <p class="hint" id="cwd-hint">它们会在这个文件夹里读写文件、运行命令。</p>
         </section>
-        <section class="form-section" id="perm-section">
+        <section class="form-section" id="perm-section" data-room-page="general">
           <h3>动手权限</h3>
           <div class="group-box">
             <label class="radio"><input type="radio" name="permission" value="project" checked>
@@ -242,7 +242,7 @@
           </div>
           <p id="perm-win-hint" class="hint" hidden>Windows 上 Claude、DeepSeek、GLM 跑命令没有沙盒：「项目内放手干」时，命令能不能只动项目文件夹，要靠它们自觉（已经在提示词里交代过）。ChatGPT 和 Gemini 有自己的沙盒。</p>
         </section>
-        <section class="form-section" id="joint-fields" hidden>
+        <section class="form-section" id="joint-fields" data-room-page="joint" hidden>
           <h3>联合群 <small id="joint-policy-summary">讨论档</small></h3>
           <div class="group-box">
             <div class="form-row"><span>对方</span><span class="row-value" id="joint-peer">—</span></div>
@@ -260,14 +260,14 @@
           <p class="hint" id="joint-hint">对方的 AI 看不到你的私聊、别的群和本机文件；停止按钮各管各的。</p>
         </section>
 
-        <section class="form-section" id="group-fields">
+        <section class="form-section" id="group-fields" data-room-page="general">
           <h3>协作</h3>
           <div class="group-box">
             <label class="form-row"><span>允许成员之间互相 @ 接力干活</span><input type="checkbox" name="collab" class="switch" checked></label>
             <label class="form-row"><span>老板不说话时，最多连续接力</span><span class="inline-num"><input name="maxAutoTurns" type="number" min="1" max="50" value="25"> 轮</span></label>
           </div>
         </section>
-        <section class="form-section" id="model-fields">
+        <section class="form-section" id="model-fields" data-room-page="model">
           <h3>模型 <small>聊天窗口顶部也能随时切换</small></h3>
           <div class="group-box">
             <div class="form-row" id="field-model-claude"><span class="with-icon"><span class="avatar av-claude"></span>Claude</span>
@@ -288,7 +288,7 @@
               <span class="model-pair"><select name="modelApi" data-pair="api"></select><span class="pair-sep">思考</span><select name="effortApi"></select></span></div>
           </div>
         </section>
-        <section class="form-section" id="speed-fields" hidden>
+        <section class="form-section" id="speed-fields" data-room-page="model" hidden>
           <h3>速度 <small>目前只有 ChatGPT 能开快速模式</small></h3>
           <div class="group-box">
             <div class="form-row"><span class="with-icon"><span class="avatar av-gpt"></span>ChatGPT</span>
@@ -296,8 +296,8 @@
           </div>
           <p class="hint" id="speed-hint"></p>
         </section>
-        <section class="form-section" id="auto-switch-fields" hidden></section>
-        <section class="form-section" id="session-fields" hidden>
+        <section class="form-section" id="auto-switch-fields" data-room-page="model" hidden></section>
+        <section class="form-section" id="session-fields" data-room-page="memory" hidden>
           <h3>会话（记忆） <small>记了多少、什么时候该换</small></h3>
           <div class="group-box" id="session-list"></div>
           <p class="hint">「记忆」是它这个会话里记着的全部内容，每一轮都要整个带上，所以越多越慢。换新会话时可以选谁来把情况重新交代给它（默认是上一个给它派活的 AI，也可以让它自己看记录，或者你自己来说）；项目文件夹里的文件都还在。ChatGPT 看过的每张图（包括它自己做的图）都会整张存进会话，图片到 8MB 时群里也会提醒你换。</p>
