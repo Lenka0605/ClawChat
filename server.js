@@ -15,6 +15,7 @@ import { requestAccess, remoteInfo, setRemote, initRemote, publicHost, decodeLog
 import { squareIcon } from './lib/icon-fix.js';
 import { setupJoint } from './lib/joint-server.js';
 import { getUsage, onUsageChange, seedCodexUsage } from './lib/usage.js';
+import { agyShown } from './lib/antigravity.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -1499,6 +1500,27 @@ server.listen(PORT, HOST, () => {
 // 重新检测各位的版本和模型列表，有变化就推给界面。force：等正在进行的那次查完再查一次（比如刚换了 Key）
 let refreshing = null;
 let refreshedAt = 0;
+// Gemini（Antigravity 订阅）的模型以前每个思考强度单独一项（gemini-4-hydrogen-high），现在合成一项、思考强度另外选。
+// 读到账号的模型列表以后，把群里存的老写法换成「模型 + 思考强度」，实际用的模型不变（群设置和私聊里的都换）
+function migrateGeminiModels() {
+  if (engines.gemini?.cli !== 'agy') return;
+  const fix = (models = {}, efforts = {}) => {
+    const shown = agyShown(models.gemini);
+    if (!models.gemini || shown.model === models.gemini) return null;
+    return { models: { ...models, gemini: shown.model }, efforts: { ...efforts, gemini: efforts.gemini || shown.effort } };
+  };
+  for (const room of store.listRooms()) {
+    const patch = {};
+    const main = fix(room.models, room.efforts);
+    if (main) Object.assign(patch, main);
+    // 私聊里单独设的：存的是 { model, effort }
+    const ds = room.dmSettings?.gemini;
+    const shown = ds?.model ? agyShown(ds.model) : null;
+    if (shown && shown.model !== ds.model) patch.dmSettings = { ...room.dmSettings, gemini: { ...ds, model: shown.model, effort: ds.effort || shown.effort } };
+    if (Object.keys(patch).length) store.updateRoom(room.id, patch);
+  }
+}
+
 async function refreshEngines(force = false) {
   if (refreshing && force) await refreshing;
   if (refreshing) return refreshing;
@@ -1509,6 +1531,7 @@ async function refreshEngines(force = false) {
         engines = next;
         hub.emit('event', { type: 'engines', engines });
       }
+      migrateGeminiModels(); // 每次拿到模型列表都看一眼有没有老写法要换（迁过的不会再动）
     })
     .catch((err) => console.error('[clawchat] 检测引擎失败', err))
     .finally(() => (refreshing = null));

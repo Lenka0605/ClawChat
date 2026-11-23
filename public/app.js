@@ -707,9 +707,14 @@ function modelSelectHtml(agent, current, attrs = '', allowCustom = false) {
   // 列表外的（手动填过的新模型）也显示出来
   const extra = current && !opts.some((o) => o.id === current) ? [{ id: current, name: tr('{name}（自定义）', { name: current }) }] : [];
   const custom = allowCustom ? `<option value="${CUSTOM_MODEL}">${tr('自定义模型…')}</option>` : '';
-  return `<select ${attrs}>${[...opts, ...extra]
-    .map((o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.description || '')}">${esc(o.name)}</option>`)
-    .join('')}${custom}</select>`;
+  const optHtml = (o) => `<option value="${esc(o.id)}"${o.id === (current || '') ? ' selected' : ''} title="${esc(o.description || '')}">${esc(o.name)}</option>`;
+  const all = [...opts, ...extra];
+  // 模型带了分组（Gemini 订阅里有 Gemini、Claude 等好几家）：没分组的（默认那项）放最前面，其余按组用 optgroup 收起来
+  if (!all.some((o) => o.group)) return `<select ${attrs}>${all.map(optHtml).join('')}${custom}</select>`;
+  const loose = all.filter((o) => !o.group).map(optHtml).join('');
+  const groups = [...new Set(all.filter((o) => o.group).map((o) => o.group))];
+  const grouped = groups.map((g) => `<optgroup label="${esc(g)}">${all.filter((o) => o.group === g).map(optHtml).join('')}</optgroup>`).join('');
+  return `<select ${attrs}>${loose}${grouped}${custom}</select>`;
 }
 
 function avatarHtml(who, extra = '') {
@@ -5018,7 +5023,13 @@ function openModelMenu(agent, chip) {
     if (conv.room.dmSettings?.[agent]) html += menuItemHtml('data-pick-reset', tr('恢复成和群聊一样'), '', false) + '<div class="menu-sep"></div>';
   }
   html += `<div class="menu-section">${tr('模型')}</div>`;
-  html += opts.map((o) => menuItemHtml(`data-pick-model="${esc(o.id)}"`, `${esc(o.name)}${visionMarkHtml(o.vision)}`, descForUi(o.description), o.id === cur)).join('');
+  // 有分组的（Gemini 订阅里的 Gemini、Claude…）：每组前面加个小标题
+  let lastGroup = '';
+  html += opts.map((o) => {
+    const head = o.group && o.group !== lastGroup ? `<div class="menu-section">${esc(o.group)}</div>` : '';
+    if (o.group) lastGroup = o.group;
+    return head + menuItemHtml(`data-pick-model="${esc(o.id)}"`, `${esc(o.name)}${visionMarkHtml(o.vision)}`, descForUi(o.description), o.id === cur);
+  }).join('');
   html += menuItemHtml(`data-pick-model="${CUSTOM_MODEL}"`, tr('自定义模型…'), '', false);
   const efforts = effortsFor(agent, cur);
   if (efforts.length || room.efforts?.[agent]) {

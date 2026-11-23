@@ -155,5 +155,6 @@
   "和 Google 的连接中途断了（多半是网络问题），可以直接让它「继续」": "lost the connection to Google mid-turn (usually a network hiccup). You can just tell it to continue.",
   "和 Google 的连接中途断过，这一轮的回复可能不完整": "The connection to Google dropped mid-turn, so this reply may be incomplete",
   "原来的对话接连中断，这一轮的回复可能不完整；下一轮换新会话、带上最近的聊天记录": "the conversation was cut off twice in a row, so this reply may be incomplete; the next turn starts a new session with the recent chat history",
-  "手机上只能看图片、PDF、音视频和下载安卓安装包，这个文件请到电脑上打开": "On the phone you can only view images, PDFs, audio and video, or download Android installers; open this file on the computer"
+  "手机上只能看图片、PDF、音视频和下载安卓安装包，这个文件请到电脑上打开": "On the phone you can only view images, PDFs, audio and video, or download Android installers; open this file on the computer",
+  "其他": "Other"
 }

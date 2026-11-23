@@ -194,7 +194,7 @@ test('订阅：模型列表按 agy models 来；群里选的模型账号用不�
   agyState.models = listed;
   try {
     const ids = antigravityModels().map((m) => m.id);
-    assert.deepEqual(ids, ['auto', 'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'claude-sonnet-4-6']);
+    assert.deepEqual(ids, ['gemini-3.8-flash', 'claude-sonnet-4-6'], '同一模型的几档合成一项；「默认」就是 Gemini 3.8 Flash，不再单列 auto');
     assert.ok(!ids.includes('gemini-4-argon-high'), '账号没开通的不出现在列表里');
     const room = { cwd: root, permission: 'project', models: { gemini: 'gemini-4-argon-high' } };
     const args = antigravityArgs({ room });
@@ -239,4 +239,51 @@ test('订阅：断线但已经说了话：照常发出来、标一句可能不�
   assert.equal(again.ok, true);
   assert.equal(again.resetSession, true, '接连断：下一轮换新会话');
   assert.match(again.warning, /接连中断/);
+});
+
+test('订阅：同一模型的几档思考强度合成一项、按家族分组；选模型 + 思考强度拼回 agy 的完整型号，老的完整型号照常能用', async () => {
+  const { agyGroupedModels, agyModelId, antigravityModels } = await import('../lib/antigravity.js');
+  const raw = [
+    'gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)', 'gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)', 'gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)',
+    'gemini-pro-orchestrator-g1-pro\tOrchestrator (Argon)', 'claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)', 'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
+    'gpt-oss-120b-medium\tGPT-OSS 120B (Medium)',
+  ].map((l) => { const [id, name] = l.split('\t'); return { id, name }; });
+  const grouped = agyGroupedModels(raw);
+  const hydrogen = grouped.find((m) => m.id === 'gemini-4-hydrogen');
+  assert.deepEqual(hydrogen.efforts, ['low', 'high', 'xhigh']);
+  assert.equal(hydrogen.name, 'Gemini 4 Hydrogen');
+  assert.equal(hydrogen.defaultEffort, 'high');
+  assert.equal(hydrogen.group, 'Gemini');
+  assert.equal(grouped.find((m) => m.id === 'claude-opus-5-5').group, 'Claude');
+  assert.equal(grouped.find((m) => m.id === 'gpt-oss-120b-medium').efforts.length, 0, '只有一档的不拆');
+  assert.deepEqual(grouped.map((m) => m.group), ['Gemini', 'Gemini', 'Claude', '其他']);
+  const before = agyState.models;
+  agyState.models = raw;
+  try {
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen' }, efforts: { gemini: 'xhigh' } }), 'gemini-4-hydrogen-xhigh');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen' }, efforts: {} }), 'gemini-4-hydrogen-high', '没选思考强度用默认档');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen-low' }, efforts: {} }), 'gemini-4-hydrogen-low', '以前存的完整型号照常用');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen-low' }, efforts: { gemini: 'high' } }), 'gemini-4-hydrogen-high', '老型号 + 新选的思考强度');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-pro-orchestrator-g1-pro' }, efforts: { gemini: 'high' } }), 'gemini-pro-orchestrator-g1-pro');
+    assert.ok(antigravityModels().some((m) => m.id === 'gemini-4-hydrogen' && m.efforts.length === 3));
+  } finally {
+    agyState.models = before;
+  }
+});
+
+test('订阅：拿不到模型列表时也不把不带档位的型号交给 agy；「默认」选了思考强度就用 Gemini 3.8 Flash 那一档', async () => {
+  const { agyModelId } = await import('../lib/antigravity.js');
+  const before = agyState.models;
+  try {
+    agyState.models = null;
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen' }, efforts: { gemini: 'xhigh' } }), 'gemini-4-hydrogen-xhigh');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen' }, efforts: {} }), 'gemini-4-hydrogen-high');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-4-hydrogen-low' }, efforts: {} }), 'gemini-4-hydrogen-low', '老的完整型号原样');
+    assert.equal(agyModelId({ models: { gemini: 'gemini-pro-orchestrator-neon' }, efforts: { gemini: 'high' } }), 'gemini-pro-orchestrator-neon', '不是家族型号的不乱拼');
+    agyState.models = [{ id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }, { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' }];
+    assert.equal(agyModelId({ models: {}, efforts: { gemini: 'high' } }), 'gemini-3.8-flash-high', '默认 + 高');
+    assert.equal(agyModelId({ models: {}, efforts: {} }), 'gemini-3.8-flash-medium', '默认 + 默认');
+  } finally {
+    agyState.models = before;
+  }
 });
