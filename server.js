@@ -131,6 +131,22 @@ async function saveUpload(room, req) {
   return { id: file, type: MIME[path.extname(file)] };
 }
 
+// 新建群时各位的起点（模型、思考强度）：本机配置 config.json 里的 roomStart（{ models: {...}, efforts: {...} }），
+// 没写就跟各家自己的默认。AI 会按活的难易从这里往上升、往下降，所以起点放低一点更省
+function roomStartDefaults() {
+  const s = readConfig().roomStart || {};
+  const models = { ...ROOM_DEFAULTS.models };
+  const efforts = { ...ROOM_DEFAULTS.efforts };
+  // 配置写错的（模型不在列表里、这个模型没有这一档）先去掉，对话框里就显示「默认」，不用老板自己发现再改
+  for (const [a, m] of Object.entries(s.models || {})) if (AGENTS[a] && validModel(engineOf(a), m)) models[a] = String(m || '');
+  for (const [a, e] of Object.entries(s.efforts || {})) {
+    if (!AGENTS[a]) continue;
+    const allowed = effortsFor(a, models[a]);
+    if (!e || !allowed.length || allowed.includes(e)) efforts[a] = String(e || '');
+  }
+  return { ...ROOM_DEFAULTS, models, efforts };
+}
+
 function validModel(engine, id) {
   const models = engines[engine]?.models;
   return !id || !models?.length || models.some((m) => m.id === id);
@@ -890,7 +906,7 @@ async function api(req, res, url, access = 'local') {
       queued: hub.queued(),
       engines,
       agents: joint.agentsView(),
-      defaults: ROOM_DEFAULTS,
+      defaults: roomStartDefaults(),
       projectsDir: PROJECTS_DIR,
       platform: process.platform,
       inApp: process.env.CLAWCHAT_APP === '1',
