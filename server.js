@@ -1256,6 +1256,8 @@ async function api(req, res, url, access = 'local') {
       // 群设置窗口保存时不带这一项：它每次都带上所有人的模型，带了就清的话，改个群名都会把 AI 自选的档冲掉
       const reset = Array.isArray(body.resetAiTier) ? body.resetAiTier.filter((a) => AGENTS[a]) : [];
       for (const a of new Set([...switched, ...effortSwitched, ...reset])) hub.clearTier(room.id, a);
+      // 关掉「AI 自己选」：它们自己选的档一起作废，以后（包括重新打开时）都从老板设的档开始
+      if (patch.autoSwitch?.mode === 'off') for (const a of Object.keys(room.aiTiers || {})) hub.clearTier(room.id, a);
       for (const a of effortSwitched) hub.notice(room.id, tr('{name} 的思考强度换成了「{effort}」{when}', { name: AGENTS[a].name, effort: effortName(a, patch.efforts[a]), when: when(a) }));
       for (const a of fastSwitched) hub.notice(room.id, tr('{name} 换成了{speed}{when}', { name: AGENTS[a].name, speed: fastName(a, room.fast[a], room.models?.[a]), when: when(a) }));
       // 私聊里手动改了谁的模型或思考强度：同样以老板选的为准

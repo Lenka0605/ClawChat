@@ -363,5 +363,9 @@
   "记忆": "Memory",
   "联合群": "Joint chat",
   "文件是空的": "The file is empty",
-  "浏览器拦住了新窗口，请在浏览器设置里允许弹出窗口，再点一次": "The browser blocked the new window. Allow pop-ups in your browser settings and try again."
+  "浏览器拦住了新窗口，请在浏览器设置里允许弹出窗口，再点一次": "The browser blocked the new window. Allow pop-ups in your browser settings and try again.",
+  "AI 自己选模型和思考强度": "Let AI pick model and thinking effort",
+  "关掉就一直用你在「模型」里设的": "When off, always uses what you set under Model",
+  "换之前先问我": "Ask me before switching",
+  "群里出现「同意 / 不用换」按钮，你点了才换": "Shows Approve / Keep buttons in the chat; switches only after you approve"
 }

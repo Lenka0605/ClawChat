@@ -841,12 +841,10 @@ function renderAutoSwitch(room) {
   const cfg = room.autoSwitch || {};
   section.innerHTML = `<h3>${tr('AI 自己换档')} <small>${tr('按活的难易自己选模型和思考强度')}</small></h3>
     <div class="group-box">
-      <label class="form-row"><span>${tr('怎么做')}<small>${tr('要不要让 AI 自己选档')}</small></span>
-        <select id="auto-mode" name="autoMode">
-          <option value="auto">${tr('自己换，不用问我（默认）')}</option>
-          <option value="ask">${tr('先问我')}</option>
-          <option value="off">${tr('不换，一直用我设的档')}</option>
-        </select></label>
+      <label class="form-row"><span>${tr('AI 自己选模型和思考强度')}<small>${tr('关掉就一直用你在「模型」里设的')}</small></span>
+        <input type="checkbox" id="auto-on" name="autoOn" class="switch"></label>
+      <label class="form-row" id="auto-ask-row"><span>${tr('换之前先问我')}<small>${tr('群里出现「同意 / 不用换」按钮，你点了才换')}</small></span>
+        <input type="checkbox" id="auto-ask" name="autoAsk" class="switch"></label>
       <label class="form-row"><span>${tr('交代情况时用')}<small>${tr('同事换了新会话，请它重新交代时；模型不变')}</small></span>
         <select id="auto-brief-effort" name="autoBriefEffort">
           <option value="">${tr('跟平时一样')}</option>
@@ -855,9 +853,18 @@ function renderAutoSwitch(room) {
           <option value="high">${esc(EFFORT_LABEL.high)}</option>
         </select></label>
     </div>
-    <p class="hint">${tr('每位 AI 按活的难易自己选档：简单的用便宜快的，难的用强的。选好后一直用，直到它再换；你在「模型」里手动改了，就从你选的开始。换档时群里会写明，每位能换到哪一档在下面限制。')}</p>
+    <p class="hint" id="auto-hint">${tr('每位 AI 按活的难易自己选档：简单的用便宜快的，难的用强的。选好后一直用，直到它再换；你在「模型」里手动改了，就从你选的开始。换档时群里会写明，每位能换到哪一档在下面限制。')}</p>
     <div class="group-box auto-tier-list" id="auto-tier-list"></div>`;
-  $('#auto-mode').value = cfg.mode || 'auto';
+  // 开关：开 = AI 自己选（再看要不要先问我），关 = 一直用「模型」里设的；关着时下面的说明和每位的上限收起来
+  $('#auto-on').checked = (cfg.mode || 'auto') !== 'off';
+  $('#auto-ask').checked = cfg.mode === 'ask';
+  const syncAutoOn = () => {
+    const on = $('#auto-on').checked;
+    $('#auto-ask-row').hidden = !on;
+    $('#auto-hint').hidden = !on;
+    $('#auto-tier-list').hidden = !on;
+  };
+  $('#auto-on').onchange = syncAutoOn;
   $('#auto-brief-effort').value = cfg.briefEffort ?? 'medium';
   ensureAutoSwitchRows(room);
   for (const row of $('#auto-tier-list').children) tierPickLabel(row);
@@ -867,6 +874,7 @@ function renderAutoSwitch(room) {
     if (btn) openTierMenu(btn);
   };
   $('#auto-tier-list').onchange = () => fitSelects();
+  syncAutoOn();
   fitSelects();
 }
 
@@ -895,7 +903,8 @@ function collectAutoSwitch(members) {
     }
     limits[a] = value.models === null && !value.effort ? null : value; // 全都不限 = 不用记
   }
-  return { mode: $('#auto-mode')?.value || 'auto', briefEffort: $('#auto-brief-effort')?.value ?? 'medium', limits };
+  const mode = !$('#auto-on') ? 'auto' : !$('#auto-on').checked ? 'off' : $('#auto-ask').checked ? 'ask' : 'auto';
+  return { mode, briefEffort: $('#auto-brief-effort')?.value ?? 'medium', limits };
 }
 
 function autoSwitchFormState() {
