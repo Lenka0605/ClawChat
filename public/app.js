@@ -1062,7 +1062,9 @@ function codeHtml(code) {
 function inline(s) {
   // 行内代码先换成占位符，处理完别的再放回去：这样 **`文件名`** 这种粗体包着代码的也能认出来
   const codes = [];
-  let h = esc(String(s).replace(/`[^`\n]+`/g, (m) => `\uE000${codes.push(m.slice(1, -1)) - 1}\uE001`));
+  // 〔图片：/路径〕 是发给 AI 的聊天记录里的写法，AI 有时会照着写进回复里：当成文件路径，能点开、手机上也能看
+  const withTags = String(s).replace(/〔图片：\s*([^〕\n`]+?)\s*〕/g, (_, p) => `\`${p}\``);
+  let h = esc(withTags.replace(/`[^`\n]+`/g, (m) => `\uE000${codes.push(m.slice(1, -1)) - 1}\uE001`));
   // 指向本机文件的链接，比如 [中文版](/Users/…/海报.png)：显示成文件链接，点一下在访达中显示，图片悬停看缩略图
   // （h 已经转义过：先还原成原文再解开 %20 这类编码，最后重新转义，免得 %22 解出来的引号跑进属性里）
   h = h.replace(/\[([^\]\n]+)\]\((?:file:\/\/)?((?:~|\.{1,2})?\/[^\s)\uE000]+|[^\s:/)\uE000]+\/[^\s)\uE000]+)\)/g, (_, text, p) => {
