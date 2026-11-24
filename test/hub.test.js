@@ -2388,3 +2388,19 @@ test('依次回答时退出（不是重启），老板点「让它接着做」�
   assert.equal(calls.length, 0, '退出应用打断的不自动开工');
   assert.deepEqual(store2.getState(room.id).resumeThen?.claude, ['gpt']);
 });
+
+test('换档关掉以后：AI 还写 [换档 …]，这一行不发到群里，也不换档；每轮提醒它别再写', async () => {
+  const store = new Store();
+  const { run, calls } = fakeRunner((agent, prompt, n) => (n === 1 ? '[换档 opus high] 开始做' : '做完了\n[换档 sonnet low]'));
+  const hub = new Hub(store, { run, tiers: fakeTiers });
+  const room = newRoom(store, { members: ['claude'], autoSwitch: { mode: 'off' } });
+  hub.postUserMessage(room.id, '干活');
+  await settle(hub);
+  hub.postUserMessage(room.id, '再来');
+  await settle(hub);
+  const texts = store.getMessages(room.id).filter((m) => m.from === 'claude').map((m) => m.text);
+  assert.deepEqual(texts, ['开始做', '做完了']);
+  assert.equal(calls.length, 2, '没有重开');
+  assert.match(calls[0].prompt, /已经关掉了「自己选模型和思考强度」/);
+  assert.equal(calls[1].room.models.claude, '');
+});
