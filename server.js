@@ -668,7 +668,9 @@ function inspectViewPath(file, roomId) {
   if (viewCache && underProtectedRoot(real, viewCache)) throw blocked();
   const name = path.basename(file);
   if (underProtectedRoot(real, data) || underProtectedRoot(file, DATA_DIR)) {
-    if (!roomId || !UPLOAD_NAME_RE.test(name) || real !== path.join(data, 'rooms', roomId, 'uploads', name)) throw blocked();
+    // 本群的上传目录里的文件才放行。除了老板发的图（编号命名），AI 截的图、导出的图也常常直接放在这里，文件名是人起的名字：
+    // 只要是这个目录下的普通文件、不是隐藏文件就行（目录本身只放图片，群的设置、记忆、聊天记录都不在里面）
+    if (!roomId || !/^[^/\\\0.][^/\\\0]*$/.test(name) || real !== path.join(data, 'rooms', roomId, 'uploads', name)) throw blocked();
   }
   const stat = fs.statSync(real);
   if (!stat.isFile()) throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
