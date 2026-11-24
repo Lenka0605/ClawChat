@@ -919,7 +919,7 @@ dialog {
 dialog.wide { width: min(640px, calc(100vw - 32px)); }
 dialog.small { width: min(400px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(0, 0, 0, 0.22); }
-dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: column; max-height: calc(100vh - 56px); }
+dialog.sheet > form, dialog.sheet > .settings { display: flex; flex-direction: column; max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
 .sheet-head { padding: 16px 20px 10px; flex: none; }
 .sheet-head h2 { margin: 0; font-size: 14px; font-weight: 600; text-align: center; }
 /* 群设置 / 新建聊天的分页：macOS 分段控件 */
@@ -1760,6 +1760,9 @@ dialog.spot { width: min(780px, calc(100vw - 48px)); margin: 8vh auto auto; bord
 
   /* 弹窗别贴边，按钮留出手指大小 */
   dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+  /* 里面的表单不能比弹窗本身高：手机浏览器的 100vh 比看得见的区域高（把地址栏、工具栏算进去了），
+     表单超出弹窗，底下的「取消 / 保存」就被裁掉、窗口关不掉 */
+  dialog.sheet > form, dialog.sheet > .settings { max-height: calc(100dvh - 24px); }
   .sheet-body { padding: 4px 14px 14px; }
   .sheet-foot { padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); }
 
