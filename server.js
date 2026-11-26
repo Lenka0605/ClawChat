@@ -640,6 +640,12 @@ function underViewRoot(file, root) {
   return !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep);
 }
 
+// 两个路径是不是同一个：Windows 的盘符、文件夹名不分大小写（C:\\Users 和 c:\\users 是同一个），Mac 上也可能是忽略大小写的卷
+function samePath(a, b) {
+  if (process.platform === 'win32') return path.win32.normalize(a).toLowerCase() === path.win32.normalize(b).toLowerCase();
+  return a === b;
+}
+
 // Mac 上也可能是忽略大小写的卷。目录拒绝规则保守比较，通行证允许的范围仍按真实路径判断。
 function underProtectedRoot(file, root) {
   if (process.platform === 'darwin') return underViewRoot(file.normalize('NFD').toLowerCase(), root.normalize('NFD').toLowerCase());
@@ -670,7 +676,7 @@ function inspectViewPath(file, roomId) {
   if (underProtectedRoot(real, data) || underProtectedRoot(file, DATA_DIR)) {
     // 本群的上传目录里的文件才放行。除了老板发的图（编号命名），AI 截的图、导出的图也常常直接放在这里，文件名是人起的名字：
     // 只要是这个目录下的普通文件、不是隐藏文件就行（目录本身只放图片，群的设置、记忆、聊天记录都不在里面）
-    if (!roomId || !/^[^/\\\0.][^/\\\0]*$/.test(name) || real !== path.join(data, 'rooms', roomId, 'uploads', name)) throw blocked();
+    if (!roomId || !/^[^/\\\0.][^/\\\0]*$/.test(name) || !samePath(real, path.join(data, 'rooms', roomId, 'uploads', name))) throw blocked();
   }
   const stat = fs.statSync(real);
   if (!stat.isFile()) throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
@@ -682,7 +688,9 @@ function openViewSource(v) {
   const fd = fs.openSync(v.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
   try {
     const now = fs.fstatSync(fd);
-    if (!now.isFile() || now.dev !== v.stat.dev || now.ino !== v.stat.ino || now.size !== v.size || fs.realpathSync(v.file) !== v.file) {
+    // Windows 上按路径 stat 和按句柄 fstat 拿到的 dev、ino 不一定相同（会把好好的图片当成「被换掉了」），那里只核对大小和路径
+    const sameFile = process.platform === 'win32' || (now.dev === v.stat.dev && now.ino === v.stat.ino);
+    if (!now.isFile() || !sameFile || now.size !== v.size || !samePath(fs.realpathSync(v.file), v.file)) {
       throw httpError(404, tr('找不到这个文件，可能已经被移走或删掉了'));
     }
     return fd;
@@ -1386,9 +1394,18 @@ async function api(req, res, url, access = 'local') {
     if (sub === 'uploads' && parts[3] && method === 'GET') {
       const name = parts[3];
       if (!UPLOAD_NAME_RE.test(name)) return send(res, 404, { error: 'not found' });
-      const v = inspectViewPath(path.join(store.uploadsDir(room.id), name), room.id);
+      let v;
+      try {
+        v = inspectViewPath(path.join(store.uploadsDir(room.id), name), room.id);
+      } catch (err) {
+        console.error(`[clawchat] 聊天里的图片 ${name} 打不开：${err.message}`); // 留在 server.log 里，下次有人说图片裂了好查
+        throw err;
+      }
       const expected = path.join(fs.realpathSync(DATA_DIR), 'rooms', room.id, 'uploads', name);
-      if (v.file !== expected) return send(res, 404, { error: 'not found' });
+      if (!samePath(v.file, expected)) {
+        console.error(`[clawchat] 聊天里的图片 ${name} 打不开：路径对不上（${v.file} ≠ ${expected}）`);
+        return send(res, 404, { error: 'not found' });
+      }
       return sendViewable(req, res, { ...v, type: MIME[path.extname(name)] }, name, { 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' });
     }
     if (sub === 'stop' && method === 'POST') {
