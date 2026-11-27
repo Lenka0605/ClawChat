@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'clawchat-remote-'));
 process.env.CLAWCHAT_HOME = HOME;
 process.env.PATH = `${path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'fake')}${path.delimiter}${process.env.PATH}`;
-const { decodeLogin, requestAccess, setRemote, remoteInfo, _resetRemoteState } = await import('../lib/remote.js');
+const { decodeLogin, requestAccess, setRemote, remoteInfo, repairRemote, _resetRemoteState } = await import('../lib/remote.js');
 const mode = (m) => fs.writeFileSync(path.join(HOME, 'fake-tailscale'), m);
 const SERVE = path.join(HOME, 'fake-tailscale-serve.json');
 const served = () => (fs.existsSync(SERVE) ? JSON.parse(fs.readFileSync(SERVE, 'utf8')) : {});
@@ -148,4 +148,30 @@ test('Tailscale Serve：根路径挂着静态目录、固定文字、443 被直�
   assert.equal(served()['/'], 'http://127.0.0.1:7317', '读不出来时不乱撤');
   fs.rmSync(SERVE, { force: true });
   mode('running');
+});
+
+test('手机访问开着、Tailscale 的转发设置丢了：自动挂回去；被别的服务占着、读不出来、没打开时不动', async () => {
+  _resetRemoteState();
+  mode('running');
+  fs.rmSync(SERVE, { force: true });
+  assert.equal((await setRemote(true, PORT)).enabled, true);
+  // 转发被清掉了（Tailscale 重启、更新、重新登录）
+  fs.rmSync(SERVE, { force: true });
+  assert.equal(await repairRemote(PORT), true);
+  assert.equal(served()['/'], 'http://127.0.0.1:7317');
+  assert.equal(await repairRemote(PORT), false, '还在的时候什么都不做');
+  // 根路径被别的服务占着：不覆盖
+  fs.writeFileSync(SERVE, JSON.stringify({ '/': 'http://127.0.0.1:3000' }));
+  assert.equal(await repairRemote(PORT), false);
+  assert.equal(served()['/'], 'http://127.0.0.1:3000');
+  // 读不出现在的设置：不去改
+  fs.rmSync(SERVE, { force: true });
+  mode('status-broken');
+  assert.equal(await repairRemote(PORT), false);
+  assert.deepEqual(served(), {});
+  // 手机访问是关着的：不去挂
+  mode('running');
+  await setRemote(false, PORT);
+  assert.equal(await repairRemote(PORT), false);
+  assert.deepEqual(served(), {});
 });

@@ -12,7 +12,7 @@ import { AGENTS, runAgent, IS_WIN, setupPath, detectEngines, probeModel, updateE
 import { PROVIDERS, providerKey, validApiBase, ensureApiBridge } from './lib/providers.js';
 import { appInfo, checkUpdate, pullUpdate, scheduleRestart, bootCommit, takeRollback } from './lib/updater.js';
 import { tr, setLang, getLang, dictScript } from './lib/i18n.js';
-import { requestAccess, remoteInfo, setRemote, initRemote, publicHost, decodeLogin } from './lib/remote.js';
+import { requestAccess, remoteInfo, setRemote, initRemote, repairRemote, publicHost, decodeLogin } from './lib/remote.js';
 import { squareIcon } from './lib/icon-fix.js';
 import { setupJoint } from './lib/joint-server.js';
 import { getUsage, onUsageChange, seedCodexUsage } from './lib/usage.js';
@@ -979,7 +979,10 @@ async function api(req, res, url, access = 'local') {
   }
   // 手机远程访问（Tailscale）：看状态、开关。打开只能在电脑上点（手机这时还连不进来）
   if (parts[0] === 'remote' && !parts[1]) {
-    if (method === 'GET') return send(res, 200, await remoteInfo());
+    if (method === 'GET') {
+      if (access === 'local') repairRemote(PORT); // 老板在电脑上打开设置：发现转发丢了就顺手在后台挂回去（不等它，Tailscale 慢时界面不转圈）
+      return send(res, 200, await remoteInfo());
+    }
     if (method === 'POST') {
       const { enabled } = await readBody(req);
       if (enabled && access !== 'local') return send(res, 403, { error: 'forbidden' });
@@ -1660,7 +1663,7 @@ setupPath();
 ensureApiBridge().catch((err) => console.error('[clawchat] API 转接器没能启动', err.message));
 server.listen(PORT, HOST, () => {
   console.log(`[clawchat] 已启动：http://${HOST}:${PORT}  数据目录：${DATA_DIR}`);
-  initRemote();
+  initRemote(PORT);
   // 用量一变就推给网页；启动时先从最近的 Codex 会话里读一次 ChatGPT 的余量
   onUsageChange((usage) => hub.emit('event', { type: 'usage', usage }));
   seedCodexUsage();
